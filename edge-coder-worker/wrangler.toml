@@ -1,0 +1,28 @@
+name = "axim-coding-lab-worker"
+main = "src/ingress.ts"
+compatibility_date = "2026-07-11"
+workers_dev = false
+
+[vars]
+ENVIRONMENT = "production"
+# Supabase AXiM Core API routing
+SUPABASE_URL = "https://[YOUR_SUPABASE_PROJECT].supabase.co"
+SUPABASE_LLM_PROXY_URL = "https://[YOUR_SUPABASE_PROJECT].supabase.co/functions/v1/llm-proxy"
+
+# Idempotency & State Caching
+[[kv_namespaces]]
+binding = "LAB_STATE"
+id = "[REPLACE_WITH_LAB_STATE_ID]"
+preview_id = "[REPLACE_WITH_PREVIEW_ID]"
+
+[[kv_namespaces]]
+binding = "TASK_LOCKS"
+id = "[REPLACE_WITH_TASK_LOCKS_ID]"
+preview_id = "[REPLACE_WITH_PREVIEW_ID]"
+
+# -----------------------------------------------------------------------------
+# SECRET VAULTING INSTRUCTIONS (Execute via Cloudflare CLI, do not hardcode):
+# -----------------------------------------------------------------------------
+# 1. wrangler secret put AXIM_INTERNAL_KEY
+# 2. wrangler secret put GITHUB_PAT (Requires repo, workflow, and PR scopes)
+# 3. wrangler secret put SUPABASE_SERVICE_ROLE_KEY
