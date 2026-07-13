@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
 
@@ -6,12 +6,26 @@ const SwarmLogConsole = () => {
   const [logs, setLogs] = useState([]);
   const scrollRef = useRef(null);
 
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      });
+    }
+  }, []);
+
   useEffect(() => {
     setLogs(labService.getSystemLogs());
     
     const unsubscribe = labService.subscribe((event) => {
       if (event.type === 'LOG_ADDED') {
-        setLogs(prev => [...prev.slice(-49), event.log]); // Keep last 50 logs
+        setLogs(prev => {
+          const updatedLogs = [...prev, event.log];
+          // Keep strictly the last 150 logs to prevent memory leaks
+          return updatedLogs.slice(-150);
+        });
       }
     });
 
@@ -19,10 +33,8 @@ const SwarmLogConsole = () => {
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs]);
+    scrollToBottom();
+  }, [logs, scrollToBottom]);
 
   return (
     <div className="bg-[#030712] border border-gray-800 rounded-lg h-full flex flex-col font-mono text-[11px] overflow-hidden">
