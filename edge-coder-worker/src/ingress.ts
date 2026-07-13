@@ -20,17 +20,89 @@ const corsHeaders = {
 
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
         headers: corsHeaders,
       });
     }
+
     // 1. Protocol Restriction
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
         status: 405, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
+    }
+
+    // 1.5 Handle GitHub Webhooks before zero-trust
+    if (url.pathname === '/api/v1/webhooks/github') {
+      try {
+        const signature = request.headers.get('X-Hub-Signature-256');
+        if (!signature) {
+          return new Response(JSON.stringify({ error: 'Unauthorized: Missing GitHub Signature' }), {
+            status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          });
+        }
+
+        const payloadText = await request.clone().text();
+        const cleanSignature = signature.replace(/^sha256=/, '');
+        const isVerified = await verifyHmacSignature(payloadText, cleanSignature, env.AXIM_INTERNAL_KEY);
+
+        if (!isVerified) {
+          return new Response(JSON.stringify({ error: 'Unauthorized: Invalid GitHub Signature' }), {
+            status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          });
+        }
+
+        const payload: any = await request.clone().json();
+
+        // Handle pull request event
+        if (payload.pull_request && payload.action === 'closed') {
+          const prUrl = payload.pull_request.html_url;
+          const isMerged = payload.pull_request.merged;
+          const newStatus = isMerged ? 'COMPLETED' : 'CLOSED';
+
+          // Query Supabase for the task using pull_request_url
+          const encodedPrUrl = encodeURIComponent(prUrl);
+          const selectResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?pull_request_url=eq.${encodedPrUrl}&select=task_id`, {
+            headers: {
+              'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+            }
+          });
+
+          if (selectResponse.ok) {
+            const tasks: any = await selectResponse.json();
+            if (tasks && tasks.length > 0) {
+              const taskId = tasks[0].task_id;
+
+              // Update task status
+              await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?task_id=eq.${taskId}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                },
+                body: JSON.stringify({ status: newStatus })
+              });
+
+              // Clear KV Lock
+              await env.TASK_LOCKS.delete(`lock:${taskId}`);
+            }
+          }
+        }
+
+        return new Response(JSON.stringify({ status: 'received' }), {
+          status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: 'Webhook processing error' }), {
+          status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
     }
 
     // 2. The Zero-Trust Handshake: HMAC SHA-256 Validation
@@ -51,10 +123,9 @@ export default {
     }
 
 
-    const url = new URL(request.url);
     if (url.pathname === '/api/v1/deploy-action') {
       try {
-        const payload = await request.clone().json();
+        const payload: any = await request.clone().json();
         const { pr_number, repository_owner, repository_name } = payload;
 
         if (!pr_number || !repository_owner || !repository_name) {
@@ -86,7 +157,7 @@ export default {
 
     // 3. Payload Extraction & Idempotency Lock
     try {
-      const payload = await request.json();
+      const payload: any = await request.json();
       const taskIdentifier = payload.task_id || payload.incident_hash;
 
       if (!taskIdentifier) {

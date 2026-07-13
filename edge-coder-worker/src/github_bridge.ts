@@ -38,7 +38,7 @@ export async function fetchCurrentFileState(
     throw new Error(`[VCS_ERROR] Failed to fetch file state: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
   const decodedContent = atob(data.content);
   
   return {
@@ -64,7 +64,7 @@ export async function createTaskBranch(
     throw new Error(`[VCS_ERROR] Failed to fetch base branch reference: ${refResponse.statusText}`);
   }
   
-  const refData = await refResponse.json();
+  const refData: any = await refResponse.json();
   const baseSha = refData.object.sha;
 
   const createUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/refs`;
@@ -140,7 +140,7 @@ export async function openPullRequest(
     throw new Error(`[VCS_ERROR] Failed to open Pull Request: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
   return data.html_url;
 }
 /**
