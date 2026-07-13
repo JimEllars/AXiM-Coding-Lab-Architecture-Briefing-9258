@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
 
-const DiffViewer = ({ diff, filePath, taskId }) => {
+const DiffViewer = ({ diff, filePath, taskId, task }) => {
   const [issubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorToast, setErrorToast] = useState(null);
 
   const lines = (diff || '').split('\n');
+
 
   const handleAction = async (status) => {
     if (!taskId) return;
@@ -23,12 +24,51 @@ const DiffViewer = ({ diff, filePath, taskId }) => {
 
       if (error) throw error;
 
+      if (status === 'DEPLOYING') {
+        const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+        const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/deploy-action');
+
+        // Extract pr_number and repo info from the task object
+        // Assuming task has branch or pr related info that can be matched
+        // If not explicit in task, we extract from branch name or URL
+        // From context, 'task' has branch name. PR number might need parsing.
+
+        // Let's assume task contains repository which might be "owner/repo" or just "repo"
+        const repoParts = (task?.repository || 'axim-organization/axim-core-api').split('/');
+        const owner = repoParts.length > 1 ? repoParts[0] : 'axim-organization';
+        const repoName = repoParts.length > 1 ? repoParts[1] : repoParts[0];
+
+        // Assuming pr_number is parsed from the PR url or task metadata,
+        // since we just have the task object. Let's send the task ID as well,
+        // and a simulated pr_number if we don't have it explicitly.
+        const prNumber = task?.pr_number || parseInt(taskId.replace(/\D/g, '')) || 1;
+
+        const response = await fetch(actionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Axim-Signature': 'simulated-hmac-signature-for-development'
+          },
+          body: JSON.stringify({
+            task_id: taskId,
+            pr_number: prNumber,
+            repository_owner: owner,
+            repository_name: repoName
+          })
+        });
+
+        if (!response.ok) {
+           console.error('Failed to trigger deployment action', response.statusText);
+        }
+      }
+
       setIsSuccess(true);
     } catch (err) {
       setErrorToast(err.message || 'Transaction failed. Please try again.');
       setIsSubmitting(false);
     }
   };
+
 
   return (
     <AnimatePresence mode="wait">

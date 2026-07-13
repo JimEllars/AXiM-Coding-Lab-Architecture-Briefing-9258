@@ -143,3 +143,45 @@ export async function openPullRequest(
   const data = await response.json();
   return data.html_url;
 }
+/**
+ * STEP 5: Merge a Pull Request.
+ */
+export async function mergePullRequest(
+  ctx: GithubContext,
+  prNumber: number,
+  env: Env
+): Promise<void> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/merge`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: getGithubHeaders(env.GITHUB_PAT),
+      body: JSON.stringify({
+        commit_title: `Merge PR #${prNumber}`,
+        merge_method: 'merge'
+      })
+    });
+
+    if (!response.ok) {
+      if (response.status === 409) {
+        console.warn(`[VCS_WARNING] Merge conflict for PR #${prNumber}`);
+        return;
+      }
+      if (response.status === 404) {
+        console.warn(`[VCS_WARNING] PR #${prNumber} or repository not found`);
+        return;
+      }
+      if (response.status === 405) {
+         console.warn(`[VCS_WARNING] PR #${prNumber} cannot be merged`);
+         return;
+      }
+
+      const text = await response.text();
+      console.warn(`[VCS_WARNING] Failed to merge PR: ${response.statusText} - ${text}`);
+      return;
+    }
+  } catch (error: any) {
+    console.warn(`[VCS_WARNING] Error merging PR #${prNumber}: ${error.message}`);
+  }
+}

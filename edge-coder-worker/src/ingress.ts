@@ -1,4 +1,5 @@
 import { executeCodingPipeline } from './code_generator';
+import { mergePullRequest } from './github_bridge';
 
 export interface Env {
   LAB_STATE: KVNamespace;
@@ -47,6 +48,40 @@ export default {
       return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), { 
         status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
+    }
+
+
+    const url = new URL(request.url);
+    if (url.pathname === '/api/v1/deploy-action') {
+      try {
+        const payload = await request.clone().json();
+        const { pr_number, repository_owner, repository_name } = payload;
+
+        if (!pr_number || !repository_owner || !repository_name) {
+          return new Response(JSON.stringify({ error: 'Bad Request: Missing PR metadata' }), {
+            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          });
+        }
+
+        const githubCtx = {
+          owner: repository_owner,
+          repo: repository_name,
+          path: '' // not needed for PR merge
+        };
+
+        ctx.waitUntil(mergePullRequest(githubCtx, pr_number, env));
+
+        return new Response(JSON.stringify({
+          status: 'accepted',
+          message: 'Deployment action initiated'
+        }), {
+          status: 202, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+         return new Response(JSON.stringify({ error: 'Bad Request' }), {
+            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+         });
+      }
     }
 
     // 3. Payload Extraction & Idempotency Lock
