@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
+import { generateHmacSignature } from '../utils/crypto';
 
 const DiffViewer = ({ diff, filePath, taskId, task }) => {
   const [issubmitting, setIsSubmitting] = useState(false);
@@ -24,7 +25,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
 
       if (error) throw error;
 
-      if (status === 'DEPLOYING') {
+      if (status === 'APPROVED') {
         const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
         const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/deploy-action');
 
@@ -43,18 +44,23 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
         // and a simulated pr_number if we don't have it explicitly.
         const prNumber = task?.pr_number || parseInt(taskId.replace(/\D/g, '')) || 1;
 
+        const payloadBody = JSON.stringify({
+          task_id: taskId,
+          pr_number: prNumber,
+          repository_owner: owner,
+          repository_name: repoName
+        });
+
+        const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
+        const signature = await generateHmacSignature(payloadBody, internalKey);
+
         const response = await fetch(actionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Axim-Signature': 'simulated-hmac-signature-for-development'
+            'X-Axim-Signature': signature
           },
-          body: JSON.stringify({
-            task_id: taskId,
-            pr_number: prNumber,
-            repository_owner: owner,
-            repository_name: repoName
-          })
+          body: payloadBody
         });
 
         if (!response.ok) {
@@ -114,7 +120,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
                 Reject Patch
               </button>
               <button
-                onClick={() => handleAction('DEPLOYING')}
+                onClick={() => handleAction('APPROVED')}
                 disabled={issubmitting}
                 className="flex items-center gap-1.5 px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(22,163,74,0.2)] disabled:opacity-50"
               >
