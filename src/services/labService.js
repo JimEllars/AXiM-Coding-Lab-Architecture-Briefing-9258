@@ -2,39 +2,13 @@
  * AXiM Coding Lab - Enterprise Service Layer (V3)
  * Orchestrates the "Organizational Brain", Multi-Agent Swarms, and Knowledge Injection.
  */
+import { supabase } from './supabaseClient';
 
 const listeners = new Set();
 const broadcast = (event) => listeners.forEach(l => l(event));
 
-let MOCK_TASKS = [
-  { 
-    id: 'HOTFIX-8A92F1', 
-    origin: 'Asguard_WAF', 
-    status: 'Review Gate', 
-    file: 'middleware/auth.ts', 
-    repository: 'axim-core-api',
-    time: '2m ago',
-    tokens: 14200,
-    cost: 0.28,
-    branch: 'axim-bot/hotfix-8a92f1',
-    comments: [
-      { id: 1, author: 'Onyx_Architect', text: 'Structural integrity verified. Knowledge Node KB-1 (Auth Standards) was used for context.', time: '5m ago' }
-    ],
-    diff: `@@ -12,5 +12,8 @@\n export function processPayload(data) {\n   if (!data) return null;\n-  const parsed = JSON.parse(data);\n-  return parsed.items;\n+  try {\n+    const parsed = typeof data === 'string' ? JSON.parse(data) : data;\n+    return parsed?.items || [];\n+  } catch (e) {\n+    return [];\n+  }`
-  }
-];
-
-let SYSTEM_LOGS = [
-  { id: 'L1', text: '[BRAIN] Synced 42 new organizational notes to vector store.', type: 'knowledge', time: '09:42:01' },
-  { id: 'L2', text: '[AGENT] Onyx_Architect optimized AST for 4 repositories.', type: 'agent', time: '10:15:22' },
-  { id: 'L3', text: '[SWARM] Initiating periodic security audit across edge nodes.', type: 'system', time: '10:30:00' }
-];
-
-let KNOWLEDGE_BASE = [
-  { id: 'KB-1', title: 'Authentication Standards', content: 'All API routes must use the custom AXiM-Auth header. JWT tokens expire in 1h.', category: 'Security', lastUpdated: '2d ago', author: 'SRE_Team', tags: ['Auth', 'Security', 'API'] },
-  { id: 'KB-2', title: 'Database Migration Policy', content: 'Never use DROP TABLE. Use migrations with rollback capability.', category: 'Infrastructure', lastUpdated: '5d ago', author: 'DBA_Team', tags: ['DB', 'SQL'] },
-  { id: 'KB-3', title: 'React Component Guidelines', content: 'Use functional components with Tailwind CSS. Max file size 150 lines.', category: 'Frontend', lastUpdated: '1d ago', author: 'UI_Guild', tags: ['React', 'CSS'] }
-];
+// Store local system logs
+let SYSTEM_LOGS = [];
 
 let AGENTS = [
   { id: 'ONYX-01', name: 'Onyx Architect', role: 'System Design', status: 'Idle', model: 'DeepSeek-V2-Chat', capabilities: ['AST Parsing', 'Dependency Mapping'], uptime: '99.9%', tasks_completed: 142 },
@@ -42,15 +16,47 @@ let AGENTS = [
   { id: 'KRONOS-01', name: 'Kronos DevOps', role: 'CI/CD Automation', status: 'Idle', model: 'Claude-3.5', capabilities: ['Wrangler Deploy', 'Workflow Gen'], uptime: '99.8%', tasks_completed: 215 }
 ];
 
+// Initialize Realtime Sync
+const initializeRealtime = () => {
+  const channel = supabase.channel('coding-lab-swarm');
+
+  channel
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'coding_tasks' },
+      async () => {
+        const { data } = await supabase.from('coding_tasks').select('*').order('created_at', { ascending: false });
+        broadcast({ type: 'TASKS_UPDATED', tasks: data || [] });
+      }
+    )
+    .subscribe();
+
+  return channel;
+};
+
+// Initial setup call
+initializeRealtime();
+
 export const labService = {
   subscribe: (l) => {
     listeners.add(l);
     return () => listeners.delete(l);
   },
 
-  getTasks: () => Promise.resolve([...MOCK_TASKS]),
+  getTasks: async () => {
+    const { data, error } = await supabase.from('coding_tasks').select('*').order('created_at', { ascending: false });
+    if (error) console.error('Error fetching tasks:', error);
+    return data || [];
+  },
+
   getSystemLogs: () => [...SYSTEM_LOGS],
-  getKnowledge: () => Promise.resolve([...KNOWLEDGE_BASE]),
+
+  getKnowledge: async () => {
+    const { data, error } = await supabase.from('knowledge_nodes').select('*').order('created_at', { ascending: false });
+    if (error) console.error('Error fetching knowledge:', error);
+    return data || [];
+  },
+
   getAgents: () => Promise.resolve([...AGENTS]),
   
   getOrgStats: () => Promise.resolve({
@@ -63,20 +69,27 @@ export const labService = {
   addNote: async (note) => {
     const newNote = { 
       ...note, 
-      id: `KB-${Date.now()}`, 
       lastUpdated: 'Just now', 
       author: 'Admin_Ellars',
       tags: note.tags || []
     };
-    KNOWLEDGE_BASE = [newNote, ...KNOWLEDGE_BASE];
-    broadcast({ type: 'KNOWLEDGE_UPDATED', knowledge: KNOWLEDGE_BASE });
+
+    const { data, error } = await supabase.from('knowledge_nodes').insert([newNote]).select().single();
+
+    if (error) {
+      console.error('Error adding knowledge node:', error);
+      return null;
+    }
     
     // Auto-log the brain update
     const log = { id: Date.now(), text: `[BRAIN] New knowledge node added: ${newNote.title}`, type: 'knowledge', time: new Date().toLocaleTimeString() };
     SYSTEM_LOGS.push(log);
     broadcast({ type: 'LOG_ADDED', log });
     
-    return Promise.resolve(newNote);
+    const allKnowledge = await labService.getKnowledge();
+    broadcast({ type: 'KNOWLEDGE_UPDATED', knowledge: allKnowledge });
+
+    return data;
   },
 
   triggerTask: async (payload) => {
@@ -86,12 +99,9 @@ export const labService = {
     const agent = AGENTS[Math.floor(Math.random() * AGENTS.length)];
     
     const steps = [
-      { t: `[INGRESS] Received manual orchestrator command.`, delay: 100 },
+      { t: `[INGRESS] Transmitting payload to edge router...`, delay: 100 },
       { t: `[BRAIN] Injecting organizational context: ${payload.contextIds?.length || 0} nodes.`, delay: 800 },
-      { t: `[AGENT] Assigning ${agent.name} to task.`, delay: 1500 },
-      { t: `[LLM] Reasoning through architectural constraints...`, delay: 2500 },
-      { t: `[GITOPS] Generating patch for ${payload.target_file_path || 'src/main.ts'}`, delay: 3500 },
-      { t: `[SYSTEM] Task complete. PR generated.`, delay: 4500 }
+      { t: `[AGENT] Assigning ${agent.name} to task.`, delay: 1500 }
     ];
 
     steps.forEach(step => {
@@ -102,24 +112,49 @@ export const labService = {
       }, step.delay);
     });
 
+    try {
+      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+
+      // We wrap the fetch request to our Worker Router
+      const response = await fetch(ingressUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Axim-Signature': 'simulated-hmac-signature-for-development' // In production this would be dynamically generated
+        },
+        body: JSON.stringify({
+          task_id: taskId,
+          repository_owner: 'axim-organization',
+          repository_name: payload.repository_name,
+          target_file_path: payload.target_file_path,
+          instruction_prompt: payload.instruction_prompt,
+          origin_source: payload.origin_source || 'Manual_Dev_Cockpit',
+          contextIds: payload.contextIds
+        })
+      });
+
+      if (!response.ok) {
+         throw new Error(`Ingress Error: ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
+
+      setTimeout(() => {
+        const log = { id: Date.now() + Math.random(), text: `[SYSTEM] Edge Swarm Task accepted: ${responseData.status}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
+        SYSTEM_LOGS.push(log);
+        broadcast({ type: 'LOG_ADDED', log });
+      }, 2500);
+
+    } catch (err) {
+      console.error('Trigger Task Error:', err);
+      setTimeout(() => {
+        const log = { id: Date.now() + Math.random(), text: `[CRITICAL] Edge Swarm Task Failed: ${err.message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
+        SYSTEM_LOGS.push(log);
+        broadcast({ type: 'LOG_ADDED', log });
+      }, 2500);
+    }
+
     setTimeout(() => {
-      const newTask = {
-        id: taskId,
-        origin: payload.origin_source,
-        status: 'Review Gate',
-        file: payload.target_file_path || 'src/main.ts',
-        repository: payload.repository_name,
-        time: 'Just now',
-        tokens: Math.floor(Math.random() * 20000),
-        cost: (Math.random() * 0.5).toFixed(2),
-        branch: `axim-bot/${taskId.toLowerCase()}`,
-        comments: [
-          { id: Date.now(), author: agent.name, text: 'Implementation finalized according to provided knowledge context.', time: 'Just now' }
-        ],
-        diff: `+ // Autonomous generation by ${agent.name}\n+ export const run = () => { /* Optimized logic */ };`
-      };
-      MOCK_TASKS = [newTask, ...MOCK_TASKS];
-      broadcast({ type: 'TASKS_UPDATED', tasks: MOCK_TASKS });
       broadcast({ type: 'REASONING_END', taskId });
     }, 4800);
 
@@ -135,28 +170,38 @@ export const labService = {
     { id: 'SEC-102', severity: 'CRITICAL', type: 'SQL Injection', target: 'axim-core-api', path: '/v1/auth/login', status: 'UNRESOLVED', time: '12m ago' }
   ]),
 
-  getTelemetryData: () => Promise.resolve({
-    tokenUsage: [120, 150, 180, 220, 190, 240, 210],
-    nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
-    roiMetrics: { hoursSaved: 142, efficiencyGain: '84%', totalCost: '$142.50', estimatedSavings: '$11,360' }
-  }),
+  getTelemetryData: async () => {
+    // Basic analytical grouping query over api_usage_logs
+    const { data, error } = await supabase
+      .from('api_usage_logs')
+      .select('*');
+
+    if (error) console.error('Error fetching telemetry:', error);
+
+    // Simulate complex response structure
+    return {
+      tokenUsage: [120, 150, 180, 220, 190, 240, 210],
+      nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
+      roiMetrics: { hoursSaved: 142, efficiencyGain: '84%', totalCost: '$142.50', estimatedSavings: '$11,360' },
+      logs: data || []
+    };
+  },
 
   getAuditLogs: () => Promise.resolve([
     { id: 'AL-1', timestamp: '2026-07-11 14:20:01', actor: 'Asguard_WAF', action: 'DEPLOY_SWARM', target: 'axim-core-api', status: 'SUCCESS' }
   ]),
 
   mergePR: async (taskId) => {
-    MOCK_TASKS = MOCK_TASKS.filter(t => t.id !== taskId);
-    broadcast({ type: 'TASKS_UPDATED', tasks: MOCK_TASKS });
+    const { error } = await supabase.from('coding_tasks').delete().eq('id', taskId);
+    if(error) console.error("Error merging PR / deleting task", error);
+
+    const tasks = await labService.getTasks();
+    broadcast({ type: 'TASKS_UPDATED', tasks });
     return Promise.resolve();
   },
 
   addComment: async (taskId, text) => {
-    const task = MOCK_TASKS.find(t => t.id === taskId);
-    if (task) {
-      task.comments.push({ id: Date.now(), author: 'Admin_Ellars', text, time: 'Just now' });
-      broadcast({ type: 'TASKS_UPDATED', tasks: MOCK_TASKS });
-    }
+    // Mocked for compatibility, depends on schema if tasks store comments
     return Promise.resolve();
   }
 };
