@@ -7,7 +7,6 @@ import DiffViewer from '../components/DiffViewer';
 const PullRequests = () => {
   const [tasks, setTasks] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
-  const [isMerging, setIsMerging] = useState(false);
   const [view, setView] = useState('diff'); // 'diff' | 'discussion'
   const [commentText, setCommentText] = useState('');
 
@@ -34,14 +33,7 @@ const PullRequests = () => {
     });
   }, [selectedTask?.id]);
 
-  const handleMerge = async () => {
-    if (!selectedTask) return;
-    setIsMerging(true);
-    await labService.mergePR(selectedTask.id);
-    setIsMerging(false);
-  };
-
-  const handleAddComment = async () => {
+    const handleAddComment = async () => {
     if (!commentText.trim() || !selectedTask) return;
     await labService.addComment(selectedTask.id, commentText);
     setCommentText('');
@@ -109,16 +101,7 @@ const PullRequests = () => {
                     <p className="text-[11px] text-gray-500 font-mono tracking-tighter uppercase">BRANCH: {selectedTask.branch}</p>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <button 
-                    onClick={handleMerge}
-                    disabled={isMerging}
-                    className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-bold transition-all shadow-[0_0_15px_rgba(22,163,74,0.3)] disabled:opacity-50"
-                  >
-                    {isMerging ? <SafeIcon name="Loader" className="animate-spin" /> : <SafeIcon name="GitMerge" />}
-                    Merge & Deploy
-                  </button>
-                </div>
+
               </div>
 
               {/* Tabs */}
