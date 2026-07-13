@@ -10,12 +10,25 @@ export interface Env {
   SUPABASE_SERVICE_ROLE_KEY: string;
 }
 
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature',
+};
+
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+      });
+    }
     // 1. Protocol Restriction
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
-        status: 405, headers: { 'Content-Type': 'application/json' } 
+        status: 405, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -23,7 +36,7 @@ export default {
     const signature = request.headers.get('X-Axim-Signature');
     if (!signature) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature Boundary' }), { 
-        status: 401, headers: { 'Content-Type': 'application/json' } 
+        status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -32,7 +45,7 @@ export default {
     
     if (!isVerified) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), { 
-        status: 403, headers: { 'Content-Type': 'application/json' } 
+        status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
 
@@ -43,7 +56,7 @@ export default {
 
       if (!taskIdentifier) {
         return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { 
-          status: 400, headers: { 'Content-Type': 'application/json' } 
+          status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -54,7 +67,7 @@ export default {
           status: 'ignored', 
           message: 'Task is currently locked and actively processing in the Lab.' 
         }), {
-          status: 202, headers: { 'Content-Type': 'application/json' }
+          status: 202, headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
 
@@ -69,12 +82,12 @@ export default {
         message: 'Payload verified. The Coding Lab swarm has initiated the task.',
         task_id: taskIdentifier 
       }), {
-        status: 202, headers: { 'Content-Type': 'application/json' }
+        status: 202, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
 
     } catch (error) {
       return new Response(JSON.stringify({ error: 'Internal Ingress Error' }), { 
-        status: 500, headers: { 'Content-Type': 'application/json' } 
+        status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
   }
