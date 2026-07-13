@@ -135,7 +135,7 @@ const PullRequests = () => {
                       exit={{ opacity: 0, x: 10 }}
                       className="absolute inset-0"
                     >
-                      <DiffViewer diff={selectedTask.diff} filePath={selectedTask.file} taskId={selectedTask.id} />
+                      <DiffViewer diff={selectedTask.diff} filePath={selectedTask.file} taskId={selectedTask.id} task={selectedTask} />
                     </motion.div>
                   ) : (
                     <motion.div 
