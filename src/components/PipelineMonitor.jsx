@@ -22,6 +22,34 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+
+const OriginBadge = ({ origin_source }) => {
+  const source = origin_source || 'Manual_Dev_Cockpit';
+  if (source === 'Asguard_WAF') {
+    return (
+      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border text-amber-400 bg-amber-500/10 border-amber-500/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+        ASGUARD WAF
+      </span>
+    );
+  }
+  if (source === 'Onyx_Support_Triage') {
+    return (
+      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border text-violet-400 bg-violet-500/10 border-violet-500/20">
+        <SafeIcon name="Shield" className="text-[10px]" />
+        ONYX SUPPORT
+      </span>
+    );
+  }
+  // Default: Manual_Dev_Cockpit
+  return (
+    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+      <SafeIcon name="Terminal" className="text-[10px]" />
+      MANUAL COCKPIT
+    </span>
+  );
+};
+
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
 
@@ -69,7 +97,7 @@ const PipelineMonitor = () => {
                 {task.file}
               </div>
               <div className="flex justify-between items-center text-[9px] text-gray-500 font-mono mt-4 uppercase tracking-tighter">
-                <span>SOURCE: {task.origin}</span>
+                <OriginBadge origin_source={task.origin_source || task.origin} />
                 <span>{task.time}</span>
               </div>
             </motion.div>
