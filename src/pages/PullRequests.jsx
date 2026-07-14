@@ -4,6 +4,34 @@ import { labService } from '../services/labService';
 import SafeIcon from '@/common/SafeIcon';
 import DiffViewer from '../components/DiffViewer';
 
+
+const OriginBadge = ({ origin_source }) => {
+  const source = origin_source || 'Manual_Dev_Cockpit';
+  if (source === 'Asguard_WAF') {
+    return (
+      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border text-amber-400 bg-amber-500/10 border-amber-500/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+        ASGUARD WAF
+      </span>
+    );
+  }
+  if (source === 'Onyx_Support_Triage') {
+    return (
+      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border text-violet-400 bg-violet-500/10 border-violet-500/20">
+        <SafeIcon name="Shield" className="text-[10px]" />
+        ONYX SUPPORT
+      </span>
+    );
+  }
+  // Default: Manual_Dev_Cockpit
+  return (
+    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+      <SafeIcon name="Terminal" className="text-[10px]" />
+      MANUAL COCKPIT
+    </span>
+  );
+};
+
 const PullRequests = () => {
   const [tasks, setTasks] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -75,13 +103,18 @@ const PullRequests = () => {
                 <span className="text-gray-600">{task.time}</span>
               </div>
               <h4 className="text-sm font-medium text-white truncate mb-1">{task.file}</h4>
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex items-center gap-2 mt-3 w-full justify-between">
+                <div className="flex items-center gap-2">
                 <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-tighter ${
                   task.status === 'Review Gate' ? 'text-yellow-400 border-yellow-400/20 bg-yellow-400/5' : 'text-blue-400 border-blue-400/20 bg-blue-400/5'
                 }`}>
                   {task.status}
                 </span>
-                <span className="text-[10px] text-gray-500 font-mono truncate">{task.repository}</span>
+                  <span className="text-[10px] text-gray-500 font-mono truncate">{task.repository}</span>
+                </div>
+                <a href={`https://github.com/${task.repository_owner || 'axim-organization'}/${task.repository_name || task.repository || 'unknown'}`} target="_blank" rel="noreferrer" className="text-gray-500 hover:text-blue-400 transition-colors px-1" onClick={(e) => e.stopPropagation()}>
+                  <SafeIcon name="ExternalLink" className="text-[12px]" />
+                </a>
               </div>
             </button>
           ))}
@@ -97,7 +130,7 @@ const PullRequests = () => {
                     <SafeIcon name="Cpu" className="text-blue-400" />
                   </div>
                   <div>
-                    <h3 className="text-white font-medium text-sm">{selectedTask.id} • {selectedTask.origin}</h3>
+                    <h3 className="text-white font-medium text-sm flex items-center gap-2">{selectedTask.id} <OriginBadge origin_source={selectedTask.origin_source || selectedTask.origin} /></h3>
                     <p className="text-[11px] text-gray-500 font-mono tracking-tighter uppercase">BRANCH: {selectedTask.branch}</p>
                   </div>
                 </div>

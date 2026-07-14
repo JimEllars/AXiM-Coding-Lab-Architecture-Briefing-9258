@@ -18,8 +18,16 @@ let AGENTS = [
 ];
 
 // Initialize Realtime Sync
-const initializeRealtime = () => {
-  const channel = supabase.channel('coding-lab-swarm');
+let channel;
+let reconnectTimeout = null;
+let backoffDelay = 2000;
+
+const connectChannel = () => {
+  if (channel) {
+    supabase.removeChannel(channel);
+  }
+
+  channel = supabase.channel('coding-lab-swarm');
 
   channel
     .on(
@@ -30,9 +38,34 @@ const initializeRealtime = () => {
         broadcast({ type: 'TASKS_UPDATED', tasks: data || [] });
       }
     )
-    .subscribe();
+    .subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        backoffDelay = 2000; // reset on success
+      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        if (!reconnectTimeout) {
+          const log = {
+            id: Date.now() + Math.random(),
+            text: `[SYSTEM] Connection ${status}. Reconnecting in ${backoffDelay/1000}s...`,
+            type: 'system',
+            time: new Date().toLocaleTimeString([], { hour12: false })
+          };
+          SYSTEM_LOGS.push(log);
+          broadcast({ type: 'LOG_ADDED', log });
+
+          reconnectTimeout = setTimeout(() => {
+            reconnectTimeout = null;
+            backoffDelay = Math.min(backoffDelay * 2, 16000);
+            connectChannel();
+          }, backoffDelay);
+        }
+      }
+    });
 
   return channel;
+};
+
+const initializeRealtime = () => {
+  return connectChannel();
 };
 
 // Initial setup call

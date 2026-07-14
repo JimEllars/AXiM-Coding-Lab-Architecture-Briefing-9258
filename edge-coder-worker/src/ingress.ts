@@ -29,6 +29,19 @@ export default {
       });
     }
 
+
+    if (request.method === 'GET' && url.pathname === '/api/v1/health') {
+      return new Response(JSON.stringify({
+        LAB_STATE: !!env.LAB_STATE,
+        TASK_LOCKS: !!env.TASK_LOCKS,
+        AXIM_INTERNAL_KEY: !!env.AXIM_INTERNAL_KEY,
+        GITHUB_PAT: !!env.GITHUB_PAT
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+
     // 1. Protocol Restriction
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
