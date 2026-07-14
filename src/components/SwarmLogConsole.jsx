@@ -55,6 +55,9 @@ const SwarmLogConsole = () => {
               ${log.text.includes('[LLM]') ? 'text-purple-400' : 
                 log.text.includes('[GITOPS]') ? 'text-blue-400' : 
                 log.text.includes('[INGRESS]') ? 'text-green-400' :
+                log.text.includes('[SYSTEM]') && log.text.includes('Reconnecting') ? 'text-yellow-400' :
+                log.text.includes('[SYSTEM]') ? 'text-gray-400' :
+                log.text.includes('[CRITICAL]') ? 'text-red-400' :
                 'text-gray-400'}
             `}>
               {log.text}
