@@ -137,9 +137,11 @@ export default {
 
 
     if (url.pathname === '/api/v1/deploy-action') {
+      let taskIdentifier: string | null = null;
       try {
         const payload: any = await request.clone().json();
-        const { pr_number, repository_owner, repository_name } = payload;
+        const { pr_number, repository_owner, repository_name, task_id } = payload;
+        taskIdentifier = task_id;
 
         if (!pr_number || !repository_owner || !repository_name) {
           return new Response(JSON.stringify({ error: 'Bad Request: Missing PR metadata' }), {
@@ -153,15 +155,83 @@ export default {
           path: '' // not needed for PR merge
         };
 
-        ctx.waitUntil(mergePullRequest(githubCtx, pr_number, env));
+        await mergePullRequest(githubCtx, pr_number, env);
+
+        // Ensure to dispose lock on success
+        if (taskIdentifier) {
+           await env.TASK_LOCKS.delete(`lock:${taskIdentifier}`);
+        }
+
+        // Telemetry push to deploy action
+        try {
+           const prUrl = `https://github.com/${repository_owner}/${repository_name}/pull/${pr_number}`;
+           const telemetryBody = [{
+             app_id: 'axim-coding-lab',
+             endpoint: '/api/v1/deploy-action',
+             method: 'POST',
+             status_code: 200,
+             error_message: null,
+             metadata: { task_id: taskIdentifier, trigger_origin: 'Manual_Dev_Cockpit', pull_request_target: prUrl }
+           }];
+
+           await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+             method: 'POST',
+             headers: {
+               'Content-Type': 'application/json',
+               'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+               'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+             },
+             body: JSON.stringify(telemetryBody)
+           });
+        } catch (telemetryErr) {
+           console.error('[CORE_LOGGING_CRASH] Failed to record deployment telemetry', telemetryErr);
+        }
 
         return new Response(JSON.stringify({
           status: 'accepted',
           message: 'Deployment action initiated'
         }), {
-          status: 202, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
-      } catch (error) {
+      } catch (error: any) {
+         if (taskIdentifier) {
+             await env.TASK_LOCKS.delete(`lock:${taskIdentifier}`);
+
+             // Dispatch to coding_tasks_errors
+             try {
+               const errorBody = {
+                 task_id: taskIdentifier,
+                 component: 'axim-coding-lab-deploy',
+                 error_message: error.message,
+                 stack_trace: error.stack || '',
+                 status: 'FAILED',
+                 created_at: new Date().toISOString()
+               };
+
+               await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+                 method: 'POST',
+                 headers: {
+                   'Content-Type': 'application/json',
+                   'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                   'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                 },
+                 body: JSON.stringify(errorBody)
+               });
+
+               // Transition task status to FAILED in the database
+               await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?task_id=eq.${taskIdentifier}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                },
+                body: JSON.stringify({ status: 'FAILED' })
+              });
+             } catch (logErr) {
+                 console.error('[CORE_LOGGING_CRASH] Failed to sync error state back to database', logErr);
+             }
+         }
          return new Response(JSON.stringify({ error: 'Bad Request' }), {
             status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
          });

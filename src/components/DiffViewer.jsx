@@ -64,7 +64,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
         });
 
         if (!response.ok) {
-           console.error('Failed to trigger deployment action', response.statusText);
+           throw new Error(`Failed to trigger deployment action: ${response.statusText}`);
         }
       }
 
@@ -166,7 +166,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
           <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center mb-4">
             <SafeIcon name="Check" className="text-3xl text-green-500" />
           </div>
-          <h3 className="text-white font-medium mb-1">Action Complete</h3>
+          <h3 className="text-white font-medium mb-1">DEPLOYED</h3>
           <p className="text-xs text-gray-500 font-mono">The state has been stabilized.</p>
         </motion.div>
       )}
