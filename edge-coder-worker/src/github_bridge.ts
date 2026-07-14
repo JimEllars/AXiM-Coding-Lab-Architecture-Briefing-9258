@@ -153,35 +153,25 @@ export async function mergePullRequest(
 ): Promise<void> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/merge`;
 
-  try {
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: getGithubHeaders(env.GITHUB_PAT),
-      body: JSON.stringify({
-        commit_title: `Merge PR #${prNumber}`,
-        merge_method: 'merge'
-      })
-    });
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: getGithubHeaders(env.GITHUB_PAT),
+    body: JSON.stringify({
+      commit_title: `Merge PR #${prNumber}`,
+      merge_method: 'squash'
+    })
+  });
 
-    if (!response.ok) {
-      if (response.status === 409) {
-        console.warn(`[VCS_WARNING] Merge conflict for PR #${prNumber}`);
-        return;
+  if (!response.ok) {
+    let errorDetail = response.statusText;
+    try {
+      const errorJson: any = await response.json();
+      if (errorJson && errorJson.message) {
+        errorDetail = errorJson.message;
       }
-      if (response.status === 404) {
-        console.warn(`[VCS_WARNING] PR #${prNumber} or repository not found`);
-        return;
-      }
-      if (response.status === 405) {
-         console.warn(`[VCS_WARNING] PR #${prNumber} cannot be merged`);
-         return;
-      }
-
-      const text = await response.text();
-      console.warn(`[VCS_WARNING] Failed to merge PR: ${response.statusText} - ${text}`);
-      return;
+    } catch (e) {
+      // Ignore
     }
-  } catch (error: any) {
-    console.warn(`[VCS_WARNING] Error merging PR #${prNumber}: ${error.message}`);
+    throw new Error(`Failed to merge PR #${prNumber}: [${response.status}] ${errorDetail}`);
   }
 }
