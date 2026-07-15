@@ -225,7 +225,8 @@ export const labService = {
     if (error) {
       console.error('Error fetching telemetry:', error);
       return {
-        tokenUsage: [0, 0, 0, 0, 0, 0, 0],
+        dateLabels: [],
+        tokenUsage: [],
         nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
         roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
         logs: []
@@ -235,8 +236,7 @@ export const labService = {
     const tokenUsageMap = new Map();
     let totalTokens = 0;
     let totalRequests = 0;
-
-    const currentData = [0, 0, 0, 0, 0, 0, 0];
+    let totalCost = 0;
 
     if (logs && logs.length > 0) {
       logs.forEach(log => {
@@ -244,23 +244,46 @@ export const labService = {
 
          // Extract token expenditures from metadata
          const tokenCount = log.metadata?.tokens || 0;
+         const model = log.metadata?.model;
+
+         if (model === 'deepseek-coder') {
+           const inputTokens = log.metadata?.input_tokens || (tokenCount * 0.5);
+           const outputTokens = log.metadata?.output_tokens || (tokenCount * 0.5);
+           totalCost += (inputTokens / 1000000) * 0.14 + (outputTokens / 1000000) * 0.28;
+         } else if (model === 'claude-3-5') {
+           const inputTokens = log.metadata?.input_tokens || (tokenCount * 0.5);
+           const outputTokens = log.metadata?.output_tokens || (tokenCount * 0.5);
+           totalCost += (inputTokens / 1000000) * 3.00 + (outputTokens / 1000000) * 15.00;
+         } else {
+           totalCost += (tokenCount / 1000) * 0.01;
+         }
          totalTokens += tokenCount;
 
          if (log.created_at) {
              const date = new Date(log.created_at);
-             const dayIndex = (date.getDay() - 1 + 7) % 7; // Monday = 0
-             currentData[dayIndex] += tokenCount;
+             const mm = String(date.getMonth() + 1).padStart(2, '0');
+             const dd = String(date.getDate()).padStart(2, '0');
+             const dateLabel = `${mm}/${dd}`;
+
+             if (tokenUsageMap.has(dateLabel)) {
+                 tokenUsageMap.set(dateLabel, tokenUsageMap.get(dateLabel) + tokenCount);
+             } else {
+                 tokenUsageMap.set(dateLabel, tokenCount);
+             }
          }
       });
     }
 
+    const dateLabels = Array.from(tokenUsageMap.keys());
+    const tokenUsage = Array.from(tokenUsageMap.values());
+
     const hoursSaved = totalRequests;
-    const totalCost = (totalTokens / 1000) * 0.01;
     const estimatedSavings = (hoursSaved * 80) - totalCost;
     const efficiencyGain = hoursSaved > 0 ? '84%' : '0%';
 
     return {
-      tokenUsage: currentData,
+      dateLabels,
+      tokenUsage,
       nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
       roiMetrics: {
         hoursSaved,

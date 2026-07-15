@@ -1,13 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { motion } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 
 const Settings = () => {
   const [model, setModel] = useState('deepseek-coder');
   const [temp, setTemp] = useState(0.2);
+  const [showSavedBanner, setShowSavedBanner] = useState(false);
+
+  useEffect(() => {
+    const savedModel = localStorage.getItem('axim_model');
+    const savedTemp = localStorage.getItem('axim_temp');
+    if (savedModel) setModel(savedModel);
+    if (savedTemp) setTemp(parseFloat(savedTemp));
+  }, []);
+
+  const handleSave = () => {
+    localStorage.setItem('axim_model', model);
+    localStorage.setItem('axim_temp', temp.toString());
+    setShowSavedBanner(true);
+    setTimeout(() => setShowSavedBanner(false), 3000);
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-8 relative">
+      <AnimatePresence>
+        {showSavedBanner && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-0 right-0 mt-2 mr-2 z-50 bg-green-500/10 border border-green-500/20 text-green-400 px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 text-sm font-mono"
+          >
+            <SafeIcon name="CheckCircle" className="text-lg" />
+            Settings Saved Successfully
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white tracking-tight">System Configuration</h1>
         <p className="text-sm text-gray-400 mt-1">Global parameters for autonomous cognitive routing</p>
@@ -112,7 +141,7 @@ const Settings = () => {
 
       <div className="flex justify-end gap-4 pt-4">
         <button className="px-6 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors">Discard Changes</button>
-        <button className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all">
+        <button onClick={handleSave} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all">
           Save Configuration
         </button>
       </div>
