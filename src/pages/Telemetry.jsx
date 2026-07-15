@@ -25,7 +25,8 @@ const Telemetry = () => {
         if (retries > maxRetries) {
           setError(true);
           setData({
-             tokenUsage: [0, 0, 0, 0, 0, 0, 0],
+             dateLabels: [],
+             tokenUsage: [],
              roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
              logs: []
           });
@@ -87,7 +88,8 @@ const Telemetry = () => {
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      data: data.dateLabels,
+
       axisLine: { lineStyle: { color: '#374151' } },
       axisLabel: { color: '#9ca3af' }
     },
