@@ -172,6 +172,6 @@ export async function mergePullRequest(
     } catch (e) {
       // Ignore
     }
-    throw new Error(`Failed to merge PR #${prNumber}: [${response.status}] ${errorDetail}`);
+    if (response.status === 409) { throw new Error(`Merge Conflict: PR #${prNumber} cannot be merged (409). Detail: ${errorDetail}`); } if (response.status === 422) { throw new Error(`Unprocessable Entity: PR #${prNumber} failed checks or protection (422). Detail: ${errorDetail}`); } throw new Error(`Failed to merge PR #${prNumber}: [${response.status}] ${errorDetail}`);
   }
 }
