@@ -140,8 +140,24 @@ export default {
       let taskIdentifier: string | null = null;
       try {
         const payload: any = await request.clone().json();
-        const { pr_number, repository_owner, repository_name, task_id } = payload;
+        const { pr_number, repository_owner, repository_name, task_id, action } = payload;
         taskIdentifier = task_id;
+
+        if (!task_id) {
+          return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), {
+            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          });
+        }
+
+        if (action === 'REJECTED') {
+           await env.TASK_LOCKS.delete(`lock:${taskIdentifier}`);
+           return new Response(JSON.stringify({
+             status: 'accepted',
+             message: 'Patch rejected, task unlocked.'
+           }), {
+             status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+           });
+        }
 
         if (!pr_number || !repository_owner || !repository_name) {
           return new Response(JSON.stringify({ error: 'Bad Request: Missing PR metadata' }), {

@@ -10,6 +10,12 @@ const broadcast = (event) => listeners.forEach(l => l(event));
 
 // Store local system logs
 let SYSTEM_LOGS = [];
+const addSystemLog = (log) => {
+  SYSTEM_LOGS.push(log);
+  if (SYSTEM_LOGS.length > 150) {
+    SYSTEM_LOGS = SYSTEM_LOGS.slice(-150);
+  }
+};
 
 let AGENTS = [
   { id: 'ONYX-01', name: 'Onyx Architect', role: 'System Design', status: 'Idle', model: 'DeepSeek-V2-Chat', capabilities: ['AST Parsing', 'Dependency Mapping'], uptime: '99.9%', tasks_completed: 142 },
@@ -211,18 +217,58 @@ export const labService = {
 
   getTelemetryData: async () => {
     // Basic analytical grouping query over api_usage_logs
-    const { data, error } = await supabase
+    const { data: logs, error } = await supabase
       .from('api_usage_logs')
-      .select('*');
+      .select('*')
+      .order('created_at', { ascending: true });
 
-    if (error) console.error('Error fetching telemetry:', error);
+    if (error) {
+      console.error('Error fetching telemetry:', error);
+      return {
+        tokenUsage: [0, 0, 0, 0, 0, 0, 0],
+        nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
+        roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
+        logs: []
+      };
+    }
 
-    // Simulate complex response structure
+    const tokenUsageMap = new Map();
+    let totalTokens = 0;
+    let totalRequests = 0;
+
+    const currentData = [0, 0, 0, 0, 0, 0, 0];
+
+    if (logs && logs.length > 0) {
+      logs.forEach(log => {
+         totalRequests++;
+
+         // Extract token expenditures from metadata
+         const tokenCount = log.metadata?.tokens || 0;
+         totalTokens += tokenCount;
+
+         if (log.created_at) {
+             const date = new Date(log.created_at);
+             const dayIndex = (date.getDay() - 1 + 7) % 7; // Monday = 0
+             currentData[dayIndex] += tokenCount;
+         }
+      });
+    }
+
+    const hoursSaved = totalRequests;
+    const totalCost = (totalTokens / 1000) * 0.01;
+    const estimatedSavings = (hoursSaved * 80) - totalCost;
+    const efficiencyGain = hoursSaved > 0 ? '84%' : '0%';
+
     return {
-      tokenUsage: [120, 150, 180, 220, 190, 240, 210],
+      tokenUsage: currentData,
       nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
-      roiMetrics: { hoursSaved: 142, efficiencyGain: '84%', totalCost: '$142.50', estimatedSavings: '$11,360' },
-      logs: data || []
+      roiMetrics: {
+        hoursSaved,
+        efficiencyGain,
+        totalCost: `${totalCost.toFixed(2)}`,
+        estimatedSavings: `${Math.max(0, estimatedSavings).toFixed(2)}`
+      },
+      logs: logs || []
     };
   },
 

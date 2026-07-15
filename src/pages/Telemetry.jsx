@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { motion } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
+import { labService } from '../services/labService';
 
 const Telemetry = () => {
   const [data, setData] = useState(null);
@@ -14,64 +15,10 @@ const Telemetry = () => {
 
     while (retries <= maxRetries) {
       try {
-        const { data: logs, error: supabaseError } = await supabase
-          .from('api_usage_logs')
-          .select('*')
-          .order('created_at', { ascending: true });
-
-        if (supabaseError) {
-          throw new Error(supabaseError.message);
-        }
-
-        // Process data
-        const tokenUsageMap = new Map();
-        let totalTokens = 0;
-        let totalRequests = 0;
-
-        // Group token usage by day
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const currentData = [0, 0, 0, 0, 0, 0, 0];
-
-        if (logs && logs.length > 0) {
-          logs.forEach(log => {
-             totalRequests++;
-
-             // Extract token expenditures from metadata
-             const tokenCount = log.metadata?.tokens || 0;
-             totalTokens += tokenCount;
-
-             if (log.created_at) {
-                 const date = new Date(log.created_at);
-                 const dayIndex = (date.getDay() - 1 + 7) % 7; // Monday = 0
-                 currentData[dayIndex] += tokenCount;
-             }
-          });
-        }
-
-        // Calculate ROI metrics
-        // Assumption: 1 request = 1 Dev Hour Saved
-        // System AI Token Cost: Assume $0.01 per 1000 tokens
-        const hoursSaved = totalRequests;
-        const totalCost = (totalTokens / 1000) * 0.01;
-
-        // Assume dev rate is $80/hr
-        const estimatedSavings = (hoursSaved * 80) - totalCost;
-
-        const efficiencyGain = hoursSaved > 0 ? '84%' : '0%';
-
-        setData({
-          tokenUsage: currentData,
-          roiMetrics: {
-            hoursSaved,
-            efficiencyGain,
-            totalCost: `$${totalCost.toFixed(2)}`,
-            estimatedSavings: `$${Math.max(0, estimatedSavings).toFixed(2)}`
-          },
-          logs: logs || []
-        });
+        const telemetryData = await labService.getTelemetryData();
+        setData(telemetryData);
         setError(false);
         return;
-
       } catch (err) {
         console.error('Error fetching telemetry:', err);
         retries++;
@@ -84,7 +31,6 @@ const Telemetry = () => {
           });
           break;
         }
-        // Wait 3 seconds before retrying
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
@@ -94,7 +40,46 @@ const Telemetry = () => {
     fetchTelemetryData();
   }, [fetchTelemetryData]);
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-white">The Green Machine</h1>
+            <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
+            <SafeIcon name="Zap" className="text-sm" />
+            OPTIMIZED
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5 animate-pulse h-[104px]">
+               <div className="h-6 bg-slate-800/50 rounded w-24 mb-4"></div>
+               <div className="h-8 bg-slate-800/50 rounded w-16"></div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 h-[406px] animate-pulse">
+             <div className="h-6 bg-slate-800/50 rounded w-48 mb-6"></div>
+             <div className="h-[300px] bg-slate-800/50 rounded w-full"></div>
+          </div>
+          <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 h-[406px] animate-pulse">
+             <div className="h-6 bg-slate-800/50 rounded w-32 mb-6"></div>
+             <div className="space-y-4">
+                {[1,2,3,4].map(i => (
+                  <div key={i} className="h-[46px] bg-slate-800/50 rounded w-full"></div>
+                ))}
+             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const chartOption = {
     backgroundColor: 'transparent',

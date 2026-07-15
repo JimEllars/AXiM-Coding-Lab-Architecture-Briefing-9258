@@ -17,7 +17,11 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
     setIsSubmitting(true);
     setErrorToast(null);
 
+    // Save previous state for rollback (assuming previous state was 'Review Gate')
+    const previousStatus = 'Review Gate';
+
     try {
+      // Optimistic update
       const { error } = await supabase
         .from('coding_tasks')
         .update({ status })
@@ -25,46 +29,51 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
 
       if (error) throw error;
 
-      if (status === 'APPROVED') {
+      if (status === 'APPROVED' || status === 'REJECTED') {
         const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
         const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/deploy-action');
 
-        // Extract pr_number and repo info from the task object
-        // Assuming task has branch or pr related info that can be matched
-        // If not explicit in task, we extract from branch name or URL
-        // From context, 'task' has branch name. PR number might need parsing.
-
-        // Let's assume task contains repository which might be "owner/repo" or just "repo"
         const repoParts = (task?.repository || 'axim-organization/axim-core-api').split('/');
         const owner = repoParts.length > 1 ? repoParts[0] : 'axim-organization';
         const repoName = repoParts.length > 1 ? repoParts[1] : repoParts[0];
 
-        // Assuming pr_number is parsed from the PR url or task metadata,
-        // since we just have the task object. Let's send the task ID as well,
-        // and a simulated pr_number if we don't have it explicitly.
         const prNumber = task?.pr_number || parseInt(taskId.replace(/\D/g, '')) || 1;
 
         const payloadBody = JSON.stringify({
           task_id: taskId,
           pr_number: prNumber,
           repository_owner: owner,
-          repository_name: repoName
+          repository_name: repoName,
+          action: status
         });
 
         const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
         const signature = await generateHmacSignature(payloadBody, internalKey);
 
-        const response = await fetch(actionUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Axim-Signature': signature
-          },
-          body: payloadBody
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-        if (!response.ok) {
-           throw new Error(`Failed to trigger deployment action: ${response.statusText}`);
+        try {
+          const response = await fetch(actionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Axim-Signature': signature
+            },
+            body: payloadBody,
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+             throw new Error(`Failed to trigger deployment action: ${response.statusText}`);
+          }
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          // Rollback the optimistic UI state
+          await supabase.from('coding_tasks').update({ status: previousStatus }).eq('id', taskId);
+          throw new Error(fetchError.name === 'AbortError' ? 'Network timeout. Please try again.' : (fetchError.message || 'Transaction failed. Please try again.'));
         }
       }
 

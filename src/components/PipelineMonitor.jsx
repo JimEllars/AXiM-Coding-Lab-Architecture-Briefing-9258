@@ -52,11 +52,18 @@ const OriginBadge = ({ origin_source }) => {
 
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    labService.getTasks().then(setTasks);
+    labService.getTasks().then((res) => {
+      setTasks(res);
+      setLoading(false);
+    });
     return labService.subscribe(event => {
-      if (event.type === 'TASKS_UPDATED') setTasks(event.tasks);
+      if (event.type === 'TASKS_UPDATED') {
+         setTasks(event.tasks);
+         setLoading(false);
+      }
     });
   }, []);
 
@@ -76,7 +83,24 @@ const PipelineMonitor = () => {
       </div>
       
       <div className="flex-1 overflow-y-auto p-3 space-y-3 terminal-scroll">
-        <AnimatePresence initial={false}>
+        {loading ? (
+          <div className="space-y-3">
+             {[1,2,3].map(i => (
+                <div key={i} className="bg-[#111827] border border-gray-800 rounded-lg p-3 h-[90px] animate-pulse">
+                   <div className="flex justify-between items-start mb-2">
+                     <div className="h-4 bg-slate-800/50 rounded w-20"></div>
+                     <div className="h-5 bg-slate-800/50 rounded w-24"></div>
+                   </div>
+                   <div className="h-4 bg-slate-800/50 rounded w-48 mb-1"></div>
+                   <div className="flex justify-between items-center mt-4">
+                     <div className="h-4 bg-slate-800/50 rounded w-24"></div>
+                     <div className="h-3 bg-slate-800/50 rounded w-12"></div>
+                   </div>
+                </div>
+             ))}
+          </div>
+        ) : (
+          <AnimatePresence initial={false}>
           {tasks.map((task, idx) => (
             <motion.div
               layout
@@ -103,6 +127,7 @@ const PipelineMonitor = () => {
             </motion.div>
           ))}
         </AnimatePresence>
+        )}
       </div>
     </motion.div>
   );

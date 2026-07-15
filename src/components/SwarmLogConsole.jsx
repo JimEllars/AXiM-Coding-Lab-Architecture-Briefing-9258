@@ -10,7 +10,10 @@ const SwarmLogConsole = () => {
     if (scrollRef.current) {
       requestAnimationFrame(() => {
         if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          scrollRef.current.scrollTo({
+             top: scrollRef.current.scrollHeight,
+             behavior: 'smooth'
+          });
         }
       });
     }
