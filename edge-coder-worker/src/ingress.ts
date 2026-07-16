@@ -1,6 +1,14 @@
 import { executeCodingPipeline } from './code_generator';
 import { mergePullRequest } from './github_bridge';
 
+export interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string, options?: any): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+export interface ExecutionContext {
+  waitUntil(promise: Promise<any>): void;
+}
 export interface Env {
   LAB_STATE: KVNamespace;
   TASK_LOCKS: KVNamespace;
@@ -181,13 +189,14 @@ export default {
         // Telemetry push to deploy action
         try {
            const prUrl = `https://github.com/${repository_owner}/${repository_name}/pull/${pr_number}`;
+           const cfRay = request.headers.get('cf-ray') || 'unknown';
            const telemetryBody = [{
              app_id: 'axim-coding-lab',
              endpoint: '/api/v1/deploy-action',
              method: 'POST',
              status_code: 200,
              error_message: null,
-             metadata: { task_id: taskIdentifier, trigger_origin: 'Manual_Dev_Cockpit', pull_request_target: prUrl }
+             metadata: { task_id: taskIdentifier, trigger_origin: 'Manual_Dev_Cockpit', pull_request_target: prUrl, cf_ray: cfRay }
            }];
 
            await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
@@ -257,6 +266,7 @@ export default {
     // 3. Payload Extraction & Idempotency Lock
     try {
       const payload: any = await request.json();
+      payload.cf_ray = request.headers.get('cf-ray') || 'unknown';
       const taskIdentifier = payload.task_id || payload.incident_hash;
 
       if (!taskIdentifier) {

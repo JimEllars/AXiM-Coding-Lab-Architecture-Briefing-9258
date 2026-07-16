@@ -9,6 +9,7 @@ export interface CodingTaskPayload {
   base_branch?: string;
   instruction_prompt: string;
   origin_source: 'Asguard_WAF' | 'Onyx_Support_Triage' | 'Manual_Dev_Cockpit';
+  cf_ray?: string;
 }
 
 export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env): Promise<void> {
@@ -19,7 +20,8 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     target_file_path: path,
     base_branch = 'main',
     instruction_prompt,
-    origin_source
+    origin_source,
+    cf_ray
   } = payload;
 
   const branchName = `axim-bot/hotfix-${task_id.substring(0, 8)}-${Date.now().toString().slice(-4)}`;
@@ -46,7 +48,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
     console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
 
-    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env);
+    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray);
 
   } catch (error: any) {
     console.error(`[CODING_LAB_CRITICAL_FAULT] Task #${task_id} failed:`, error.message);
@@ -103,14 +105,14 @@ function cleanSanitizedCodeBlob(rawText: string): string {
   return clean;
 }
 
-async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env): Promise<void> {
+async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string): Promise<void> {
   const telemetryBody = [{
     app_id: 'axim-coding-lab',
     endpoint: '/v1/gitops/pr-creation',
     method: 'POST',
     status_code: 200,
     error_message: null,
-    metadata: { task_id: taskId, trigger_origin: source, pull_request_target: prUrl }
+    metadata: { task_id: taskId, trigger_origin: source, pull_request_target: prUrl, cf_ray: cfRay || 'unknown' }
   }];
 
   await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
