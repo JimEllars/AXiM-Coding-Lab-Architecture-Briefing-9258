@@ -55,7 +55,7 @@ const connectChannel = () => {
             type: 'system',
             time: new Date().toLocaleTimeString([], { hour12: false })
           };
-          SYSTEM_LOGS.push(log);
+          addSystemLog(log);
           broadcast({ type: 'LOG_ADDED', log });
 
           reconnectTimeout = setTimeout(() => {
@@ -123,7 +123,7 @@ export const labService = {
     
     // Auto-log the brain update
     const log = { id: Date.now(), text: `[BRAIN] New knowledge node added: ${newNote.title}`, type: 'knowledge', time: new Date().toLocaleTimeString() };
-    SYSTEM_LOGS.push(log);
+    addSystemLog(log);
     broadcast({ type: 'LOG_ADDED', log });
     
     const allKnowledge = await labService.getKnowledge();
@@ -147,7 +147,7 @@ export const labService = {
     steps.forEach(step => {
       setTimeout(() => {
         const log = { id: Date.now() + Math.random(), text: step.t, time: new Date().toLocaleTimeString([], { hour12: false }) };
-        SYSTEM_LOGS.push(log);
+        addSystemLog(log);
         broadcast({ type: 'LOG_ADDED', log });
       }, step.delay);
     });
@@ -186,7 +186,7 @@ export const labService = {
 
       setTimeout(() => {
         const log = { id: Date.now() + Math.random(), text: `[SYSTEM] Edge Swarm Task accepted: ${responseData.status}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
-        SYSTEM_LOGS.push(log);
+        addSystemLog(log);
         broadcast({ type: 'LOG_ADDED', log });
       }, 2500);
 
@@ -194,7 +194,7 @@ export const labService = {
       console.error('Trigger Task Error:', err);
       setTimeout(() => {
         const log = { id: Date.now() + Math.random(), text: `[CRITICAL] Edge Swarm Task Failed: ${err.message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
-        SYSTEM_LOGS.push(log);
+        addSystemLog(log);
         broadcast({ type: 'LOG_ADDED', log });
       }, 2500);
     }
@@ -227,7 +227,12 @@ export const labService = {
       return {
         dateLabels: [],
         tokenUsage: [],
-        nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
+        nodeHealth: [
+        { name: 'Core LLM Proxy', status: 'Operational', latency: '142ms', color: 'green' },
+        { name: 'GitHub API Bridge', status: 'Nominal', latency: '89ms', color: 'green' },
+        { name: 'Asguard SOC Ingress', status: 'Active', latency: '12ms', color: 'green' },
+        { name: 'Worker Task Locks', status: 'Locked (3)', latency: '<1ms', color: 'blue' }
+      ],
         roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
         logs: []
       };
@@ -284,7 +289,12 @@ export const labService = {
     return {
       dateLabels,
       tokenUsage,
-      nodeHealth: [{ name: 'LLM Proxy', value: 99, status: 'Operational' }],
+      nodeHealth: [
+        { name: 'Core LLM Proxy', status: 'Operational', latency: '142ms', color: 'green' },
+        { name: 'GitHub API Bridge', status: 'Nominal', latency: '89ms', color: 'green' },
+        { name: 'Asguard SOC Ingress', status: 'Active', latency: '12ms', color: 'green' },
+        { name: 'Worker Task Locks', status: 'Locked (3)', latency: '<1ms', color: 'blue' }
+      ],
       roiMetrics: {
         hoursSaved,
         efficiencyGain,
