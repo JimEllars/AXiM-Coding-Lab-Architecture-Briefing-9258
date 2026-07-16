@@ -82,13 +82,31 @@ const Telemetry = () => {
     );
   }
 
+
+  // Compute dynamic date labels and token usage from data.logs
+  const usageMap = new Map();
+  if (data && data.logs) {
+    data.logs.forEach(log => {
+      const tokens = log.metadata?.tokens || 0;
+      if (log.created_at) {
+        const date = new Date(log.created_at);
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const dateLabel = `${mm}/${dd}`;
+        usageMap.set(dateLabel, (usageMap.get(dateLabel) || 0) + tokens);
+      }
+    });
+  }
+  const dynamicDateLabels = Array.from(usageMap.keys());
+  const dynamicTokenUsage = Array.from(usageMap.values());
+
   const chartOption = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: data.dateLabels,
+      data: dynamicDateLabels,
 
       axisLine: { lineStyle: { color: '#374151' } },
       axisLabel: { color: '#9ca3af' }
@@ -99,7 +117,7 @@ const Telemetry = () => {
       axisLabel: { color: '#9ca3af' }
     },
     series: [{
-      data: data.tokenUsage,
+      data: dynamicTokenUsage,
       type: 'line',
       smooth: true,
       color: '#3b82f6',

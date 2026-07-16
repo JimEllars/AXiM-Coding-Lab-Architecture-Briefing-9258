@@ -6,18 +6,22 @@ import SafeIcon from '@/common/SafeIcon';
 const Settings = () => {
   const [model, setModel] = useState('deepseek-coder');
   const [temp, setTemp] = useState(0.2);
+  const [autoRemediation, setAutoRemediation] = useState(false);
   const [showSavedBanner, setShowSavedBanner] = useState(false);
 
-  useEffect(() => {
+useEffect(() => {
     const savedModel = localStorage.getItem('axim_model');
     const savedTemp = localStorage.getItem('axim_temp');
+    const savedAutoRemediation = localStorage.getItem('axim_auto_remediation');
     if (savedModel) setModel(savedModel);
     if (savedTemp) setTemp(parseFloat(savedTemp));
+    if (savedAutoRemediation) setAutoRemediation(savedAutoRemediation === 'true');
   }, []);
 
-  const handleSave = () => {
+const handleSave = () => {
     localStorage.setItem('axim_model', model);
     localStorage.setItem('axim_temp', temp.toString());
+    localStorage.setItem('axim_auto_remediation', autoRemediation.toString());
     setShowSavedBanner(true);
     setTimeout(() => setShowSavedBanner(false), 3000);
   };
@@ -126,8 +130,11 @@ const Settings = () => {
                 <h4 className="text-sm font-medium text-white">Auto-Remediation Gate</h4>
                 <p className="text-xs text-gray-500 mt-1">When Asguard detects a threat, trigger the swarm to patch vulnerabilities.</p>
               </div>
-              <div className="w-12 h-6 bg-blue-600 rounded-full relative cursor-pointer">
-                <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
+              <div
+                className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${autoRemediation ? 'bg-blue-600' : 'bg-gray-700'}`}
+                onClick={() => setAutoRemediation(!autoRemediation)}
+              >
+                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${autoRemediation ? 'right-1' : 'left-1'}`}></div>
               </div>
             </div>
             <div className="p-4 rounded-lg bg-orange-500/5 border border-orange-500/10">
