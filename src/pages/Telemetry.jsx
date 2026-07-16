@@ -27,6 +27,12 @@ const Telemetry = () => {
           setData({
              dateLabels: [],
              tokenUsage: [],
+             nodeHealth: [
+               { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
+               { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+               { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
+               { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
+             ],
              roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
              logs: []
           });
@@ -83,22 +89,7 @@ const Telemetry = () => {
   }
 
 
-  // Compute dynamic date labels and token usage from data.logs
-  const usageMap = new Map();
-  if (data && data.logs) {
-    data.logs.forEach(log => {
-      const tokens = log.metadata?.tokens || 0;
-      if (log.created_at) {
-        const date = new Date(log.created_at);
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        const dd = String(date.getDate()).padStart(2, '0');
-        const dateLabel = `${mm}/${dd}`;
-        usageMap.set(dateLabel, (usageMap.get(dateLabel) || 0) + tokens);
-      }
-    });
-  }
-  const dynamicDateLabels = Array.from(usageMap.keys());
-  const dynamicTokenUsage = Array.from(usageMap.values());
+
 
   const chartOption = {
     backgroundColor: 'transparent',
@@ -106,7 +97,7 @@ const Telemetry = () => {
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: dynamicDateLabels,
+      data: data.dateLabels,
 
       axisLine: { lineStyle: { color: '#374151' } },
       axisLabel: { color: '#9ca3af' }
@@ -117,7 +108,7 @@ const Telemetry = () => {
       axisLabel: { color: '#9ca3af' }
     },
     series: [{
-      data: dynamicTokenUsage,
+      data: data.tokenUsage,
       type: 'line',
       smooth: true,
       color: '#3b82f6',
@@ -169,10 +160,9 @@ const Telemetry = () => {
         <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6">
           <h3 className="text-sm font-medium text-white mb-4">Node Health Status</h3>
           <div className="space-y-4">
-            <HealthItem label="Core LLM Proxy" status="Operational" latency="142ms" color="green" />
-            <HealthItem label="GitHub API Bridge" status="Nominal" latency="89ms" color="green" />
-            <HealthItem label="Asguard SOC Ingress" status="Active" latency="12ms" color="green" />
-            <HealthItem label="Worker Task Locks" status="Locked (3)" latency="<1ms" color="blue" />
+            {data.nodeHealth.map((node, i) => (
+              <HealthItem key={i} label={node.name} status={node.status} latency={node.latency} color={node.color} />
+            ))}
           </div>
         </div>
       </div>
