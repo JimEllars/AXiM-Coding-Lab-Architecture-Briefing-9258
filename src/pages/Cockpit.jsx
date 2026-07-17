@@ -19,12 +19,13 @@ const Cockpit = () => {
       await labService.triggerTask({
         repository_name: 'axim-core-api',
         target_file_path: 'auth_api/v2/login.js',
-        instruction_prompt: "CRITICAL: Secure identified polymorphic injection vectors and sanitize inbound payload parameters across the SQL query generation matrix.",
+        instruction_prompt: "CRITICAL HOTFIX: Sanitize inbound parameters across the query generation matrix and secure identified polymorphic injection vectors.",
         origin_source: 'Asguard_WAF'
       });
       console.log("[Asguard] Threat vector patch orchestration successfully handed off to edge worker.");
     } catch (err) {
       console.error("[Asguard] Failed to trigger patch orchestration:", err);
+      labService.logIncident('Worker rejected compilation - ' + err.message);
     } finally {
       setIsPatching(false);
     }
@@ -83,7 +84,7 @@ const Cockpit = () => {
                 disabled={isPatching}
                 className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isPatching ? 'Patching Threat Vector...' : 'Auto-Patch Incident'}
+                {isPatching ? 'Deploying Remediation Swarm...' : 'Auto-Patch Incident'}
               </button>
             </div>
           </div>

@@ -132,6 +132,12 @@ export const labService = {
     return data;
   },
 
+  logIncident: (message) => {
+    const log = { id: Date.now() + Math.random(), text: `[CRITICAL] ${message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
+    addSystemLog(log);
+    broadcast({ type: 'LOG_ADDED', log });
+  },
+
   triggerTask: async (payload) => {
     const taskId = payload.task_id || `TASK-${Math.random().toString(36).substring(7).toUpperCase()}`;
     broadcast({ type: 'REASONING_START', taskId, prompt: payload.instruction_prompt });
@@ -197,11 +203,12 @@ export const labService = {
         addSystemLog(log);
         broadcast({ type: 'LOG_ADDED', log });
       }, 2500);
+      throw err;
+    } finally {
+      setTimeout(() => {
+        broadcast({ type: 'REASONING_END', taskId });
+      }, 4800);
     }
-
-    setTimeout(() => {
-      broadcast({ type: 'REASONING_END', taskId });
-    }, 4800);
 
     return Promise.resolve(taskId);
   },
