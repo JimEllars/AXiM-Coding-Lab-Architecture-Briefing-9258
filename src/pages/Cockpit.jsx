@@ -1,14 +1,35 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PromptTerminal from '../components/PromptTerminal';
 import PipelineMonitor from '../components/PipelineMonitor';
 import SwarmLogConsole from '../components/SwarmLogConsole';
 import SafeIcon from '@/common/SafeIcon';
+import { labService } from '../services/labService';
 
 const Cockpit = () => {
   const location = useLocation();
   const state = location.state;
+
+  const [isPatching, setIsPatching] = useState(false);
+
+  const handleAutoPatch = async () => {
+    setIsPatching(true);
+    try {
+      await labService.triggerTask({
+        repository_name: 'axim-core-api',
+        target_file_path: 'auth_api/v2/login.js',
+        instruction_prompt: "CRITICAL: Secure identified polymorphic injection vectors and sanitize inbound payload parameters across the SQL query generation matrix.",
+        origin_source: 'Asguard_WAF'
+      });
+      console.log("[Asguard] Threat vector patch orchestration successfully handed off to edge worker.");
+    } catch (err) {
+      console.error("[Asguard] Failed to trigger patch orchestration:", err);
+    } finally {
+      setIsPatching(false);
+    }
+  };
+
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -57,8 +78,12 @@ const Cockpit = () => {
                 </p>
                 Potential SQL Injection vector identified in <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
               </div>
-              <button className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-gray-800">
-                Auto-Patch Incident
+              <button
+                onClick={handleAutoPatch}
+                disabled={isPatching}
+                className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isPatching ? 'Patching Threat Vector...' : 'Auto-Patch Incident'}
               </button>
             </div>
           </div>
