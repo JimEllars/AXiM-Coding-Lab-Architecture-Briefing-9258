@@ -144,6 +144,53 @@ export default {
     }
 
 
+    if (request.method === 'POST' && url.pathname === '/api/v1/force-unlock') {
+      try {
+        const payload: any = JSON.parse(payloadText);
+        const taskId = payload.task_id;
+
+        if (!taskId) {
+          return new Response(JSON.stringify({ error: 'Bad Request: Missing task_id' }), {
+            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          });
+        }
+
+        // Evict lock
+        await env.TASK_LOCKS.delete("lock:" + taskId);
+
+        // Log eviction metrics
+        try {
+          const errorBody = {
+            task_id: taskId,
+            component: 'axim-coding-lab-override',
+            error_message: 'Task lock forcefully evicted via manual cockpit operator override hook.',
+            status: 'FORCE_UNLOCKED',
+            created_at: new Date().toISOString()
+          };
+
+          await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+            },
+            body: JSON.stringify(errorBody)
+          });
+        } catch (logErr) {
+          console.error('[CORE_LOGGING_CRASH] Failed to record post-mortem audit', logErr);
+        }
+
+        return new Response(JSON.stringify({ status: 'success', message: 'Lock evicted' }), {
+          status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+         return new Response(JSON.stringify({ error: 'Internal Error' }), {
+            status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+         });
+      }
+    }
+
     if (url.pathname === '/api/v1/deploy-action') {
       let taskIdentifier: string | null = null;
       try {

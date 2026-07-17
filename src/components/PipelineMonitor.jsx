@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
+import { generateHmacSignature } from '../utils/crypto';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -53,6 +54,33 @@ const OriginBadge = ({ origin_source }) => {
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const handleEvictLock = async (taskId) => {
+    try {
+      const payloadBody = JSON.stringify({ task_id: taskId });
+      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
+      const signature = await generateHmacSignature(payloadBody, internalKey);
+
+      const ingressUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/ingress', '/force-unlock') : '/api/v1/force-unlock';
+
+      const response = await fetch(ingressUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Axim-Signature': signature
+        },
+        body: payloadBody
+      });
+
+      if (response.ok) {
+        setTasks((prevTasks) => prevTasks.filter((t) => t.id !== taskId));
+      } else {
+        console.error('Failed to evict lock');
+      }
+    } catch (err) {
+      console.error('Error evicting lock:', err);
+    }
+  };
 
   useEffect(() => {
     labService.getTasks().then((res) => {
@@ -122,7 +150,10 @@ const PipelineMonitor = () => {
               </div>
               <div className="flex justify-between items-center text-[9px] text-gray-500 font-mono mt-4 uppercase tracking-tighter">
                 <OriginBadge origin_source={task.origin_source || task.origin} />
-                <span>{task.time}</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleEvictLock(task.id)} className="text-red-500/80 hover:text-red-400 font-bold transition-colors">Evict Lock</button>
+                  <span>{task.time}</span>
+                </div>
               </div>
             </motion.div>
           ))}
