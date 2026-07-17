@@ -1,7 +1,7 @@
 name = "axim-coding-lab-worker"
 main = "src/ingress.ts"
 compatibility_date = "2026-07-11"
-workers_dev = false
+workers_dev = true
 
 [vars]
 ENVIRONMENT = "production"
@@ -12,13 +12,11 @@ SUPABASE_LLM_PROXY_URL = "https://[YOUR_SUPABASE_PROJECT].supabase.co/functions/
 # Idempotency & State Caching
 [[kv_namespaces]]
 binding = "LAB_STATE"
-id = "[REPLACE_WITH_LAB_STATE_ID]"
-preview_id = "[REPLACE_WITH_PREVIEW_ID]"
+id = "afc3219e3592439b8d3ae6fcb2f40004"
 
 [[kv_namespaces]]
 binding = "TASK_LOCKS"
-id = "[REPLACE_WITH_TASK_LOCKS_ID]"
-preview_id = "[REPLACE_WITH_PREVIEW_ID]"
+id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 
 # -----------------------------------------------------------------------------
 # SECRET VAULTING INSTRUCTIONS (Execute via Cloudflare CLI, do not hardcode):
