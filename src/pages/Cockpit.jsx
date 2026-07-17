@@ -12,6 +12,7 @@ const Cockpit = () => {
   const state = location.state;
 
   const [isPatching, setIsPatching] = useState(false);
+  const [patchStatus, setPatchStatus] = useState('UNRESOLVED');
 
   const handleAutoPatch = async () => {
     setIsPatching(true);
@@ -23,6 +24,7 @@ const Cockpit = () => {
         origin_source: 'Asguard_WAF'
       });
       console.log("[Asguard] Threat vector patch orchestration successfully handed off to edge worker.");
+      setPatchStatus('REMEDIATING');
     } catch (err) {
       console.error("[Asguard] Failed to trigger patch orchestration:", err);
       labService.logIncident('Worker rejected compilation - ' + err.message);
@@ -72,6 +74,7 @@ const Cockpit = () => {
               Asguard Security Feed
             </h3>
             <div className="space-y-4">
+              {patchStatus === 'UNRESOLVED' ? (
               <div className="p-3 rounded-lg bg-orange-500/5 border border-orange-500/20 text-[11px] text-orange-200">
                 <p className="font-bold mb-1 uppercase tracking-wider flex items-center gap-2">
                   <SafeIcon name="AlertTriangle" />
@@ -79,6 +82,16 @@ const Cockpit = () => {
                 </p>
                 Potential SQL Injection vector identified in <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
               </div>
+              ) : (
+              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-[11px] text-green-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-green-400 to-transparent animate-shimmer"></div>
+                <p className="font-bold mb-1 uppercase tracking-wider flex items-center gap-2">
+                  <SafeIcon name="CheckCircle" className="animate-pulse" />
+                  REMEDIATING
+                </p>
+                Swarm active. Security patch deployed to <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
+              </div>
+              )}
               <button
                 onClick={handleAutoPatch}
                 disabled={isPatching}

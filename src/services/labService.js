@@ -223,27 +223,28 @@ export const labService = {
   ]),
 
   getTelemetryData: async () => {
-    // Basic analytical grouping query over api_usage_logs
-    const { data: logs, error } = await supabase
-      .from('api_usage_logs')
-      .select('*')
-      .order('created_at', { ascending: true });
+    try {
+      // Basic analytical grouping query over api_usage_logs
+      const { data: logs, error } = await supabase
+        .from('api_usage_logs')
+        .select('*')
+        .order('created_at', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching telemetry:', error);
-      return {
-        dateLabels: [],
-        tokenUsage: [],
-        nodeHealth: [
-        { name: 'Core LLM Proxy', status: 'Operational', latency: '142ms', color: 'green' },
-        { name: 'GitHub API Bridge', status: 'Nominal', latency: '89ms', color: 'green' },
-        { name: 'Asguard SOC Ingress', status: 'Active', latency: '12ms', color: 'green' },
-        { name: 'Worker Task Locks', status: 'Locked (3)', latency: '<1ms', color: 'blue' }
-      ],
-        roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
-        logs: []
-      };
-    }
+      if (error) {
+        console.error('Error fetching telemetry:', error);
+        return {
+          dateLabels: [],
+          tokenUsage: [],
+          nodeHealth: [
+            { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
+            { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+            { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
+            { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
+          ],
+          roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
+          logs: []
+        };
+      }
 
     const tokenUsageMap = new Map();
     let totalTokens = 0;
@@ -290,31 +291,63 @@ export const labService = {
     const tokenUsage = Array.from(tokenUsageMap.values());
 
     const hoursSaved = totalRequests;
-    const estimatedSavings = (hoursSaved * 80) - totalCost;
-    const efficiencyGain = hoursSaved > 0 ? '84%' : '0%';
+      const estimatedSavings = (hoursSaved * 80) - totalCost;
+      const efficiencyGain = hoursSaved > 0 ? '84%' : '0%';
 
-    return {
-      dateLabels,
-      tokenUsage,
-      nodeHealth: [
-        { name: 'Core LLM Proxy', status: 'Operational', latency: '142ms', color: 'green' },
-        { name: 'GitHub API Bridge', status: 'Nominal', latency: '89ms', color: 'green' },
-        { name: 'Asguard SOC Ingress', status: 'Active', latency: '12ms', color: 'green' },
-        { name: 'Worker Task Locks', status: 'Locked (3)', latency: '<1ms', color: 'blue' }
-      ],
-      roiMetrics: {
-        hoursSaved,
-        efficiencyGain,
-        totalCost: `${totalCost.toFixed(2)}`,
-        estimatedSavings: `${Math.max(0, estimatedSavings).toFixed(2)}`
-      },
-      logs: logs || []
-    };
+      return {
+        dateLabels,
+        tokenUsage,
+        nodeHealth: [
+          { name: 'Core LLM Proxy', status: 'Operational', latency: '142ms', color: 'green' },
+          { name: 'GitHub API Bridge', status: 'Nominal', latency: '89ms', color: 'green' },
+          { name: 'Asguard SOC Ingress', status: 'Active', latency: '12ms', color: 'green' },
+          { name: 'Worker Task Locks', status: 'Locked (3)', latency: '<1ms', color: 'blue' }
+        ],
+        roiMetrics: {
+          hoursSaved,
+          efficiencyGain,
+          totalCost: `${totalCost.toFixed(2)}`,
+          estimatedSavings: `${Math.max(0, estimatedSavings).toFixed(2)}`
+        },
+        logs: logs || []
+      };
+    } catch (err) {
+      console.error('Exception fetching telemetry:', err);
+      return {
+        dateLabels: [],
+        tokenUsage: [],
+        nodeHealth: [
+          { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
+          { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+          { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
+          { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
+        ],
+        roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
+        logs: []
+      };
+    }
   },
 
-  getAuditLogs: () => Promise.resolve([
-    { id: 'AL-1', timestamp: '2026-07-11 14:20:01', actor: 'Asguard_WAF', action: 'DEPLOY_SWARM', target: 'axim-core-api', status: 'SUCCESS' }
-  ]),
+  getAuditLogs: async () => {
+    try {
+      const { data, error } = await supabase.from('coding_tasks_errors').select('*');
+      if (error) {
+        console.error('Error fetching audit logs:', error);
+        return [{ id: 'AL-ERR', timestamp: new Date().toISOString(), actor: 'System', action: 'FETCH_ERROR', target: 'DB', status: 'FAILED' }];
+      }
+      return data.map(row => ({
+        id: row.id,
+        timestamp: new Date(row.created_at).toLocaleString(),
+        actor: 'Asguard_WAF', // Default as per constraints
+        action: 'DEPLOY_SWARM', // Default action
+        target: 'axim-core-api', // Default target
+        status: row.status || 'SUCCESS'
+      }));
+    } catch (err) {
+      console.error('Exception fetching audit logs:', err);
+      return [{ id: 'AL-ERR', timestamp: new Date().toISOString(), actor: 'System', action: 'FETCH_ERROR', target: 'DB', status: 'FAILED' }];
+    }
+  },
 
   mergePR: async (taskId) => {
     const { error } = await supabase.from('coding_tasks').delete().eq('id', taskId);
