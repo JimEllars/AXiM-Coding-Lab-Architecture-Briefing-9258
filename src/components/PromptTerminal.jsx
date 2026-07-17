@@ -10,6 +10,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [targetFile, setTargetFile] = useState(initialFile || '');
   const [knowledge, setKnowledge] = useState([]);
   const [selectedContext, setSelectedContext] = useState([]);
+  const [warningMessage, setWarningMessage] = useState(null);
 
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);
@@ -19,7 +20,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   }, [initialRepo, initialPrompt, initialFile]);
 
   const handleDeploy = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim()) {
+      setWarningMessage("Invalid input: Prompt cannot be empty or just whitespace.");
+      setTimeout(() => setWarningMessage(null), 3000);
+      return;
+    }
     setIsGenerating(true);
     try {
       await labService.triggerTask({
@@ -77,6 +82,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
             <div className="absolute top-4 left-4 pointer-events-none opacity-20">
               <SafeIcon name="Terminal" className="text-6xl text-blue-500" />
             </div>
+            {warningMessage && (
+              <div className="absolute top-2 right-2 left-2 bg-red-500/10 border border-red-500/50 text-red-400 px-3 py-2 rounded text-xs z-20 font-mono shadow-sm flex items-center gap-2">
+                <SafeIcon name="AlertTriangle" className="text-sm" />
+                {warningMessage}
+              </div>
+            )}
             <textarea 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

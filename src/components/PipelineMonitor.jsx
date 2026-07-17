@@ -54,8 +54,28 @@ const OriginBadge = ({ origin_source }) => {
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmingEviction, setConfirmingEviction] = useState({});
 
   const handleEvictLock = async (taskId) => {
+    if (!confirmingEviction[taskId]) {
+      setConfirmingEviction(prev => ({ ...prev, [taskId]: true }));
+      setTimeout(() => {
+        setConfirmingEviction(prev => {
+          if (!prev[taskId]) return prev;
+          const next = { ...prev };
+          delete next[taskId];
+          return next;
+        });
+      }, 4000);
+      return;
+    }
+
+    setConfirmingEviction(prev => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+
     try {
       const payloadBody = JSON.stringify({ task_id: taskId });
       const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
@@ -151,7 +171,16 @@ const PipelineMonitor = () => {
               <div className="flex justify-between items-center text-[9px] text-gray-500 font-mono mt-4 uppercase tracking-tighter">
                 <OriginBadge origin_source={task.origin_source || task.origin} />
                 <div className="flex items-center gap-2">
-                  <button onClick={() => handleEvictLock(task.id)} className="text-red-500/80 hover:text-red-400 font-bold transition-colors">Evict Lock</button>
+                  <button
+                    onClick={() => handleEvictLock(task.id)}
+                    className={
+                      confirmingEviction[task.id]
+                        ? "text-orange-400 hover:text-orange-300 font-bold transition-colors border border-orange-500/50 rounded px-1.5 py-0.5"
+                        : "text-red-500/80 hover:text-red-400 font-bold transition-colors"
+                    }
+                  >
+                    {confirmingEviction[task.id] ? "Confirm Eviction?" : "Evict Lock"}
+                  </button>
                   <span>{task.time}</span>
                 </div>
               </div>

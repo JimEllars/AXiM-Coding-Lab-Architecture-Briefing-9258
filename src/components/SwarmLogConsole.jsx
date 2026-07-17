@@ -55,7 +55,10 @@ const SwarmLogConsole = () => {
           <div key={log.id} className="flex gap-2">
             <span className="text-gray-600 select-none">[{log.time}]</span>
             <span className={`
-              ${log.text.includes('[LLM]') ? 'text-purple-400' : 
+              ${
+                log.text.includes('FORCE_UNLOCKED') || log.text.includes('[BRAIN] New knowledge node')
+                  ? 'text-orange-400 font-bold bg-orange-500/5 border-l-2 border-orange-500 px-2 rounded-r'
+                  : log.text.includes('[LLM]') ? 'text-purple-400' :
                 log.text.includes('[GITOPS]') ? 'text-blue-400' : 
                 log.text.includes('[INGRESS]') ? 'text-green-400' :
                 log.text.includes('[SYSTEM]') && log.text.includes('Reconnecting') ? 'text-yellow-400' :
