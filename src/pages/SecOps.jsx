@@ -46,7 +46,15 @@ const SecOps = () => {
           <h3 className="text-xs font-bold text-white font-mono uppercase tracking-widest">Active_Threat_Feed</h3>
         </div>
         <div className="divide-y divide-gray-800">
-          {incidents.map((inc, idx) => (
+          {incidents.length === 0 ? (
+            <div className="p-12 flex flex-col items-center justify-center text-center">
+              <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center mb-4">
+                <SafeIcon name="ShieldCheck" className="text-2xl text-green-400" />
+              </div>
+              <h3 className="text-sm font-bold text-white mb-2">Secure</h3>
+              <p className="text-xs text-gray-500 font-mono">No active security threat vectors detected</p>
+            </div>
+          ) : incidents.map((inc, idx) => (
             <motion.div 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
