@@ -8,6 +8,7 @@ const KnowledgeBase = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [search, setSearch] = useState('');
   const [newNote, setNewNote] = useState({ title: '', content: '', category: 'General', tags: '' });
+  const [activeCategory, setActiveCategory] = useState('All');
 
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);
@@ -26,10 +27,17 @@ const KnowledgeBase = () => {
     setIsAdding(false);
   };
 
-  const filtered = knowledge.filter(k => 
-    k.title.toLowerCase().includes(search.toLowerCase()) || 
-    k.content.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = knowledge.filter(k => {
+    const matchesSearch = search.trim() === '' ||
+      k.title.toLowerCase().includes(search.toLowerCase()) ||
+      k.content.toLowerCase().includes(search.toLowerCase()) ||
+      k.category.toLowerCase().includes(search.toLowerCase()) ||
+      (k.tags && k.tags.some(tag => tag.toLowerCase().includes(search.toLowerCase())));
+
+    const matchesCategory = activeCategory === 'All' || k.category === activeCategory;
+
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -55,6 +63,22 @@ const KnowledgeBase = () => {
             <SafeIcon name="Plus" /> New Node
           </button>
         </div>
+      </div>
+
+      <div className="flex gap-2">
+        {['All', 'General', 'Security', 'Infrastructure', 'Frontend'].map(cat => (
+          <button
+            key={cat}
+            onClick={() => setActiveCategory(cat)}
+            className={`px-3 py-1 text-[10px] font-mono rounded-full border transition-all ${
+              activeCategory === cat
+                ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                : 'bg-gray-900 border-gray-800 text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

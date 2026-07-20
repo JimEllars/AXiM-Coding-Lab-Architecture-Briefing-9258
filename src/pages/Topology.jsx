@@ -6,6 +6,7 @@ import SafeIcon from '@/common/SafeIcon';
 const Topology = () => {
   const [repos, setRepos] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [filterActive, setFilterActive] = useState(false);
 
   useEffect(() => {
     labService.getRepositories().then(setRepos);
@@ -13,9 +14,25 @@ const Topology = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 h-[calc(100vh-140px)] flex flex-col">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Ecosystem Topology</h1>
-        <p className="text-sm text-gray-400 mt-1">Real-time dependency mapping and swarm distribution</p>
+      <div className="mb-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Ecosystem Topology</h1>
+          <p className="text-sm text-gray-400 mt-1">Real-time dependency mapping and swarm distribution</p>
+        </div>
+        <div className="flex bg-[#0a0f1c] border border-gray-800 rounded-lg p-1">
+          <button
+            onClick={() => setFilterActive(false)}
+            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${!filterActive ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            All Nodes
+          </button>
+          <button
+            onClick={() => setFilterActive(true)}
+            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${filterActive ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Active Swarms Only
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 bg-[#0a0f1c] border border-gray-800 rounded-2xl relative overflow-hidden flex">
@@ -26,10 +43,10 @@ const Topology = () => {
         {/* Topology View (Simplified SVG Map) */}
         <div className="flex-1 relative flex items-center justify-center">
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
-            {repos.map(repo => 
+            {(filterActive ? repos.filter(r => r.activeSwarm) : repos).map(repo =>
               repo.dependencies.map(depId => {
                 const dep = repos.find(r => r.id === depId);
-                if (!dep) return null;
+                if (!dep || (filterActive && !dep.activeSwarm)) return null;
                 return (
                   <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} />
                 );
@@ -38,7 +55,7 @@ const Topology = () => {
           </svg>
 
           <div className="relative z-10 grid grid-cols-2 gap-32">
-            {repos.map((repo, idx) => (
+            {(filterActive ? repos.filter(r => r.activeSwarm) : repos).map((repo, idx) => (
               <Node 
                 key={repo.id} 
                 repo={repo} 
