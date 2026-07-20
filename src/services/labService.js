@@ -74,10 +74,22 @@ const initializeRealtime = () => {
   return connectChannel();
 };
 
+const disconnectRealtime = () => {
+  if (channel) {
+    supabase.removeChannel(channel);
+    channel = null;
+  }
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
+};
+
 // Initial setup call
 initializeRealtime();
 
 export const labService = {
+  disconnectRealtime,
   subscribe: (l) => {
     listeners.add(l);
     return () => listeners.delete(l);
@@ -132,10 +144,22 @@ export const labService = {
     return data;
   },
 
-  logIncident: (message) => {
+  logIncident: async (message) => {
     const log = { id: Date.now() + Math.random(), text: `[CRITICAL] ${message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
     addSystemLog(log);
     broadcast({ type: 'LOG_ADDED', log });
+
+    try {
+      await supabase.from('coding_tasks_errors').insert([
+        {
+          status: 'FAILED',
+          message: message,
+          context: { actor: 'Asguard_WAF', target: 'axim-core-api' }
+        }
+      ]);
+    } catch (err) {
+      console.error('Failed to write incident to database:', err);
+    }
   },
 
   triggerTask: async (payload) => {
@@ -213,10 +237,38 @@ export const labService = {
     return Promise.resolve(taskId);
   },
 
-  getRepositories: () => Promise.resolve([
-    { id: 'R1', name: 'axim-core-api', health: 98, activeSwarm: true, lastPatch: '2h ago', language: 'TypeScript', coverage: '94%', files: 142, branches: 12, dependencies: ['R3', 'R4'] },
-    { id: 'R2', name: 'frontend-dashboard', health: 92, activeSwarm: false, lastPatch: '1d ago', language: 'React', coverage: '88%', files: 85, branches: 4, dependencies: ['R1'] },
-  ]),
+  getRepositories: async () => {
+    try {
+      const { data, error } = await supabase.from('coding_tasks').select('repository_name, status, created_at').order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error fetching repositories:', error);
+        return [];
+      }
+
+      const repoMap = new Map();
+      data.forEach(task => {
+        if (!repoMap.has(task.repository_name)) {
+          repoMap.set(task.repository_name, {
+            id: `R-${task.repository_name}`,
+            name: task.repository_name,
+            health: 100,
+            activeSwarm: task.status === 'IN_PROGRESS',
+            lastPatch: new Date(task.created_at).toLocaleDateString(),
+            language: 'Unknown',
+            coverage: 'N/A',
+            files: 0,
+            branches: 0,
+            dependencies: []
+          });
+        }
+      });
+
+      return Array.from(repoMap.values());
+    } catch (err) {
+      console.error('Exception fetching repositories:', err);
+      return [];
+    }
+  },
 
   getSecurityIncidents: () => Promise.resolve([
     { id: 'SEC-102', severity: 'CRITICAL', type: 'SQL Injection', target: 'axim-core-api', path: '/v1/auth/login', status: 'UNRESOLVED', time: '12m ago' }
@@ -330,22 +382,22 @@ export const labService = {
 
   getAuditLogs: async () => {
     try {
-      const { data, error } = await supabase.from('coding_tasks_errors').select('*');
+      const { data, error } = await supabase.from('coding_tasks_errors').select('*').order('created_at', { ascending: false });
       if (error) {
         console.error('Error fetching audit logs:', error);
-        return [{ id: 'AL-ERR', timestamp: new Date().toISOString(), actor: 'System', action: 'FETCH_ERROR', target: 'DB', status: 'FAILED' }];
+        return [];
       }
       return data.map(row => ({
         id: row.id,
         timestamp: new Date(row.created_at).toLocaleString(),
-        actor: 'Asguard_WAF', // Default as per constraints
-        action: 'DEPLOY_SWARM', // Default action
-        target: 'axim-core-api', // Default target
+        actor: row.context?.actor || 'Asguard_WAF',
+        action: row.message || 'DEPLOY_SWARM',
+        target: row.context?.target || 'axim-core-api',
         status: row.status || 'SUCCESS'
       }));
     } catch (err) {
       console.error('Exception fetching audit logs:', err);
-      return [{ id: 'AL-ERR', timestamp: new Date().toISOString(), actor: 'System', action: 'FETCH_ERROR', target: 'DB', status: 'FAILED' }];
+      return [];
     }
   },
 
