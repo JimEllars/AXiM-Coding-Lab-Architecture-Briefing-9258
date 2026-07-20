@@ -151,12 +151,19 @@ const Telemetry = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6">
+        <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 relative">
           <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
             <SafeIcon name="Activity" className="text-blue-400" />
             Token Expenditure Swarm (7D)
           </h3>
-          <ReactECharts option={chartOption} style={{ height: '300px' }} />
+          <div className="relative">
+            {(isZeroData || data.tokenUsage.length === 0) && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center text-gray-500 font-mono text-xs bg-[#0a0f1c]/80 backdrop-blur-sm">
+                [STANDBY] No LLM Proxy consumption recorded for selected range.
+              </div>
+            )}
+            <ReactECharts option={chartOption} style={{ height: '300px' }} />
+          </div>
         </div>
         <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6">
           <h3 className="text-sm font-medium text-white mb-4">Node Health Status</h3>

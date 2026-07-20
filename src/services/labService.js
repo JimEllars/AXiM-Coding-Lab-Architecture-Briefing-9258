@@ -270,9 +270,37 @@ export const labService = {
     }
   },
 
-  getSecurityIncidents: () => Promise.resolve([
-    { id: 'SEC-102', severity: 'CRITICAL', type: 'SQL Injection', target: 'axim-core-api', path: '/v1/auth/login', status: 'UNRESOLVED', time: '12m ago' }
-  ]),
+  getSecurityIncidents: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('coding_tasks_errors')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching security incidents:', error);
+        return [];
+      }
+
+      const incidents = data.filter(row => row.context?.actor === 'Asguard_WAF' || row.message?.includes('security'));
+
+      return incidents.map(row => ({
+        id: row.id,
+        severity: 'CRITICAL',
+        type: row.message || 'Security Incident',
+        target: row.context?.target || 'axim-core-api',
+        path: row.context?.path || 'N/A',
+        status: row.status || 'UNRESOLVED',
+        time: new Date(row.created_at).toLocaleString(),
+        task_id: row.id,
+        error_message: row.message,
+        created_at: row.created_at
+      }));
+    } catch (err) {
+      console.error('Exception fetching security incidents:', err);
+      return [];
+    }
+  },
 
   getTelemetryData: async () => {
     try {

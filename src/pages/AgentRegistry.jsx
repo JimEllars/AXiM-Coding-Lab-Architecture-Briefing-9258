@@ -8,8 +8,45 @@ const AgentRegistry = () => {
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    labService.getAgents().then(setAgents);
+    let currentAgents = [];
+
+    labService.getAgents().then(agents => {
+      currentAgents = agents;
+      setAgents(agents);
+    });
     labService.getOrgStats().then(setStats);
+
+    const fetchTasks = async () => {
+      const tasks = await labService.getTasks();
+      updateAgentStatus(tasks);
+    };
+
+    const updateAgentStatus = (tasks) => {
+      setAgents(prevAgents => {
+        return prevAgents.map(agent => {
+          const isActive = tasks.some(t => {
+            const statusMatch = ['Generating', 'Committing', 'Review Gate'].includes(t.status);
+            const modelMatch = t.assigned_model === agent.model || t.context?.assigned_model === agent.model || (!t.assigned_model && !t.context?.assigned_model);
+            return statusMatch && modelMatch;
+          });
+
+          return {
+            ...agent,
+            status: isActive ? 'ACTIVE' : 'IDLE'
+          };
+        });
+      });
+    };
+
+    fetchTasks();
+
+    const unsubscribe = labService.subscribe((event) => {
+      if (event.type === 'TASKS_UPDATED') {
+        updateAgentStatus(event.tasks);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   return (
@@ -34,21 +71,21 @@ const AgentRegistry = () => {
             key={agent.id}
             className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-6 relative overflow-hidden group hover:border-blue-500/30 transition-all"
           >
-            <div className={`absolute top-0 right-0 w-32 h-32 ${agent.status === 'Active' ? 'bg-green-500/5' : 'bg-blue-500/5'} blur-3xl rounded-full`}></div>
+            <div className={`absolute top-0 right-0 w-32 h-32 ${agent.status === 'ACTIVE' ? 'bg-blue-500/5' : 'bg-gray-500/5'} blur-3xl rounded-full`}></div>
             
             <div className="flex items-center justify-between mb-6 relative z-10">
               <div className="flex items-center gap-4">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${
-                  agent.status === 'Active' ? 'bg-green-500/10 border-green-500/30' : 'bg-blue-500/10 border-blue-500/30'
+                  agent.status === 'ACTIVE' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-gray-500/10 border-gray-500/30'
                 }`}>
-                  <SafeIcon name="Cpu" className={agent.status === 'Active' ? 'text-green-400 animate-pulse' : 'text-blue-400'} />
+                  <SafeIcon name="Cpu" className={agent.status === 'ACTIVE' ? 'text-blue-400 animate-pulse' : 'text-gray-400'} />
                 </div>
                 <div>
                   <h3 className="text-white font-bold group-hover:text-blue-400 transition-colors uppercase tracking-tight">{agent.name}</h3>
                   <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">{agent.role}</p>
                 </div>
               </div>
-              <div className={`w-2 h-2 rounded-full ${agent.status === 'Active' ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-600'}`}></div>
+              <div className={`w-2 h-2 rounded-full ${agent.status === 'ACTIVE' ? 'bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-gray-600'}`}></div>
             </div>
 
             <div className="space-y-4 relative z-10">
