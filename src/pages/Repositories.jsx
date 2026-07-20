@@ -10,6 +10,15 @@ const Repositories = () => {
 
   useEffect(() => {
     labService.getRepositories().then(setRepos);
+
+    const handleEvent = (event) => {
+      if (event.type === 'TASKS_UPDATED') {
+        labService.getRepositories().then(setRepos);
+      }
+    };
+
+    const unsubscribe = labService.subscribe(handleEvent);
+    return () => unsubscribe();
   }, []);
 
   const handleScan = (e, id) => {
@@ -32,7 +41,14 @@ const Repositories = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {repos.length === 0 ? (
+        <div className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-12 flex flex-col items-center justify-center text-center">
+          <SafeIcon name="Database" className="text-4xl text-gray-600 mb-4" />
+          <h3 className="text-lg font-bold text-white mb-2">No active repositories configured</h3>
+          <p className="text-sm text-gray-500 max-w-md">Connect your first repository to begin autonomous swarm operations and codebase management.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {repos.map((repo, idx) => (
           <Link to={`/repositories/${repo.id}`} key={repo.id}>
             <motion.div
@@ -98,7 +114,8 @@ const Repositories = () => {
             </motion.div>
           </Link>
         ))}
-      </div>
+            </div>
+      )}
     </div>
   );
 };
