@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import SafeIcon from '@/common/SafeIcon';
 import CommandPalette from '../CommandPalette';
 import CognitiveReasoning from '../CognitiveReasoning';
+import { labService } from '../../services/labService';
 
 const Sidebar = () => {
   const location = useLocation();
@@ -56,6 +57,32 @@ const NavItem = ({ to, icon, label, active, badge }) => (
 const DashboardLayout = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
+  const [activeLocks, setActiveLocks] = useState(0);
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const tasks = await labService.getTasks();
+      updateLockCount(tasks);
+    };
+
+    const updateLockCount = (tasks) => {
+      const lockCount = tasks.filter(t => ['Generating', 'Committing', 'Review Gate'].includes(t.status)).length;
+      setActiveLocks(lockCount);
+    };
+
+    fetchTasks();
+
+    const handleEvent = (event) => {
+      if (event.type === 'TASKS_UPDATED') {
+        updateLockCount(event.tasks || []);
+      }
+    };
+
+    const unsubscribe = labService.subscribe(handleEvent);
+    return () => unsubscribe();
+  }, []);
+
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#030712] text-gray-100 font-sans">
       <CommandPalette isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
@@ -72,6 +99,19 @@ const DashboardLayout = () => {
             <span className="text-[10px] bg-gray-800 px-1.5 py-0.5 rounded ml-4">⌘K</span>
           </button>
           <div className="flex items-center gap-4">
+            <div className="flex items-center">
+              {activeLocks > 0 ? (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                  <SafeIcon name="Lock" className="text-sm" />
+                  <span className="text-[10px] font-bold font-mono tracking-widest">{activeLocks} ACTIVE LOCKS</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-800/50 border border-gray-800 text-gray-500">
+                  <SafeIcon name="Lock" className="text-sm" />
+                  <span className="text-[10px] font-bold font-mono tracking-widest">0 LOCKS</span>
+                </div>
+              )}
+            </div>
             <div className="text-right hidden sm:block">
               <p className="text-[10px] text-white font-bold leading-none">Admin Ellars</p>
               <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">Superuser</p>

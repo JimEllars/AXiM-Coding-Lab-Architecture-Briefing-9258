@@ -91,6 +91,7 @@ const Telemetry = () => {
 
 
 
+  const isZeroData = data.tokenUsage.length > 0 && data.tokenUsage.every(v => v === 0);
   const chartOption = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
