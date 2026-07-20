@@ -29,7 +29,16 @@ const AuditLogs = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800 text-sm">
-            {logs.map((log, idx) => (
+            {logs.length === 0 ? (
+              <tr>
+                <td colSpan="5" className="px-6 py-12 text-center text-gray-500 font-mono text-xs">
+                  <div className="flex flex-col items-center gap-3">
+                    <SafeIcon name="Search" className="text-gray-600 text-2xl" />
+                    No system anomalies or audit events recorded
+                  </div>
+                </td>
+              </tr>
+            ) : logs.map((log, idx) => (
               <motion.tr 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -41,9 +50,9 @@ const AuditLogs = () => {
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-blue-600/20 flex items-center justify-center border border-blue-500/30">
-                      <SafeIcon name={log.actor.includes('WAF') ? 'Shield' : 'User'} className="text-[10px] text-blue-400" />
+                      <SafeIcon name={(log.actor || 'WAF').includes('WAF') ? 'Shield' : 'User'} className="text-[10px] text-blue-400" />
                     </div>
-                    <span className="text-white font-medium">{log.actor}</span>
+                    <span className="text-white font-medium">{log.actor || 'Autonomous Swarm'}</span>
                   </div>
                 </td>
                 <td className="px-6 py-4">

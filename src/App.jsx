@@ -13,8 +13,16 @@ import Settings from './pages/Settings';
 import SecOps from './pages/SecOps';
 import KnowledgeBase from './pages/KnowledgeBase';
 import AgentRegistry from './pages/AgentRegistry';
+import { useEffect } from 'react';
+import { labService } from './services/labService';
 
 function App() {
+  useEffect(() => {
+    return () => {
+      labService.disconnectRealtime();
+    };
+  }, []);
+
   return (
     <Router>
       <Routes>

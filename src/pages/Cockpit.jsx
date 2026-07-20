@@ -16,6 +16,7 @@ const Cockpit = () => {
 
   const handleAutoPatch = async () => {
     setIsPatching(true);
+    setPatchStatus('PATCHING');
     try {
       await labService.triggerTask({
         repository_name: 'axim-core-api',
@@ -24,10 +25,11 @@ const Cockpit = () => {
         origin_source: 'Asguard_WAF'
       });
       console.log("[Asguard] Threat vector patch orchestration successfully handed off to edge worker.");
-      setPatchStatus('REMEDIATING');
+      setPatchStatus('RESOLVED');
     } catch (err) {
       console.error("[Asguard] Failed to trigger patch orchestration:", err);
       labService.logIncident('Worker rejected compilation - ' + err.message);
+      setPatchStatus('UNRESOLVED');
     } finally {
       setIsPatching(false);
     }
@@ -74,22 +76,32 @@ const Cockpit = () => {
               Asguard Security Feed
             </h3>
             <div className="space-y-4">
-              {patchStatus === 'UNRESOLVED' ? (
+              {patchStatus === 'UNRESOLVED' && (
               <div className="p-3 rounded-lg bg-orange-500/5 border border-orange-500/20 text-[11px] text-orange-200">
                 <p className="font-bold mb-1 uppercase tracking-wider flex items-center gap-2">
                   <SafeIcon name="AlertTriangle" />
-                  Threat Detection
+                  UNRESOLVED
                 </p>
                 Potential SQL Injection vector identified in <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
               </div>
-              ) : (
-              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-[11px] text-green-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-green-400 to-transparent animate-shimmer"></div>
+              )}
+              {patchStatus === 'PATCHING' && (
+              <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30 text-[11px] text-purple-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-purple-400 to-transparent animate-shimmer"></div>
                 <p className="font-bold mb-1 uppercase tracking-wider flex items-center gap-2">
-                  <SafeIcon name="CheckCircle" className="animate-pulse" />
-                  REMEDIATING
+                  <SafeIcon name="Loader" className="animate-pulse" />
+                  PATCHING...
                 </p>
-                Swarm active. Security patch deployed to <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
+                Swarm active. Security patch deploying to <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
+              </div>
+              )}
+              {patchStatus === 'RESOLVED' && (
+              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-[11px] text-green-300 relative overflow-hidden">
+                <p className="font-bold mb-1 uppercase tracking-wider flex items-center gap-2">
+                  <SafeIcon name="CheckCircle" />
+                  RESOLVED
+                </p>
+                Security patch deployed to <code className="text-white bg-gray-900 px-1 rounded">auth_api/v2/login</code>.
               </div>
               )}
               <button
