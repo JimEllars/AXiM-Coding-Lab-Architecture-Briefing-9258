@@ -9,10 +9,59 @@ const RepositoryDetail = () => {
   const navigate = useNavigate();
   const [repo, setRepo] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [fileTree, setFileTree] = useState([]);
+  const [loadingFiles, setLoadingFiles] = useState(true);
 
   useEffect(() => {
     labService.getRepositories().then(data => {
       setRepo(data.find(r => r.id === id));
+    });
+
+    labService.getTasks().then(tasks => {
+      const repoName = id.replace(/^R-/, '');
+      const repoTasks = tasks.filter(t => t.repository_name === repoName);
+
+      const filePaths = new Set();
+      repoTasks.forEach(t => {
+        if (t.target_file_path) {
+          filePaths.add(t.target_file_path);
+        }
+      });
+
+      if (filePaths.size === 0) {
+        setFileTree([]);
+      } else {
+        const defaultHealths = {
+          'src/core/auth.ts': { health: 99 },
+          'src/api/router.ts': { health: 94 },
+          'middleware/logger.ts': { health: 100 },
+          'config/security.yaml': { health: 62, warning: true },
+          'src/main.ts': { health: 98 },
+          'src/utils/crypto.ts': { health: 91 },
+          'tests/auth.spec.ts': { health: 88 }
+        };
+
+        const finalFiles = Array.from(filePaths).map(path => {
+          if (defaultHealths[path]) {
+            return { name: path, ...defaultHealths[path] };
+          }
+          return {
+            name: path,
+            health: Math.floor(Math.random() * 20) + 80,
+            warning: false
+          };
+        });
+
+        // Ensure default files are also included
+        Object.keys(defaultHealths).forEach(path => {
+          if (!filePaths.has(path)) {
+            finalFiles.push({ name: path, ...defaultHealths[path] });
+          }
+        });
+
+        setFileTree(finalFiles);
+      }
+      setLoadingFiles(false);
     });
   }, [id]);
 
@@ -87,13 +136,23 @@ const RepositoryDetail = () => {
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1 terminal-scroll">
-              <FileRow name="src/core/auth.ts" health={99} isSelected={selectedFile?.name === 'src/core/auth.ts'} onSelect={() => setSelectedFile({ name: 'src/core/auth.ts' })} />
-              <FileRow name="src/api/router.ts" health={94} isSelected={selectedFile?.name === 'src/api/router.ts'} onSelect={() => setSelectedFile({ name: 'src/api/router.ts' })} />
-              <FileRow name="middleware/logger.ts" health={100} isSelected={selectedFile?.name === 'middleware/logger.ts'} onSelect={() => setSelectedFile({ name: 'middleware/logger.ts' })} />
-              <FileRow name="config/security.yaml" health={62} warning isSelected={selectedFile?.name === 'config/security.yaml'} onSelect={() => setSelectedFile({ name: 'config/security.yaml' })} />
-              <FileRow name="src/main.ts" health={98} isSelected={selectedFile?.name === 'src/main.ts'} onSelect={() => setSelectedFile({ name: 'src/main.ts' })} />
-              <FileRow name="src/utils/crypto.ts" health={91} isSelected={selectedFile?.name === 'src/utils/crypto.ts'} onSelect={() => setSelectedFile({ name: 'src/utils/crypto.ts' })} />
-              <FileRow name="tests/auth.spec.ts" health={88} isSelected={selectedFile?.name === 'tests/auth.spec.ts'} onSelect={() => setSelectedFile({ name: 'tests/auth.spec.ts' })} />
+              {!loadingFiles && fileTree.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-gray-600 space-y-2">
+                  <SafeIcon name="FileMinus" className="text-3xl opacity-20" />
+                  <p className="text-xs font-mono uppercase tracking-widest">No active file paths indexed for this repository</p>
+                </div>
+              ) : (
+                fileTree.map(file => (
+                  <FileRow
+                    key={file.name}
+                    name={file.name}
+                    health={file.health}
+                    warning={file.warning}
+                    isSelected={selectedFile?.name === file.name}
+                    onSelect={() => setSelectedFile({ name: file.name })}
+                  />
+                ))
+              )}
             </div>
           </div>
         </div>
