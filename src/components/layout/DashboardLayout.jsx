@@ -4,6 +4,7 @@ import SafeIcon from '@/common/SafeIcon';
 import CommandPalette from '../CommandPalette';
 import CognitiveReasoning from '../CognitiveReasoning';
 import { labService } from '../../services/labService';
+import ErrorBoundary from '@/common/ErrorBoundary';
 
 const Sidebar = () => {
   const location = useLocation();
@@ -122,7 +123,9 @@ const DashboardLayout = () => {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-8 relative z-0 terminal-scroll">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

@@ -98,7 +98,18 @@ export const labService = {
   getTasks: async () => {
     const { data, error } = await supabase.from('coding_tasks').select('*').order('created_at', { ascending: false });
     if (error) console.error('Error fetching tasks:', error);
-    return data || [];
+
+    if (data) {
+      return data.map(task => {
+        if (task.context && task.context.comments) {
+          task.comments = task.context.comments;
+        } else {
+          task.comments = [];
+        }
+        return task;
+      });
+    }
+    return [];
   },
 
   getSystemLogs: () => [...SYSTEM_LOGS],
@@ -439,7 +450,37 @@ export const labService = {
   },
 
   addComment: async (taskId, text) => {
-    // Mocked for compatibility, depends on schema if tasks store comments
-    return Promise.resolve();
+    try {
+      const { data: task, error: fetchError } = await supabase.from('coding_tasks').select('*').eq('id', taskId).single();
+      if (fetchError || !task) {
+        console.error('Error fetching task for comment:', fetchError);
+        return false;
+      }
+
+      const newComment = {
+        id: Date.now().toString(),
+        author: 'Asguard Admin',
+        text,
+        time: new Date().toLocaleTimeString([], { hour12: false })
+      };
+
+      const context = task.context || {};
+      const comments = context.comments || [];
+      comments.push(newComment);
+      context.comments = comments;
+
+      const { error: updateError } = await supabase.from('coding_tasks').update({ context }).eq('id', taskId);
+      if (updateError) {
+        console.error('Error adding comment:', updateError);
+        return false;
+      }
+
+      const updatedTasks = await labService.getTasks();
+      broadcast({ type: 'TASKS_UPDATED', tasks: updatedTasks });
+      return true;
+    } catch (err) {
+      console.error('Exception adding comment:', err);
+      return false;
+    }
   }
 };
