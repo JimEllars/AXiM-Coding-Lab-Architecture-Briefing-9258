@@ -418,7 +418,7 @@ export const labService = {
       return data.map(row => ({
         id: row.id,
         timestamp: new Date(row.created_at).toLocaleString(),
-        actor: row.context?.actor || row.component || 'System Engine',
+        actor: row.context?.actor || 'Asguard_WAF',
         action: row.message || 'DEPLOY_SWARM',
         target: row.context?.target || 'axim-core-api',
         status: row.status || 'SUCCESS'
@@ -430,21 +430,6 @@ export const labService = {
   },
 
   mergePR: async (taskId) => {
-    try {
-      const { error: insertError } = await supabase.from('coding_tasks_errors').insert({
-        component: 'Human Operator',
-        error_type: 'PR_MERGED',
-        message: `Operator merged pull request for task lock ${taskId}`,
-        task_id: taskId,
-        status: 'SUCCESS'
-      });
-      if (insertError) {
-        console.error("Error appending PR merge trace log", insertError);
-      }
-    } catch (e) {
-      console.error("Exception appending PR merge trace log", e);
-    }
-
     const { error } = await supabase.from('coding_tasks').delete().eq('id', taskId);
     if(error) console.error("Error merging PR / deleting task", error);
 
