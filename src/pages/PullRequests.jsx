@@ -150,9 +150,9 @@ const PullRequests = () => {
                   className={`px-4 py-1.5 rounded text-xs font-medium transition-all flex items-center gap-2 ${view === 'discussion' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                   Discussion
-                  {selectedTask.comments?.length > 0 && (
+                  {selectedTask.context?.comments?.length > 0 && (
                     <span className="w-4 h-4 rounded-full bg-blue-600 text-[10px] flex items-center justify-center text-white">
-                      {selectedTask.comments.length}
+                      {selectedTask.context?.comments.length}
                     </span>
                   )}
                 </button>
@@ -179,7 +179,7 @@ const PullRequests = () => {
                       className="absolute inset-0 bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden flex flex-col"
                     >
                       <div className="flex-1 overflow-y-auto p-6 space-y-6 terminal-scroll">
-                        {selectedTask.comments?.map(comment => (
+                        {selectedTask.context?.comments?.map(comment => (
                           <div key={comment.id} className="flex gap-4">
                             <div className="w-8 h-8 rounded bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
                               <SafeIcon name="User" className="text-gray-500 text-xs" />
@@ -195,10 +195,10 @@ const PullRequests = () => {
                             </div>
                           </div>
                         ))}
-                        {selectedTask.comments?.length === 0 && (
+                        {selectedTask.context?.comments?.length === 0 && (
                           <div className="h-full flex flex-col items-center justify-center text-gray-600 space-y-2">
                             <SafeIcon name="MessageSquare" className="text-3xl opacity-20" />
-                            <p className="text-xs font-mono uppercase tracking-widest">No cognitive feedback recorded</p>
+                            <p className="text-xs font-mono uppercase tracking-widest">No human review comments on this task</p>
                           </div>
                         )}
                       </div>
