@@ -47,8 +47,9 @@ const Topology = () => {
               repo.dependencies.map(depId => {
                 const dep = repos.find(r => r.id === depId);
                 if (!dep || (filterActive && !dep.activeSwarm)) return null;
+                const isActive = repo.activeSwarm && dep.activeSwarm;
                 return (
-                  <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} />
+                  <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} isActive={isActive} />
                 );
               })
             )}
@@ -128,10 +129,16 @@ const Node = ({ repo, isSelected, onClick }) => (
   </motion.button>
 );
 
-const Connection = ({ from, to }) => {
+const Connection = ({ from, to, isActive }) => {
   // Mock SVG lines - in a real app these would use ref coordinates
   return (
-    <line x1="20%" y1="30%" x2="80%" y2="70%" stroke="#1e293b" strokeWidth="1" strokeDasharray="4" />
+    <line
+      x1="20%" y1="30%" x2="80%" y2="70%"
+      stroke={isActive ? "#3b82f6" : "#1e293b"}
+      strokeWidth={isActive ? "2" : "1"}
+      strokeDasharray={isActive ? "none" : "4"}
+      opacity={isActive ? "0.8" : "1"}
+    />
   );
 };
 
