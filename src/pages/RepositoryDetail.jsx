@@ -9,10 +9,35 @@ const RepositoryDetail = () => {
   const navigate = useNavigate();
   const [repo, setRepo] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [filePaths, setFilePaths] = useState([]);
 
   useEffect(() => {
     labService.getRepositories().then(data => {
-      setRepo(data.find(r => r.id === id));
+      const foundRepo = data.find(r => r.id === id);
+      setRepo(foundRepo);
+
+      if (foundRepo) {
+        labService.getTasks().then(tasks => {
+          const repoTasks = tasks.filter(t => t.repository_name === foundRepo.name && t.target_file_path);
+          const pathMap = new Map();
+
+          repoTasks.forEach(t => {
+            const path = t.target_file_path;
+            if (!pathMap.has(path)) {
+              pathMap.set(path, { name: path, health: 100, warning: false });
+            }
+            const current = pathMap.get(path);
+            if (t.status === 'ERROR' || t.status === 'FAILED') {
+              current.health = Math.max(0, current.health - 20);
+              current.warning = true;
+            } else if (t.status === 'IN_PROGRESS') {
+              current.health = Math.max(50, current.health - 10);
+            }
+          });
+
+          setFilePaths(Array.from(pathMap.values()));
+        });
+      }
     });
   }, [id]);
 
@@ -87,13 +112,23 @@ const RepositoryDetail = () => {
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1 terminal-scroll">
-              <FileRow name="src/core/auth.ts" health={99} isSelected={selectedFile?.name === 'src/core/auth.ts'} onSelect={() => setSelectedFile({ name: 'src/core/auth.ts' })} />
-              <FileRow name="src/api/router.ts" health={94} isSelected={selectedFile?.name === 'src/api/router.ts'} onSelect={() => setSelectedFile({ name: 'src/api/router.ts' })} />
-              <FileRow name="middleware/logger.ts" health={100} isSelected={selectedFile?.name === 'middleware/logger.ts'} onSelect={() => setSelectedFile({ name: 'middleware/logger.ts' })} />
-              <FileRow name="config/security.yaml" health={62} warning isSelected={selectedFile?.name === 'config/security.yaml'} onSelect={() => setSelectedFile({ name: 'config/security.yaml' })} />
-              <FileRow name="src/main.ts" health={98} isSelected={selectedFile?.name === 'src/main.ts'} onSelect={() => setSelectedFile({ name: 'src/main.ts' })} />
-              <FileRow name="src/utils/crypto.ts" health={91} isSelected={selectedFile?.name === 'src/utils/crypto.ts'} onSelect={() => setSelectedFile({ name: 'src/utils/crypto.ts' })} />
-              <FileRow name="tests/auth.spec.ts" health={88} isSelected={selectedFile?.name === 'tests/auth.spec.ts'} onSelect={() => setSelectedFile({ name: 'tests/auth.spec.ts' })} />
+              {filePaths.length > 0 ? (
+                filePaths.map((f, i) => (
+                  <FileRow
+                    key={i}
+                    name={f.name}
+                    health={f.health}
+                    warning={f.warning}
+                    isSelected={selectedFile?.name === f.name}
+                    onSelect={() => setSelectedFile({ name: f.name })}
+                  />
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center p-4">
+                  <SafeIcon name="FolderMinus" className="text-gray-600 text-3xl mb-2" />
+                  <p className="text-gray-500 text-xs font-mono">No active file paths indexed for this repository</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

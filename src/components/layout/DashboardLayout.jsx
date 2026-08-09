@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
+import ErrorBoundary from '@/common/ErrorBoundary';
 import SafeIcon from '@/common/SafeIcon';
 import CommandPalette from '../CommandPalette';
 import CognitiveReasoning from '../CognitiveReasoning';
@@ -122,7 +123,7 @@ const DashboardLayout = () => {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-8 relative z-0 terminal-scroll">
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </main>
       </div>
     </div>
