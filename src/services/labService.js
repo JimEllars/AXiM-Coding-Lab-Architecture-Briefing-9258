@@ -439,7 +439,47 @@ export const labService = {
   },
 
   addComment: async (taskId, text) => {
-    // Mocked for compatibility, depends on schema if tasks store comments
-    return Promise.resolve();
+    try {
+      const { data: taskData, error: fetchError } = await supabase
+        .from('coding_tasks')
+        .select('context')
+        .eq('id', taskId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching task for comment:', fetchError);
+        return;
+      }
+
+      const currentContext = taskData.context || {};
+      const comments = currentContext.comments || [];
+
+      const newComment = {
+        id: Date.now().toString(),
+        text,
+        author: 'Human Operator',
+        time: new Date().toLocaleTimeString([], { hour12: false })
+      };
+
+      const updatedContext = {
+        ...currentContext,
+        comments: [...comments, newComment]
+      };
+
+      const { error: updateError } = await supabase
+        .from('coding_tasks')
+        .update({ context: updatedContext })
+        .eq('id', taskId);
+
+      if (updateError) {
+        console.error('Error updating task with comment:', updateError);
+        return;
+      }
+
+      const tasks = await labService.getTasks();
+      broadcast({ type: 'TASKS_UPDATED', tasks });
+    } catch (err) {
+      console.error('Exception adding comment:', err);
+    }
   }
 };
