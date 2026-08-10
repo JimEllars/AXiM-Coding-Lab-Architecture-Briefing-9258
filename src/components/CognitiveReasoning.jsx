@@ -29,25 +29,7 @@ const CognitiveReasoning = () => {
     });
   }, []);
 
-  const updateChain = (idx, status) => {
-    setThoughtChain(prev => {
-      const next = [...prev];
-      if (next[idx]) next[idx].status = status;
-      return next;
-    });
-  };
 
-  const addChain = (text) => {
-    setThoughtChain(prev => [...prev, { text, status: 'loading' }]);
-    setTimeout(() => {
-      setThoughtChain(prev => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last) last.status = 'complete';
-        return next;
-      });
-    }, 800);
-  };
 
   return (
     <AnimatePresence>
