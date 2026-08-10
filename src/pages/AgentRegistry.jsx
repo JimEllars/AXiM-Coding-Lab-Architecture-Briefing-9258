@@ -5,6 +5,7 @@ import SafeIcon from '@/common/SafeIcon';
 
 const AgentRegistry = () => {
   const [agents, setAgents] = useState([]);
+  const [filterActive, setFilterActive] = useState(false);
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
@@ -56,14 +57,30 @@ const AgentRegistry = () => {
           <h1 className="text-2xl font-bold text-white tracking-tight">Swarm Personnel</h1>
           <p className="text-sm text-gray-400 mt-1">Status and performance of specialized autonomous agents</p>
         </div>
-        <div className="flex gap-4">
-          <MetricSmall label="ACTIVE_SWARM" value={stats?.activeSwarmSize || 0} />
-          <MetricSmall label="SUCCESS_RATE" value={stats?.prSuccessRate || '0%'} />
+        <div className="flex items-center gap-4">
+          <div className="flex bg-[#0a0f1c] p-1 rounded-lg border border-gray-800">
+            <button
+              onClick={() => setFilterActive(false)}
+              className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${!filterActive ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-gray-500 hover:text-gray-300 border border-transparent'}`}
+            >
+              All Agents
+            </button>
+            <button
+              onClick={() => setFilterActive(true)}
+              className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${filterActive ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-gray-500 hover:text-gray-300 border border-transparent'}`}
+            >
+              Active Only
+            </button>
+          </div>
+          <div className="flex gap-4">
+            <MetricSmall label="ACTIVE_SWARM" value={stats?.activeSwarmSize || 0} />
+            <MetricSmall label="SUCCESS_RATE" value={stats?.prSuccessRate || '0%'} />
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {agents.map((agent, idx) => (
+        {agents.filter(agent => !filterActive || agent.status === 'ACTIVE').map((agent, idx) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

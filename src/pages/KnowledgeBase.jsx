@@ -111,12 +111,15 @@ const KnowledgeBase = () => {
                   <option>Frontend</option>
                   <option>General</option>
                 </select>
-                <input 
-                  placeholder="Tags (comma separated)" 
-                  value={newNote.tags}
-                  onChange={e => setNewNote({...newNote, tags: e.target.value})}
-                  className="bg-[#111827] border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
+                <div>
+                  <input
+                    placeholder="Tags (comma-separated, e.g., secops, middleware)"
+                    value={newNote.tags}
+                    onChange={e => setNewNote({...newNote, tags: e.target.value})}
+                    className="w-full bg-[#111827] border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-[9px] text-gray-500 font-mono mt-1">Tags must be separated by commas to index correctly.</p>
+                </div>
               </div>
               <textarea 
                 placeholder="Contextual content for the swarm..." 
