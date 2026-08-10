@@ -5,6 +5,7 @@ import SafeIcon from '@/common/SafeIcon';
 
 const CommandPalette = ({ isOpen, onClose }) => {
   const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -18,6 +19,10 @@ const CommandPalette = ({ isOpen, onClose }) => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
 
   if (!isOpen) return null;
 
@@ -59,7 +64,21 @@ const CommandPalette = ({ isOpen, onClose }) => {
             value={query} 
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search commands, repositories, or tasks..." 
-            className="flex-1 bg-transparent border-none outline-none text-white text-sm" 
+            className="flex-1 bg-transparent border-none outline-none text-white text-sm"
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedIndex((prev) => (prev < commands.length - 1 ? prev + 1 : prev));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+              } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (commands[selectedIndex]) {
+                  handleSelect(commands[selectedIndex].path);
+                }
+              }
+            }}
           />
           <span className="text-[10px] text-gray-500 font-mono bg-gray-800 px-1.5 py-0.5 rounded">ESC</span>
         </div>
@@ -68,7 +87,8 @@ const CommandPalette = ({ isOpen, onClose }) => {
             <button 
               key={idx} 
               onClick={() => handleSelect(cmd.path)}
-              className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-blue-600/10 group transition-all"
+              onMouseEnter={() => setSelectedIndex(idx)}
+              className={`w-full flex items-center justify-between p-3 rounded-xl group transition-all ${idx === selectedIndex ? 'bg-blue-600/20 ring-1 ring-blue-500/50' : 'hover:bg-blue-600/10'}`}
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-gray-800 group-hover:bg-blue-600/20 group-hover:text-blue-400 transition-colors">
