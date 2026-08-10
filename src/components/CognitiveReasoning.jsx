@@ -11,15 +11,17 @@ const CognitiveReasoning = () => {
     return labService.subscribe((event) => {
       if (event.type === 'REASONING_START') {
         setActiveTask({ id: event.taskId, prompt: event.prompt });
-        setThoughtChain([
-          { text: 'Initializing neural context...', status: 'complete' },
-          { text: 'Parsing repository AST for structural patterns...', status: 'loading' }
-        ]);
         
-        // Simulate chain development
-        setTimeout(() => updateChain(1, 'complete'), 1000);
-        setTimeout(() => addChain('Analyzing security vectors for ReDoS vulnerability...'), 1800);
-        setTimeout(() => addChain('Synthesizing remediation patch (DeepSeek-Coder)...'), 2800);
+        labService.getTasks().then(tasks => {
+          const task = tasks.find(t => t.id === event.taskId);
+          const traces = task ? (task.context?.reasoning_trace || task.reasoning_trace || []) : [];
+
+          if (traces.length > 0) {
+            setThoughtChain(traces.map(text => ({ text, status: 'complete' })));
+          } else {
+            setThoughtChain([]);
+          }
+        });
       }
       if (event.type === 'REASONING_END') {
         setTimeout(() => setActiveTask(null), 2000);
@@ -73,27 +75,31 @@ const CognitiveReasoning = () => {
 
               <div className="space-y-4">
                 <p className="text-[10px] text-gray-500 font-mono uppercase">Thought Chain</p>
-                <div className="space-y-3">
-                  {thoughtChain.map((thought, idx) => (
-                    <motion.div 
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      key={idx} 
-                      className="flex items-center gap-3"
-                    >
-                      {thought.status === 'loading' ? (
-                        <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
-                      ) : (
-                        <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-                          <SafeIcon name="Check" className="text-[10px] text-white" />
-                        </div>
-                      )}
-                      <span className={`text-xs font-mono ${thought.status === 'loading' ? 'text-blue-400 animate-pulse' : 'text-gray-400'}`}>
-                        {thought.text}
-                      </span>
-                    </motion.div>
-                  ))}
-                </div>
+                {thoughtChain.length > 0 ? (
+                  <div className="space-y-3">
+                    {thoughtChain.map((thought, idx) => (
+                      <motion.div
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        key={idx}
+                        className="flex items-center gap-3"
+                      >
+                        {thought.status === 'loading' ? (
+                          <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
+                            <SafeIcon name="Check" className="text-[10px] text-white" />
+                          </div>
+                        )}
+                        <span className={`text-xs font-mono ${thought.status === 'loading' ? 'text-blue-400 animate-pulse' : 'text-gray-400'}`}>
+                          {thought.text}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs font-mono text-gray-500 italic">No reasoning trace available for this task.</div>
+                )}
               </div>
             </div>
 

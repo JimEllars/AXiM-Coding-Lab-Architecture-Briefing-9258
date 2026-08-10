@@ -323,7 +323,14 @@ export default {
       }
 
       // Query KV to ensure this specific bug/feature isn't already being coded by the swarm
-      const activeLock = await env.TASK_LOCKS.get(`lock:${taskIdentifier}`);
+      let activeLock;
+      try {
+        activeLock = await env.TASK_LOCKS.get(`lock:${taskIdentifier}`);
+      } catch (kvError) {
+        return new Response(JSON.stringify({ error: "Edge memory capacity exceeded. Try again in a few moments." }), {
+          status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
       if (activeLock) {
         return new Response(JSON.stringify({ 
           status: 'ignored', 
