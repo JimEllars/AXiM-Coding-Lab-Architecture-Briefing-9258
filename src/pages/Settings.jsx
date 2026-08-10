@@ -10,18 +10,34 @@ const Settings = () => {
   const [showSavedBanner, setShowSavedBanner] = useState(false);
 
 useEffect(() => {
-    const savedModel = localStorage.getItem('axim_model');
-    const savedTemp = localStorage.getItem('axim_temp');
-    const savedAutoRemediation = localStorage.getItem('axim_auto_remediation');
-    if (savedModel) setModel(savedModel);
-    if (savedTemp) setTemp(parseFloat(savedTemp));
-    if (savedAutoRemediation) setAutoRemediation(savedAutoRemediation === 'true');
+    const preferencesJson = localStorage.getItem('axim_lab_preferences');
+    if (preferencesJson) {
+      try {
+        const preferences = JSON.parse(preferencesJson);
+        if (preferences.model) setModel(preferences.model);
+        if (preferences.temp !== undefined) setTemp(parseFloat(preferences.temp));
+        if (preferences.autoRemediation !== undefined) setAutoRemediation(preferences.autoRemediation === true || preferences.autoRemediation === 'true');
+      } catch (e) {
+        console.error("Failed to parse preferences from localStorage", e);
+      }
+    } else {
+      // Fallback to legacy keys for migration
+      const savedModel = localStorage.getItem('axim_model');
+      const savedTemp = localStorage.getItem('axim_temp');
+      const savedAutoRemediation = localStorage.getItem('axim_auto_remediation');
+      if (savedModel) setModel(savedModel);
+      if (savedTemp) setTemp(parseFloat(savedTemp));
+      if (savedAutoRemediation) setAutoRemediation(savedAutoRemediation === 'true');
+    }
   }, []);
 
 const handleSave = () => {
-    localStorage.setItem('axim_model', model);
-    localStorage.setItem('axim_temp', temp.toString());
-    localStorage.setItem('axim_auto_remediation', autoRemediation.toString());
+    const preferences = {
+      model,
+      temp,
+      autoRemediation
+    };
+    localStorage.setItem('axim_lab_preferences', JSON.stringify(preferences));
     setShowSavedBanner(true);
     setTimeout(() => setShowSavedBanner(false), 3000);
   };

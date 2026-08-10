@@ -9,7 +9,26 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorToast, setErrorToast] = useState(null);
 
-  const lines = (diff || '').split('\n');
+
+  let processedDiff = diff || '';
+  if (task && (task.b64_content || task.encoded)) {
+    try {
+      processedDiff = atob(task.b64_content || diff);
+    } catch (e) {
+      // Don't set state directly in the render loop to avoid warnings
+      processedDiff = 'Unable to parse Base64 encoded payload'; // Fallback to avoid breaking render
+    }
+  }
+
+  // Set error toast if decoding fails but we do it outside render via effect hook
+  React.useEffect(() => {
+    if (processedDiff === 'Unable to parse Base64 encoded payload' && !errorToast) {
+      setErrorToast("Unable to parse Base64 encoded payload");
+    }
+  }, [processedDiff, errorToast]);
+
+  const lines = processedDiff.split('\n');
+
 
 
   const handleAction = async (status) => {
