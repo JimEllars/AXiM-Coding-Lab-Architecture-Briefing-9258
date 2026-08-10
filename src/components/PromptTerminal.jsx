@@ -93,6 +93,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="// Task: Describe the architectural modification or remediation..." 
               className="w-full h-full bg-transparent text-gray-200 font-mono text-sm p-6 resize-none focus:outline-none placeholder-gray-700 terminal-scroll relative z-10"
+              disabled={isGenerating}
               spellCheck="false"
             />
           </div>
@@ -131,7 +132,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
               }`}
             >
               {isGenerating ? <SafeIcon name="Loader" className="animate-spin text-sm" /> : <SafeIcon name="Zap" className="text-sm" />}
-              {isGenerating ? 'INITIATING SWARM...' : 'DEPLOY AGENTS'}
+              {isGenerating ? 'TRANSMITTING PAYLOAD TO EDGE...' : 'DEPLOY SWARM'}
             </button>
           </div>
         </div>
