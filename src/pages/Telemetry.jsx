@@ -111,7 +111,7 @@ const Telemetry = () => {
     series: [{
       data: data.tokenUsage,
       type: 'line',
-      smooth: true,
+      smooth: 0.4,
       color: '#3b82f6',
       areaStyle: {
         color: {
