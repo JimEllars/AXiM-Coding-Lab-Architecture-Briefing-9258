@@ -1,5 +1,30 @@
 import { Env } from './ingress';
 
+
+/**
+ * Utility: Unicode-safe Base64 decoding
+ */
+function decodeBase64Unicode(str: string): string {
+  const binaryString = atob(str);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Utility: Unicode-safe Base64 encoding
+ */
+function encodeBase64Unicode(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binaryString = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString);
+}
+
 export interface GithubContext {
   owner: string;
   repo: string;
@@ -39,7 +64,7 @@ export async function fetchCurrentFileState(
   }
 
   const data: any = await response.json();
-  const decodedContent = atob(data.content);
+  const decodedContent = decodeBase64Unicode(data.content);
   
   return {
     content: decodedContent,
@@ -94,7 +119,7 @@ export async function commitGeneratedCode(
   env: Env
 ): Promise<void> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}`;
-  const encodedContent = btoa(unescape(encodeURIComponent(newContent)));
+  const encodedContent = encodeBase64Unicode(newContent);
 
   const response = await fetch(url, {
     method: 'PUT',

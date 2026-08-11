@@ -58,7 +58,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
 }
 
 async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, env: Env): Promise<string> {
-  const systemInstructions = `You are an expert full-stack systems engineer specializing in edge-native cloud systems. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust or \`\`\`typescript), and do NOT include any introductory or conversational explanations. Your output must be instantly parseable by a compiler.`;
+  const systemInstructions = `You are an expert full-stack systems engineer specializing in edge-native cloud systems. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Your output must be instantly parseable by a compiler or interpreter.`;
   
   const promptBody = `### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
 
@@ -96,12 +96,21 @@ async function requestCognitiveCodeGeneration(currentCode: string, instructions:
 
 function cleanSanitizedCodeBlob(rawText: string): string {
   let clean = rawText.trim();
+
+  // Extract content if it's wrapped in a code block, ignoring surrounding conversational text.
+  const codeBlockRegex = /```[a-z]*\n([\s\S]*?)\n```/i;
+  const match = clean.match(codeBlockRegex);
+  if (match) {
+    return match[1].trim();
+  }
+
   if (clean.startsWith('```')) {
     const lines = clean.split('\n');
     if (lines[0].startsWith('```')) lines.shift();
-    if (lines[lines.length - 1] === '```') lines.pop();
+    if (lines[lines.length - 1].trim() === '```') lines.pop();
     clean = lines.join('\n').trim();
   }
+
   return clean;
 }
 
