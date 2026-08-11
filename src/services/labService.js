@@ -96,9 +96,14 @@ export const labService = {
   },
 
   getTasks: async () => {
-    const { data, error } = await supabase.from('coding_tasks').select('*').order('created_at', { ascending: false });
-    if (error) console.error('Error fetching tasks:', error);
-    return data || [];
+    try {
+      const { data, error } = await supabase.from('coding_tasks').select('*').order('created_at', { ascending: false });
+      if (error) console.error('Error fetching tasks:', error);
+      return data || [];
+    } catch (err) {
+      console.error('Exception fetching tasks:', err);
+      return [];
+    }
   },
 
   getSystemLogs: () => [...SYSTEM_LOGS],

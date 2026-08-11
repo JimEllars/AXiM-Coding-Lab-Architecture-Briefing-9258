@@ -4,7 +4,7 @@ import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
 import { generateHmacSignature } from '../utils/crypto';
 
-const DiffViewer = ({ diff, filePath, taskId, task }) => {
+const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
   const [issubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorToast, setErrorToast] = useState(null);
@@ -97,6 +97,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
       }
 
       setIsSuccess(true);
+      if (onActionSuccess) onActionSuccess(status);
     } catch (err) {
       setErrorToast(err.message || 'Transaction failed. Please try again.');
       setIsSubmitting(false);
