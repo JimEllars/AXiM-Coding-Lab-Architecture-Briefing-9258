@@ -10,6 +10,7 @@ const RepositoryDetail = () => {
   const [repo, setRepo] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePaths, setFilePaths] = useState([]);
+  const [activeTasks, setActiveTasks] = useState([]);
 
   useEffect(() => {
     labService.getRepositories().then(data => {
@@ -36,6 +37,7 @@ const RepositoryDetail = () => {
           });
 
           setFilePaths(Array.from(pathMap.values()));
+          setActiveTasks(repoTasks.filter(t => t.status !== 'SUCCESS' && t.status !== 'ERROR' && t.status !== 'FAILED'));
         });
       }
     });
@@ -165,6 +167,29 @@ const RepositoryDetail = () => {
                   Ecosystem View
                 </button>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-6 mt-6">
+            <h3 className="text-xs font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2">
+              <SafeIcon name="GitPullRequest" className="text-blue-400" />
+              ACTIVE PULL REQUESTS
+            </h3>
+            <div className="space-y-4">
+              {activeTasks.length > 0 ? (
+                activeTasks.map(t => (
+                  <div key={t.id} className="p-3 rounded-lg bg-[#111827] border border-gray-800 flex justify-between items-center">
+                    <span className="text-xs text-gray-300 font-mono truncate mr-2">{t.id}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase bg-blue-500/10 text-blue-400">
+                      {t.status}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 rounded-lg bg-[#111827] border border-gray-800 text-center">
+                  <p className="text-[10px] text-gray-500 font-mono">No active swarm operations.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
