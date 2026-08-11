@@ -37,6 +37,7 @@ const PullRequests = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [view, setView] = useState('diff'); // 'diff' | 'discussion'
   const [commentText, setCommentText] = useState('');
+  const [mergeToast, setMergeToast] = useState(null);
 
   useEffect(() => {
     const fetchTasks = () => labService.getTasks().then(data => {
@@ -79,6 +80,20 @@ const PullRequests = () => {
           <span>{tasks.length} PENDING REVIEW</span>
         </div>
       </div>
+
+      <AnimatePresence>
+        {mergeToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-24 right-8 z-50 px-4 py-3 bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg shadow-lg flex items-center gap-3 font-mono text-xs font-bold"
+          >
+            <SafeIcon name="CheckCircle" className="text-lg" />
+            {mergeToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-250px)]">
         {/* Sidebar List */}
@@ -168,7 +183,12 @@ const PullRequests = () => {
                       exit={{ opacity: 0, x: 10 }}
                       className="absolute inset-0"
                     >
-                      <DiffViewer diff={selectedTask.diff} filePath={selectedTask.file} taskId={selectedTask.id} task={selectedTask} />
+                      <DiffViewer diff={selectedTask.diff} filePath={selectedTask.file} taskId={selectedTask.id} task={selectedTask} onActionSuccess={(status) => {
+                        if (status === 'APPROVED') {
+                          setMergeToast('PULL REQUEST MERGED SUCCESSFULLY');
+                          setTimeout(() => setMergeToast(null), 3000);
+                        }
+                      }} />
                     </motion.div>
                   ) : (
                     <motion.div 
