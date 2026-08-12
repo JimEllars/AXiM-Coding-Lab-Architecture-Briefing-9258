@@ -5,7 +5,9 @@ import { Env } from './ingress';
  * Utility: Unicode-safe Base64 decoding
  */
 function decodeBase64Unicode(str: string): string {
-  const binaryString = atob(str);
+  // GitHub returns Base64 with newlines, so we need to remove them first
+  const cleanStr = str.replace(/\n/g, '');
+  const binaryString = atob(cleanStr);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
@@ -19,8 +21,10 @@ function decodeBase64Unicode(str: string): string {
 function encodeBase64Unicode(str: string): string {
   const bytes = new TextEncoder().encode(str);
   let binaryString = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binaryString += String.fromCharCode(bytes[i]);
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binaryString += String.fromCharCode.apply(null, chunk as unknown as number[]);
   }
   return btoa(binaryString);
 }
