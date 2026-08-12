@@ -58,7 +58,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
 }
 
 async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, env: Env): Promise<string> {
-  const systemInstructions = `You are an expert full-stack systems engineer specializing in edge-native cloud systems. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Your output must be instantly parseable by a compiler or interpreter.`;
+  const systemInstructions = `You are an expert full-stack systems engineer and Python execution specialist specializing in edge-native cloud systems and scalable sandbox environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any Python environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter.`;
   
   const promptBody = `### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
 
