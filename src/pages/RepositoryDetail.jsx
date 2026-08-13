@@ -48,7 +48,7 @@ const RepositoryDetail = () => {
     navigate('/', { state: { 
       repoId: repo.name, 
       filePath: selectedFile.name,
-      autoPrompt: `Refactor ${selectedFile.name} to improve structural integrity and security headers.`
+      autoPrompt: 'Refactor ' + selectedFile.name
     }});
   };
 
@@ -122,7 +122,7 @@ const RepositoryDetail = () => {
                     health={f.health}
                     warning={f.warning}
                     isSelected={selectedFile?.name === f.name}
-                    onSelect={() => setSelectedFile({ name: f.name })}
+                    onSelect={() => setSelectedFile(f)}
                   />
                 ))
               ) : (
@@ -206,9 +206,11 @@ const Stat = ({ label, value, color }) => (
 );
 
 const FileRow = ({ name, health, warning, isSelected, onSelect }) => (
-  <div 
+  <button
     onClick={onSelect}
-    className={`flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer border ${
+    type="button"
+    className={`w-full text-left flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer border ${
+
       isSelected ? 'bg-blue-600/10 border-blue-500/40' : 'bg-transparent border-transparent hover:bg-gray-800/30'
     }`}
   >
@@ -224,7 +226,7 @@ const FileRow = ({ name, health, warning, isSelected, onSelect }) => (
         <div className={`h-full ${health > 90 ? 'bg-green-500' : health > 70 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${health}%` }}></div>
       </div>
     </div>
-  </div>
+  </button>
 );
 
 export default RepositoryDetail;
