@@ -145,10 +145,10 @@ const RepositoryDetail = () => {
               <div className="flex justify-between items-end">
                 <div className="space-y-1">
                   <p className="text-[10px] text-gray-500 font-mono">LATENCY</p>
-                  <p className="text-lg font-bold text-white">42ms</p>
+                  <p className="text-lg font-bold text-white">N/A</p>
                 </div>
                 <div className="w-24 h-8 flex items-end gap-1">
-                  {[40, 60, 30, 80, 50, 90, 40].map((h, i) => (
+                  {[0, 0, 0, 0, 0, 0, 0].map((h, i) => (
                     <div key={i} className="flex-1 bg-blue-500/20 rounded-t-sm" style={{ height: `${h}%` }}></div>
                   ))}
                 </div>

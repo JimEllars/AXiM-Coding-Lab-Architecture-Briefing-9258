@@ -6,7 +6,7 @@ import CommandPalette from '../CommandPalette';
 import CognitiveReasoning from '../CognitiveReasoning';
 import { labService } from '../../services/labService';
 
-const Sidebar = () => {
+const Sidebar = ({ activeTaskCount }) => {
   const location = useLocation();
   return (
     <div className="w-64 bg-[#0a0f1c] border-r border-gray-800 h-screen flex flex-col z-20">
@@ -21,7 +21,7 @@ const Sidebar = () => {
 
       <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto terminal-scroll">
         <NavItem to="/" icon="Terminal" label="Dev Cockpit" active={location.pathname === '/'} />
-        <NavItem to="/prs" icon="GitPullRequest" label="Active PRs" badge="3" active={location.pathname === '/prs'} />
+        <NavItem to="/prs" icon="GitPullRequest" label="Active PRs" badge={activeTaskCount > 0 ? activeTaskCount : null} active={location.pathname === '/prs'} />
         <NavItem to="/repositories" icon="Database" label="Repositories" active={location.pathname.startsWith('/repositories')} />
         <NavItem to="/knowledge" icon="Book" label="Knowledge Base" active={location.pathname === '/knowledge'} />
         <NavItem to="/agents" icon="Users" label="Agent Registry" active={location.pathname === '/agents'} />
@@ -88,7 +88,7 @@ const DashboardLayout = () => {
     <div className="flex h-screen overflow-hidden bg-[#030712] text-gray-100 font-sans">
       <CommandPalette isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
       <CognitiveReasoning />
-      <Sidebar />
+      <Sidebar activeTaskCount={activeLocks} />
       <div className="flex-1 flex flex-col relative overflow-hidden">
         <header className="h-16 bg-[#030712]/50 backdrop-blur-xl border-b border-gray-800 flex items-center justify-between px-8 sticky top-0 z-40">
           <button 

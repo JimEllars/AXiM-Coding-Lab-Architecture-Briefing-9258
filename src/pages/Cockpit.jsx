@@ -8,6 +8,20 @@ import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
 
 const Cockpit = () => {
+  const [activeNodes, setActiveNodes] = useState(0);
+  const [totalNodes, setTotalNodes] = useState(8);
+
+  useEffect(() => {
+    const fetchNodes = async () => {
+      const agents = await labService.getAgents();
+      if (agents) {
+        setTotalNodes(agents.length || 8);
+        setActiveNodes(agents.filter(a => a.status === 'Active').length || 0);
+      }
+    };
+    fetchNodes();
+  }, []);
+
   const location = useLocation();
   const state = location.state;
 
@@ -120,11 +134,11 @@ const Cockpit = () => {
               Node Topology
             </h3>
             <div className="grid grid-cols-4 gap-2">
-              {[1,2,3,4,5,6,7,8].map(i => (
-                <div key={i} className={`h-1.5 rounded-full ${i <= 5 ? 'bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.5)]' : 'bg-gray-800'}`}></div>
+              {Array.from({ length: totalNodes }, (_, i) => i + 1).map(i => (
+                <div key={i} className={`h-1.5 rounded-full ${i <= activeNodes ? 'bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.5)]' : 'bg-gray-800'}`}></div>
               ))}
             </div>
-            <p className="text-[10px] text-gray-500 font-mono mt-3 uppercase">5/8 Compute Nodes Active</p>
+            <p className="text-[10px] text-gray-500 font-mono mt-3 uppercase">{activeNodes}/{totalNodes} Compute Nodes Active</p>
           </div>
         </div>
       </div>

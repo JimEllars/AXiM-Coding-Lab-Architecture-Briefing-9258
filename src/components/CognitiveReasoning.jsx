@@ -4,6 +4,16 @@ import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
 
 const CognitiveReasoning = () => {
+  const [model, setModel] = useState('DEEPSEEK-CODER-V2');
+  useEffect(() => {
+    try {
+      const prefs = JSON.parse(localStorage.getItem('axim_lab_preferences'));
+      if (prefs && prefs.model) {
+        setModel(prefs.model.toUpperCase());
+      }
+    } catch (e) { /* ignore */ }
+  }, []);
+
   const [activeTask, setActiveTask] = useState(null);
   const [thoughtChain, setThoughtChain] = useState([]);
 
@@ -91,7 +101,7 @@ const CognitiveReasoning = () => {
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 opacity-50"></div>
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 opacity-20"></div>
               </div>
-              <span className="text-[9px] font-mono text-gray-500">LLM_GATEWAY: DEEPSEEK-CODER-V2</span>
+              <span className="text-[9px] font-mono text-gray-500">LLM_GATEWAY: {model}</span>
             </div>
           </div>
         </motion.div>

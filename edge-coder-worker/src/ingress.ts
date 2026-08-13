@@ -20,11 +20,26 @@ export interface Env {
 }
 
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature',
-};
+
+const ALLOWED_ORIGINS = [
+  'https://axim-coding-lab-dashboard.pages.dev',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
+
+function getCorsHeaders(request: Request) {
+  const origin = request.headers.get('Origin');
+  const isAllowed = origin && ALLOWED_ORIGINS.includes(origin);
+  const allowOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
+
+  // Exclude origin matching for server-to-server or webhooks without an origin
+  return {
+    'Access-Control-Allow-Origin': origin ? allowOrigin : '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature',
+  };
+}
+
 
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -33,7 +48,7 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
-        headers: corsHeaders,
+        headers: getCorsHeaders(request),
       });
     }
 
@@ -43,17 +58,18 @@ export default {
         LAB_STATE: !!env.LAB_STATE,
         TASK_LOCKS: !!env.TASK_LOCKS,
         AXIM_INTERNAL_KEY: !!env.AXIM_INTERNAL_KEY,
-        GITHUB_PAT: !!env.GITHUB_PAT
+        GITHUB_PAT: !!env.GITHUB_PAT,
+        SUPABASE_SERVICE_ROLE_KEY: !!env.SUPABASE_SERVICE_ROLE_KEY
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
 
     // 1. Protocol Restriction
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
-        status: 405, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        status: 405, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
 
@@ -63,7 +79,7 @@ export default {
         const signature = request.headers.get('X-Hub-Signature-256');
         if (!signature) {
           return new Response(JSON.stringify({ error: 'Unauthorized: Missing GitHub Signature' }), {
-            status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
           });
         }
 
@@ -73,7 +89,7 @@ export default {
 
         if (!isVerified) {
           return new Response(JSON.stringify({ error: 'Unauthorized: Invalid GitHub Signature' }), {
-            status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
           });
         }
 
@@ -117,11 +133,11 @@ export default {
         }
 
         return new Response(JSON.stringify({ status: 'received' }), {
-          status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       } catch (error) {
         return new Response(JSON.stringify({ error: 'Webhook processing error' }), {
-          status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       }
     }
@@ -130,7 +146,7 @@ export default {
     const signature = request.headers.get('X-Axim-Signature');
     if (!signature) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature Boundary' }), { 
-        status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
 
@@ -139,7 +155,7 @@ export default {
     
     if (!isVerified) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), { 
-        status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
 
@@ -151,7 +167,7 @@ export default {
 
         if (!taskId) {
           return new Response(JSON.stringify({ error: 'Bad Request: Missing task_id' }), {
-            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
           });
         }
 
@@ -182,11 +198,11 @@ export default {
         }
 
         return new Response(JSON.stringify({ status: 'success', message: 'Lock evicted' }), {
-          status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       } catch (error) {
          return new Response(JSON.stringify({ error: 'Internal Error' }), {
-            status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
          });
       }
     }
@@ -200,7 +216,7 @@ export default {
 
         if (!task_id) {
           return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), {
-            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
           });
         }
 
@@ -210,13 +226,13 @@ export default {
              status: 'accepted',
              message: 'Patch rejected, task unlocked.'
            }), {
-             status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+             status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
            });
         }
 
         if (!pr_number || !repository_owner || !repository_name) {
           return new Response(JSON.stringify({ error: 'Bad Request: Missing PR metadata' }), {
-            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
           });
         }
 
@@ -263,7 +279,7 @@ export default {
           status: 'accepted',
           message: 'Deployment action initiated'
         }), {
-          status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       } catch (error: any) {
          if (taskIdentifier) {
@@ -305,7 +321,7 @@ export default {
              }
          }
          return new Response(JSON.stringify({ error: 'Bad Request' }), {
-            status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
          });
       }
     }
@@ -318,7 +334,7 @@ export default {
 
       if (!taskIdentifier) {
         return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { 
-          status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       }
 
@@ -328,7 +344,7 @@ export default {
         activeLock = await env.TASK_LOCKS.get(`lock:${taskIdentifier}`);
       } catch (kvError) {
         return new Response(JSON.stringify({ error: "Edge memory capacity exceeded. Try again in a few moments." }), {
-          status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 429, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       }
       if (activeLock) {
@@ -336,7 +352,7 @@ export default {
           status: 'ignored', 
           message: 'Task is currently locked and actively processing in the Lab.' 
         }), {
-          status: 202, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
         });
       }
 
@@ -351,12 +367,12 @@ export default {
         message: 'Payload verified. The Coding Lab swarm has initiated the task.',
         task_id: taskIdentifier 
       }), {
-        status: 202, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
 
     } catch (error) {
       return new Response(JSON.stringify({ error: 'Internal Ingress Error' }), { 
-        status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
   }
