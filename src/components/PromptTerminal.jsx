@@ -8,6 +8,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [targetRepo, setTargetRepo] = useState(initialRepo || 'axim-core-api');
   const [targetFile, setTargetFile] = useState(initialFile || '');
+  const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
   const [knowledge, setKnowledge] = useState([]);
   const [selectedContext, setSelectedContext] = useState([]);
   const [warningMessage, setWarningMessage] = useState(null);
@@ -33,7 +34,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         target_file_path: targetFile,
         origin_source: 'Manual_Dev_Cockpit',
         contextIds: selectedContext,
-        task_id: `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`
+        task_id: `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`,
+        runtime_env: targetRuntime
       });
       setPrompt('');
       setTargetFile('');
@@ -110,6 +112,17 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                   <option value="axim-core-api">axim-core-api</option>
                   <option value="frontend-dashboard">frontend-dashboard</option>
                   <option value="shared-styles">shared-styles</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Runtime</span>
+                <select
+                  value={targetRuntime}
+                  onChange={(e) => setTargetRuntime(e.target.value)}
+                  className="block w-36 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                >
+                  <option value="Node.js Edge">Node.js Edge</option>
+                  <option value="Python Sandbox">Python Sandbox</option>
                 </select>
               </div>
               <div className="space-y-1">
