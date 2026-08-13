@@ -5,6 +5,21 @@ import SafeIcon from '@/common/SafeIcon';
 import DiffViewer from '../components/DiffViewer';
 
 
+
+const RuntimeBadge = ({ runtime_env }) => {
+  const isPython = runtime_env === 'Python Sandbox';
+  return (
+    <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border ${
+      isPython
+        ? 'text-yellow-400 bg-blue-900/20 border-yellow-500/30'
+        : 'text-green-400 bg-green-500/10 border-green-500/20'
+    }`}>
+      {isPython ? <SafeIcon name="Box" className="text-[10px]" /> : <SafeIcon name="Zap" className="text-[10px]" />}
+      {isPython ? 'PYTHON SANDBOX' : 'NODE.JS EDGE'}
+    </span>
+  );
+};
+
 const OriginBadge = ({ origin_source }) => {
   const source = origin_source || 'Manual_Dev_Cockpit';
   if (source === 'Asguard_WAF') {
@@ -145,7 +160,7 @@ const PullRequests = () => {
                     <SafeIcon name="Cpu" className="text-blue-400" />
                   </div>
                   <div>
-                    <h3 className="text-white font-medium text-sm flex items-center gap-2">{selectedTask.id} <OriginBadge origin_source={selectedTask.origin_source || selectedTask.origin} /></h3>
+                    <h3 className="text-white font-medium text-sm flex items-center gap-2">{selectedTask.id} <OriginBadge origin_source={selectedTask.origin_source || selectedTask.origin} /> <RuntimeBadge runtime_env={selectedTask.context?.runtime_env || selectedTask.runtime_env} /></h3>
                     <p className="text-[11px] text-gray-500 font-mono tracking-tighter uppercase">BRANCH: {selectedTask.branch}</p>
                   </div>
                 </div>
