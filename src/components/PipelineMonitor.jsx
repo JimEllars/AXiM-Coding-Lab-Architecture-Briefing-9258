@@ -53,6 +53,7 @@ const OriginBadge = ({ origin_source }) => {
 
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
+  const [activePipeline, setActivePipeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingEviction, setConfirmingEviction] = useState({});
 
@@ -103,14 +104,20 @@ const PipelineMonitor = () => {
   };
 
   useEffect(() => {
-    labService.getTasks().then((res) => {
-      setTasks(res);
+    const processTasks = (newTasks) => {
+      setTasks(newTasks);
+      const active = newTasks
+        .filter(t => ['Generating', 'Committing', 'Review Gate', 'IN_PROGRESS'].includes(t.status))
+        .slice(0, 4);
+      setActivePipeline(active);
       setLoading(false);
-    });
+    };
+
+    labService.getTasks().then(processTasks);
+
     return labService.subscribe(event => {
       if (event.type === 'TASKS_UPDATED') {
-         setTasks(event.tasks);
-         setLoading(false);
+         processTasks(event.tasks);
       }
     });
   }, []);
@@ -127,7 +134,7 @@ const PipelineMonitor = () => {
           <SafeIcon name="Activity" className="text-green-500" />
           Task Pipeline
         </h3>
-        <span className="text-[10px] text-gray-500 font-mono">{tasks.length} ACTIVE LOCKS</span>
+        <span className="text-[10px] text-gray-500 font-mono">{activePipeline.length} ACTIVE LOCKS</span>
       </div>
       
       <div className="flex-1 overflow-y-auto p-3 space-y-3 terminal-scroll">
@@ -149,7 +156,10 @@ const PipelineMonitor = () => {
           </div>
         ) : (
           <AnimatePresence initial={false}>
-          {tasks.map((task, idx) => (
+          {activePipeline.length === 0 ? (
+            <div className="p-4 text-center text-gray-500 text-xs font-mono">NO ACTIVE OPERATIONS IN PIPELINE</div>
+          ) : (
+            activePipeline.map((task, idx) => (
             <motion.div
               layout
               initial={{ opacity: 0, x: -20 }}
@@ -185,7 +195,7 @@ const PipelineMonitor = () => {
                 </div>
               </div>
             </motion.div>
-          ))}
+          )))}
         </AnimatePresence>
         )}
       </div>
