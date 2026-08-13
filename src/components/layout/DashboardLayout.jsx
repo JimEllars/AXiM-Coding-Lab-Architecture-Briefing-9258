@@ -5,6 +5,7 @@ import SafeIcon from '@/common/SafeIcon';
 import CommandPalette from '../CommandPalette';
 import CognitiveReasoning from '../CognitiveReasoning';
 import { labService } from '../../services/labService';
+import { supabase } from '../../services/supabaseClient';
 
 const Sidebar = ({ activeTaskCount }) => {
   const location = useLocation();
@@ -59,6 +60,11 @@ const DashboardLayout = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const [activeLocks, setActiveLocks] = useState(0);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -117,9 +123,13 @@ const DashboardLayout = () => {
               <p className="text-[10px] text-white font-bold leading-none">Admin Ellars</p>
               <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">Superuser</p>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center">
-              <SafeIcon name="User" className="text-gray-500" />
-            </div>
+            <button
+              onClick={handleLogout}
+              className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center hover:bg-gray-700 hover:border-gray-600 transition-colors"
+              title="Logout"
+            >
+              <SafeIcon name="LogOut" className="text-gray-400" />
+            </button>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-8 relative z-0 terminal-scroll">
