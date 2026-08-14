@@ -12,6 +12,20 @@ export interface CodingTaskPayload {
   cf_ray?: string;
 }
 
+
+function prepareContextWindow(content: string, threshold: number = 32000): { content: string, truncated: boolean } {
+  if (content.length <= threshold) {
+    return { content, truncated: false };
+  }
+  const half = Math.floor(threshold / 2);
+  const start = content.slice(0, half);
+  const end = content.slice(-half);
+  return {
+    content: `${start}\n...[TRUNCATED FOR CONTEXT LIMITS]...\n${end}`,
+    truncated: true
+  };
+}
+
 export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env): Promise<void> {
   const {
     task_id,
@@ -31,8 +45,10 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`);
     const currentFile = await fetchCurrentFileState(githubCtx, env);
 
-    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway`);
-    const modifiedCode = await requestCognitiveCodeGeneration(currentFile.content, instruction_prompt, env);
+    const { content: safeContent, truncated } = prepareContextWindow(currentFile.content);
+
+    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
+    const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, env);
 
     console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`);
     await createTaskBranch(githubCtx, branchName, env);
@@ -48,7 +64,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
     console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
 
-    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray);
+    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated);
 
   } catch (error: any) {
     console.error(`[CODING_LAB_CRITICAL_FAULT] Task #${task_id} failed:`, error.message);
@@ -58,7 +74,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
 }
 
 async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, env: Env): Promise<string> {
-  const systemInstructions = `You are an expert full-stack systems engineer and Python execution specialist specializing in edge-native cloud systems and scalable sandbox environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any Python environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter.`;
+  const systemInstructions = `You are an expert full-stack systems engineer and Python execution specialist specializing in edge-native cloud systems and scalable sandbox environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any Python environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter. When generating Python code, you must ensure strict PEP-8 indentation and AST-valid logic. Do not return markdown explanations outside of the code block. Your output must be transport-ready for a sandboxed execution environment.`;
   
   const promptBody = `### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
 
@@ -114,7 +130,7 @@ function cleanSanitizedCodeBlob(rawText: string): string {
   return clean;
 }
 
-async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string): Promise<void> {
+async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false): Promise<void> {
   const telemetryBody = [{
     app_id: 'axim-coding-lab',
     endpoint: '/v1/gitops/pr-creation',
@@ -123,6 +139,22 @@ async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl
     error_message: null,
     metadata: { task_id: taskId, trigger_origin: source, pull_request_target: prUrl, cf_ray: cfRay || 'unknown' }
   }];
+
+  // Update the payload sent back to public.coding_tasks upon a successful generation
+  await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?task_id=eq.${taskId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+    },
+    body: JSON.stringify({
+      context: {
+        truncated: truncated,
+        execution_target: 'Python/Node'
+      }
+    })
+  });
 
   await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
     method: 'POST',
