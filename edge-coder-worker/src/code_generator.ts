@@ -10,6 +10,7 @@ export interface CodingTaskPayload {
   instruction_prompt: string;
   origin_source: 'Asguard_WAF' | 'Onyx_Support_Triage' | 'Manual_Dev_Cockpit';
   cf_ray?: string;
+  runtime_env?: string;
 }
 
 
@@ -35,7 +36,8 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     base_branch = 'main',
     instruction_prompt,
     origin_source,
-    cf_ray
+    cf_ray,
+    runtime_env = 'Node.js Edge'
   } = payload;
 
   const branchName = `axim-bot/hotfix-${task_id.substring(0, 8)}-${Date.now().toString().slice(-4)}`;
@@ -48,7 +50,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     const { content: safeContent, truncated } = prepareContextWindow(currentFile.content);
 
     console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
-    const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, env);
+    const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, env);
 
     console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`);
     await createTaskBranch(githubCtx, branchName, env);
@@ -64,7 +66,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
     console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
 
-    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated);
+    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env);
 
   } catch (error: any) {
     console.error(`[CODING_LAB_CRITICAL_FAULT] Task #${task_id} failed:`, error.message);
@@ -73,8 +75,8 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
   }
 }
 
-async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, env: Env): Promise<string> {
-  const systemInstructions = `You are an expert full-stack systems engineer and Python execution specialist specializing in edge-native cloud systems and scalable sandbox environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any Python environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter. When generating Python code, you must ensure strict PEP-8 indentation and AST-valid logic. Do not return markdown explanations outside of the code block. Your output must be transport-ready for a sandboxed execution environment.`;
+async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, runtime_env: string, env: Env): Promise<string> {
+  const systemInstructions = `You are an expert full-stack systems engineer specializing in ${runtime_env} architecture and scalable execution environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter. When generating Python code, you must ensure strict PEP-8 indentation and AST-valid logic. Do not return markdown explanations outside of the code block. Your output must be transport-ready for a sandboxed execution environment.`;
   
   const promptBody = `### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
 
@@ -130,7 +132,7 @@ function cleanSanitizedCodeBlob(rawText: string): string {
   return clean;
 }
 
-async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false): Promise<void> {
+async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false, runtimeEnv: string = 'Node.js Edge'): Promise<void> {
   const telemetryBody = [{
     app_id: 'axim-coding-lab',
     endpoint: '/v1/gitops/pr-creation',
@@ -151,7 +153,8 @@ async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl
     body: JSON.stringify({
       context: {
         truncated: truncated,
-        execution_target: 'Python/Node'
+        execution_target: 'Python/Node',
+        runtime_env: runtimeEnv
       }
     })
   });
