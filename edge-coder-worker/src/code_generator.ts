@@ -56,6 +56,12 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
     const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env);
 
+    console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`);
+    const isValid = await validateSyntax(modifiedCode, runtime_env);
+    if (!isValid) {
+      throw new Error('[AST_FAULT] The generated code failed structural syntax validation. Aborting commit.');
+    }
+
     console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`);
     await createTaskBranch(githubCtx, branchName, env);
 
@@ -197,4 +203,40 @@ async function logLabFaultToCore(taskId: string, error: any, env: Env): Promise<
   } catch (e) {
     console.error('[CORE_LOGGING_CRASH] Failed to sync error state back to database:', e);
   }
+}
+
+export async function validateSyntax(code: string, runtimeEnv: string): Promise<boolean> {
+  if (runtimeEnv === 'Node.js Edge') {
+    // Structural regex to check for mismatched curly braces {} and parentheses ()
+    const openBraces = (code.match(/\{/g) || []).length;
+    const closeBraces = (code.match(/\}/g) || []).length;
+    const openParens = (code.match(/\(/g) || []).length;
+    const closeParens = (code.match(/\)/g) || []).length;
+
+    if (openBraces !== closeBraces || openParens !== closeParens) {
+      return false;
+    }
+    return true;
+  } else if (runtimeEnv === 'Python Sandbox') {
+    // Check for mixed indentation (tabs vs. spaces)
+    const hasTabs = /^\t+/m.test(code);
+    const hasSpaces = /^ +/m.test(code);
+    if (hasTabs && hasSpaces) {
+      return false;
+    }
+
+    // Ensure basic block definitions end with a colon
+    const blockDefs = code.match(/^(?:\s*)(?:def|class|if|elif|else|for|while|try|except|finally|with)\b.*$/gm);
+    if (blockDefs) {
+      for (const def of blockDefs) {
+        // Strip comments and trailing whitespace
+        const cleanDef = def.replace(/#.*$/, '').trim();
+        if (!cleanDef.endsWith(':')) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  return true;
 }
