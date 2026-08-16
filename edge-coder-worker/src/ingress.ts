@@ -142,6 +142,57 @@ export default {
       }
     }
 
+    if (url.pathname === '/api/v1/webhooks/agent') {
+      if (request.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+          status: 405, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+        });
+      }
+
+      const agentSignature = request.headers.get('X-Axim-Signature');
+      if (!agentSignature) {
+        return new Response(JSON.stringify({ error: 'Invalid Agent Signature' }), {
+          status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+        });
+      }
+
+      const payloadText = await request.clone().text();
+      const isAgentVerified = await verifyHmacSignature(payloadText, agentSignature, env.AXIM_INTERNAL_KEY);
+
+      if (!isAgentVerified) {
+        return new Response(JSON.stringify({ error: 'Invalid Agent Signature' }), {
+          status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+        });
+      }
+
+      try {
+        const payload: any = JSON.parse(payloadText);
+
+        const mappedPayload = {
+          task_id: `AGENT-${Math.random().toString(36).substring(7).toUpperCase()}`,
+          repository_name: payload.repository,
+          target_file_path: payload.file,
+          instruction_prompt: payload.directive,
+          origin_source: payload.agent_origin || 'External_Agent',
+          cf_ray: request.headers.get('cf-ray') || 'unknown'
+        };
+
+        ctx.waitUntil(executeCodingPipeline(mappedPayload as any, env));
+
+        return new Response(JSON.stringify({
+          status: 'accepted',
+          message: 'Agent handoff accepted',
+          task_id: mappedPayload.task_id
+        }), {
+          status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: 'Invalid Payload' }), {
+          status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+        });
+      }
+    }
+
     // 2. The Zero-Trust Handshake: HMAC SHA-256 Validation
     const signature = request.headers.get('X-Axim-Signature');
     if (!signature) {
