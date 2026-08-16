@@ -204,3 +204,40 @@ export async function mergePullRequest(
     if (response.status === 409) { throw new Error(`Merge Conflict: PR #${prNumber} cannot be merged (409). Detail: ${errorDetail}`); } if (response.status === 422) { throw new Error(`Unprocessable Entity: PR #${prNumber} failed checks or protection (422). Detail: ${errorDetail}`); } throw new Error(`Failed to merge PR #${prNumber}: [${response.status}] ${errorDetail}`);
   }
 }
+
+/**
+ * Utility: Fetch repository dependencies (package.json or requirements.txt)
+ */
+export async function fetchRepositoryDependencies(
+  ctx: GithubContext,
+  env: Env
+): Promise<string> {
+  const tryFetch = async (filePath: string): Promise<string | null> => {
+    const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}?ref=${ctx.baseBranch || 'main'}`;
+    const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      return null;
+    }
+    const data: any = await response.json();
+    return decodeBase64Unicode(data.content);
+  };
+
+  try {
+    let content = await tryFetch('package.json');
+    if (content !== null) {
+      return content;
+    }
+
+    content = await tryFetch('requirements.txt');
+    if (content !== null) {
+      return content;
+    }
+  } catch (err) {
+    // ignore
+  }
+
+  return 'No explicit dependency graph located.';
+}
