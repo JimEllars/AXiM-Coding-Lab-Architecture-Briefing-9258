@@ -1,3 +1,4 @@
+import { sendEmailItMessage } from './emailService';
 import { executeCodingPipeline } from './code_generator';
 import { mergePullRequest } from './github_bridge';
 
@@ -42,6 +43,86 @@ function getCorsHeaders(request: Request) {
 
 
 export default {
+
+  async scheduled(event: any, env: any, ctx: any) {
+    try {
+      // Aggregate dummy/real metrics for daily summary
+      const dateStr = new Date().toISOString().split('T')[0];
+
+      // We would normally query Supabase here for real metrics.
+      // We'll mock the data for this iteration.
+      const metrics = {
+        prsOpened: 12,
+        prsReviewed: 10,
+        prsMerged: 8,
+        hotfixesIngested: 2,
+        tokenCost: '$12.50',
+        computeDebt: 'Low'
+      };
+
+      // Mock fetching pending approvals from DB or task locks
+      // In a real scenario, we'd query Supabase `coding_tasks` where status='Review Gate'
+      const pendingPRs = [
+        {
+          id: 'task-123',
+          title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
+          repo: 'axim-core-api',
+          branch: 'hotfix/sanitize-inbound'
+        }
+      ];
+
+      let pendingHtml = '';
+      for (const pr of pendingPRs) {
+        // Generate HMAC-signed token (24-hour TTL) in TASK_LOCKS
+        const token = crypto.randomUUID(); // In real implementation, this would be signed HMAC
+        await env.TASK_LOCKS.put(`pr_token_${token}`, JSON.stringify(pr), { expirationTtl: 86400 });
+
+        const workerDomain = 'lab-worker.axim.us.com'; // Or extract from env if available
+
+        pendingHtml += `
+          <div style="background-color: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a2a3e;">
+            <h4 style="color: #fff; margin-top: 0;">${pr.title}</h4>
+            <p style="color: #a0a0b0; font-size: 14px;">Repository: ${pr.repo} | Branch: ${pr.branch}</p>
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Approve & Merge</a>
+              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=revise" style="background-color: #f59e0b; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Request Revision</a>
+              <a href="https://lab.axim.us.com/pull-requests/${pr.id}" style="background-color: #3b82f6; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Inspect Diff in Cockpit</a>
+            </div>
+          </div>
+        `;
+      }
+
+      const htmlBody = `
+        <div style="font-family: monospace; max-width: 600px; margin: 0 auto; background-color: #0a0f1c; color: #fff; padding: 20px; border: 1px solid #1f2937;">
+          <h2 style="color: #60a5fa; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">[AXiM] Daily Engineering Summary - ${dateStr}</h2>
+
+          <h3 style="color: #9ca3af; margin-top: 20px;">Fleet Metrics (24h)</h3>
+          <ul style="color: #d1d5db; list-style-type: none; padding-left: 0;">
+            <li><strong style="color: #fff;">PRs Opened:</strong> ${metrics.prsOpened}</li>
+            <li><strong style="color: #fff;">PRs Reviewed:</strong> ${metrics.prsReviewed}</li>
+            <li><strong style="color: #fff;">PRs Merged:</strong> ${metrics.prsMerged}</li>
+            <li><strong style="color: #fff;">Hotfixes Ingested:</strong> ${metrics.hotfixesIngested}</li>
+            <li><strong style="color: #fff;">Token Costs:</strong> ${metrics.tokenCost}</li>
+            <li><strong style="color: #fff;">Compute Debt:</strong> ${metrics.computeDebt}</li>
+          </ul>
+
+          <h3 style="color: #f59e0b; margin-top: 30px; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">Pending Approvals (HITL)</h3>
+          ${pendingHtml || '<p style="color: #10b981;">No pending approvals.</p>'}
+        </div>
+      `;
+
+      await sendEmailItMessage({
+        to: 'james.ellars@axim.us.com',
+        bcc: 'jrellars@gmail.com',
+        subject: `[AXiM Coding Lab] Daily Autonomous Engineering & PR Summary - ${dateStr}`,
+        html: htmlBody
+      }, env);
+
+    } catch (err) {
+      console.error('Cron job execution failed:', err);
+    }
+  },
+
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 

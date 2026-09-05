@@ -14,6 +14,7 @@ import SecOps from './pages/SecOps';
 import KnowledgeBase from './pages/KnowledgeBase';
 import AgentRegistry from './pages/AgentRegistry';
 import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
 import { labService } from './services/labService';
 import { supabase } from './services/supabaseClient';
 
@@ -45,6 +46,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
         <Route path="/" element={session ? <DashboardLayout /> : <Navigate to="/login" />}>
           <Route index element={<Cockpit />} />

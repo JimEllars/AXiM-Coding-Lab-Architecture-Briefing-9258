@@ -90,14 +90,14 @@ const Repositories = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between items-center text-[10px] uppercase font-mono tracking-widest">
                     <span className="text-gray-500">Repository Health Index</span>
-                    <span className={repo.health > 90 ? 'text-green-400' : 'text-yellow-400'}>{repo.health}%</span>
+                    <span className={repo.health > 90 ? 'text-[#10b981]' : 'text-[#f59e0b]'}>{repo.health}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-gray-800/50 rounded-full overflow-hidden">
                     <motion.div 
                       initial={{ width: 0 }}
                       animate={{ width: `${repo.health}%` }}
                       transition={{ duration: 1, delay: 0.5 }}
-                      className={`h-full rounded-full ${repo.health > 90 ? 'bg-green-500' : 'bg-yellow-500'}`} 
+                      className={`h-full rounded-full ${repo.health > 90 ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}`}
                     />
                   </div>
                 </div>
