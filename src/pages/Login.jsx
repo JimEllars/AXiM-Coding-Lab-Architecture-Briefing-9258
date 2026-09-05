@@ -74,6 +74,14 @@ const Login = () => {
           >
             {loading ? 'Authenticating...' : 'Initialize Uplink'}
           </button>
+
+          <a
+            href="https://passport.axim.us.com/login?redirect=https://lab.axim.us.com/auth/callback"
+            className="w-full flex items-center justify-center gap-2 py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/50 text-purple-400 font-mono text-sm uppercase tracking-widest rounded-md transition-all mt-4"
+          >
+            <SafeIcon name="Shield" /> Connect via AXiM Passport
+          </a>
+
         </form>
       </div>
     </div>

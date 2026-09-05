@@ -24,3 +24,5 @@ id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 # 1. wrangler secret put AXIM_INTERNAL_KEY
 # 2. wrangler secret put GITHUB_PAT (Requires repo, workflow, and PR scopes)
 # 3. wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+[triggers]
+crons = ["0 14 * * *"]

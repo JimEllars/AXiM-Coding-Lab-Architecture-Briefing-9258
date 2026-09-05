@@ -96,7 +96,7 @@ const DashboardLayout = () => {
       <CognitiveReasoning />
       <Sidebar activeTaskCount={activeLocks} />
       <div className="flex-1 flex flex-col relative overflow-hidden">
-        <header className="h-16 bg-[#030712]/50 backdrop-blur-xl border-b border-gray-800 flex items-center justify-between px-8 sticky top-0 z-40">
+        <header className="h-16 backdrop-blur-md bg-slate-900/85 border-b border-slate-800 flex items-center justify-between px-8 sticky top-0 z-40">
           <button 
             onClick={() => setIsSearchOpen(true)}
             className="flex items-center gap-3 px-4 py-1.5 bg-gray-900 border border-gray-800 rounded-lg text-gray-500 hover:border-gray-700 transition-all"
@@ -120,11 +120,17 @@ const DashboardLayout = () => {
               )}
             </div>
             <div className="text-right hidden sm:block">
-              <p className="text-[10px] text-white font-bold leading-none">Admin Ellars</p>
-              <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">Superuser</p>
+              <p className="text-[10px] text-white font-bold leading-none">{localStorage.getItem('axim_user_profile') ? JSON.parse(localStorage.getItem('axim_user_profile')).name : 'Admin Ellars'}</p>
+              <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">{localStorage.getItem('axim_user_role') || 'Superuser'}</p>
             </div>
             <button
-              onClick={handleLogout}
+              onClick={async () => {
+                localStorage.removeItem('axim_internal_key');
+                localStorage.removeItem('axim_user_role');
+                localStorage.removeItem('axim_user_profile');
+                await handleLogout();
+                window.location.href = 'https://passport.axim.us.com/login?redirect=https://lab.axim.us.com/auth/callback';
+              }}
               className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center hover:bg-gray-700 hover:border-gray-600 transition-colors"
               title="Logout"
             >
