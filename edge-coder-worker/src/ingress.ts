@@ -1,6 +1,6 @@
 import { sendEmailItMessage } from './emailService';
-import { executeCodingPipeline } from './code_generator';
-import { mergePullRequest } from './github_bridge';
+import { executeCodingPipeline, executeAutonomousCodingTask } from './code_generator';
+import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
 
 export interface KVNamespace {
   get(key: string): Promise<string | null>;
@@ -339,7 +339,41 @@ export default {
       }
     }
 
+
+    // Ecosystem On-Demand Task Ingress
+    if (url.pathname === '/api/v1/tasks/dispatch') {
+      try {
+        const signature = request.headers.get('X-Axim-Signature');
+        if (!signature || !env.AXIM_INTERNAL_KEY) {
+          return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+        }
+
+        // Wait, for HMAC we need to parse body, but we need it as string
+        const clonedReq = request.clone();
+        const payloadText = await clonedReq.text();
+        const isValid = await verifyHmacSignature(payloadText, signature, env.AXIM_INTERNAL_KEY);
+        if (!isValid) {
+          return new Response(JSON.stringify({ error: 'Forbidden: Invalid Signature' }), { status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+        }
+
+        const payload: any = await request.json();
+        const taskId = payload.taskId;
+        if (!taskId) {
+           return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+        }
+
+        await env.TASK_LOCKS.put(`lock:${taskId}`, 'in_progress', { expirationTtl: 3600 });
+
+        ctx.waitUntil(executeAutonomousCodingTask(payload, env));
+
+        return new Response(JSON.stringify({ success: true, taskId, status: 'dispatched' }), { status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+      }
+    }
+
     if (url.pathname === '/api/v1/deploy-action') {
+
       let taskIdentifier: string | null = null;
       try {
         const payload: any = await request.clone().json();

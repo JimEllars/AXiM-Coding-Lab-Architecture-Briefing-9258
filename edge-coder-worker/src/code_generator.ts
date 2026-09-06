@@ -241,3 +241,63 @@ export async function validateSyntax(code: string, runtimeEnv: string): Promise<
   }
   return true;
 }
+
+
+export async function executeAutonomousCodingTask(task: any, env: Env): Promise<void> {
+  const taskId = task.taskId || `auto-${Date.now()}`;
+  const owner = 'axim';
+  const repo = task.repo || 'AXiM-Coding-Lab';
+  // Attempt to parse instructions for file path if not provided
+  let path = task.target_file_path;
+  if (!path) {
+    const match = task.instructions?.match(/(?:in|at|on) `?([a-zA-Z0-9_/-]+\.[a-zA-Z0-9]+)`?/);
+    path = match ? match[1] : 'README.md';
+  }
+  const githubCtx = { owner, repo, path };
+
+  try {
+    console.log(`[AUTONOMOUS_CODER] Task ${taskId} started for ${path}`);
+    const currentFile = await fetchCurrentFileState(githubCtx, env);
+    const depsContext = await fetchRepositoryDependencies(githubCtx, env);
+
+    const promptBody = `### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${currentFile.content}`;
+
+    const proxyPayload = {
+      provider: 'deepseek',
+      prompt: promptBody,
+      options: {
+        model: task.priority === 'high' ? 'claude-3-5' : 'deepseek-coder',
+        temperature: 0.2,
+        system: `You are AXiM Coder Core. Modify the code as requested. Output ONLY raw source code.`
+      }
+    };
+
+    const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` },
+      body: JSON.stringify(proxyPayload)
+    });
+
+    if (!response.ok) throw new Error(`LLM Error: ${response.statusText}`);
+    const result: any = await response.json();
+    const modifiedCode = cleanSanitizedCodeBlob(result.content || '');
+
+    const branchName = `axim-coder/task-${taskId.substring(0,8)}`;
+    await createTaskBranch(githubCtx, branchName, env);
+
+    const commitMessage = `feat/fix: ${task.title}`;
+    await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
+
+    const prTitle = `[AXiM Coder] ${task.title}`;
+    const prBody = `## Autonomous Engineering Task: ${taskId}\n\n**Requested By:** ${task.requestedBy || 'System'}\n**Priority:** ${task.priority || 'Normal'}\n\n### Instructions\n${task.instructions}\n\n*Review diff and merge.*`;
+    const prUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
+
+    console.log(`[AUTONOMOUS_CODER] Task ${taskId} PR opened at ${prUrl}`);
+    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env);
+
+  } catch (err: any) {
+    console.error(`[AUTONOMOUS_CODER] Task ${taskId} failed:`, err);
+  } finally {
+    await env.TASK_LOCKS.delete(`lock:${taskId}`);
+  }
+}

@@ -18,7 +18,8 @@ const addSystemLog = (log) => {
 };
 
 let AGENTS = [
-  { id: 'ONYX-01', name: 'Onyx Architect', role: 'System Design', status: 'Idle', model: 'DeepSeek-V2-Chat', capabilities: ['AST Parsing', 'Dependency Mapping'], uptime: '99.9%', tasks_completed: 142 },
+  { id: 'AXIM-CODER-01', name: 'AXiM Coder Core', role: 'Internal Autonomous Engineer', status: 'Active', model: 'Multi-Model (Claude/DeepSeek)', capabilities: ['Ecosystem Tasks', 'PR Sweeping', 'Edge Generation'], uptime: '100%', tasks_completed: 450, isPrimary: true },
+    { id: 'ONYX-01', name: 'Onyx Architect', role: 'System Design', status: 'Idle', model: 'DeepSeek-V2-Chat', capabilities: ['AST Parsing', 'Dependency Mapping'], uptime: '99.9%', tasks_completed: 142 },
   { id: 'ASGUARD-01', name: 'Asguard Sentry', role: 'SecOps Patching', status: 'Active', model: 'GPT-4o', capabilities: ['Vulnerability Scan', 'Sanitization'], uptime: '100%', tasks_completed: 89 },
   { id: 'KRONOS-01', name: 'Kronos DevOps', role: 'CI/CD Automation', status: 'Idle', model: 'Claude-3.5', capabilities: ['Wrangler Deploy', 'Workflow Gen'], uptime: '99.8%', tasks_completed: 215 }
 ];
@@ -238,7 +239,8 @@ export const labService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Axim-Signature': signature
+          'X-Axim-Signature': signature,
+          'Accept': 'text/event-stream'
         },
         body: payloadBody
       });
@@ -247,13 +249,49 @@ export const labService = {
          throw new Error(`Ingress Error: ${response.statusText}`);
       }
 
-      const responseData = await response.json();
+      if (response.headers.get('content-type')?.includes('text/event-stream')) {
+         const reader = response.body.getReader();
+         const decoder = new TextDecoder();
+         let done = false;
 
-      setTimeout(() => {
-        const log = { id: Date.now() + Math.random(), text: `[SYSTEM] Edge Swarm Task accepted: ${responseData.status}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
-        addSystemLog(log);
-        broadcast({ type: 'LOG_ADDED', log });
-      }, 2500);
+         const processStream = async () => {
+             try {
+                 while (!done) {
+                     const { value, done: doneReading } = await reader.read();
+                     done = doneReading;
+                     if (value) {
+                         const chunk = decoder.decode(value, { stream: true });
+                         const lines = chunk.split('\n');
+                         for (const line of lines) {
+                             if (line.startsWith('data: ')) {
+                                 const dataStr = line.replace('data: ', '').trim();
+                                 if (dataStr && !dataStr.startsWith('{": ping"}') && dataStr !== 'ping' && dataStr !== ': ping') {
+                                     try {
+                                         const ev = JSON.parse(dataStr);
+                                         const log = { id: Date.now() + Math.random(), text: ev.type === 'error' ? `[CRITICAL] ${ev.message}` : `[SYSTEM] ${ev.message}`, type: ev.type, time: new Date().toLocaleTimeString([], { hour12: false }) };
+                                         addSystemLog(log);
+                                         broadcast({ type: 'LOG_ADDED', log });
+                                     } catch (e) {
+                                        // Ignore parse errors on stream
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                 }
+             } finally {
+                 broadcast({ type: 'REASONING_END', taskId });
+             }
+         };
+         processStream();
+      } else {
+          const responseData = await response.json();
+          setTimeout(() => {
+            const log = { id: Date.now() + Math.random(), text: `[SYSTEM] Edge Swarm Task accepted: ${responseData.status}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
+            addSystemLog(log);
+            broadcast({ type: 'LOG_ADDED', log });
+          }, 2500);
+      }
 
     } catch (err) {
       console.error('Trigger Task Error:', err);
@@ -261,12 +299,8 @@ export const labService = {
         const log = { id: Date.now() + Math.random(), text: `[CRITICAL] Edge Swarm Task Failed: ${err.message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
         addSystemLog(log);
         broadcast({ type: 'LOG_ADDED', log });
-      }, 2500);
-      throw err;
-    } finally {
-      setTimeout(() => {
         broadcast({ type: 'REASONING_END', taskId });
-      }, 4800);
+      }, 2500);
     }
 
     return Promise.resolve(taskId);
