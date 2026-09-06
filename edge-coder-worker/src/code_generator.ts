@@ -27,7 +27,7 @@ function prepareContextWindow(content: string, threshold: number = 32000): { con
   };
 }
 
-export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env, writer?: WritableStreamDefaultWriter): Promise<void> {
+export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env, writer?: WritableStreamDefaultWriter, ctx?: any): Promise<void> {
   const sendEvent = async (type: string, message: string) => { if (writer) { await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type, message })}\n\n`)).catch(() => {}); } };
   const {
     task_id,
@@ -44,7 +44,47 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
   const branchName = `axim-bot/hotfix-${task_id.substring(0, 8)}-${Date.now().toString().slice(-4)}`;
   const githubCtx = { owner, repo, path, baseBranch: base_branch };
 
+  const startTime = Date.now();
+  let step_count = 0;
+  let tokens_consumed = 0;
+  let exit_code = 0;
+
+  const pushTelemetry = async (latency: number, steps: number, tokens: number, code: number) => {
+    try {
+    step_count++;
+      const telemetryPayload = {
+        task_id,
+        edge_latency_ms: latency,
+        tokens_consumed: tokens,
+        step_count: steps,
+        exit_code: code,
+        origin_source,
+        cf_ray: cf_ray || 'unknown'
+      };
+
+      const doFetch = fetch(`${env.SUPABASE_URL}/rest/v1/audit_logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+        },
+        body: JSON.stringify([telemetryPayload])
+      }).catch(e => console.error('Failed to emit telemetry:', e));
+
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(doFetch);
+      } else {
+        await doFetch;
+      }
+    } catch (e) {
+      console.error('Failed to push telemetry:', e);
+    }
+  };
+
+
   try {
+    step_count++;
     console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`); await sendEvent('log', `[SYSTEM] Fetching current file state for: ${path}`);
     const currentFile = await fetchCurrentFileState(githubCtx, env);
 
@@ -55,15 +95,18 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     const dependenciesContext = rawDependenciesContext.slice(0, 2000);
 
     console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
+    step_count++;
     const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env);
 
     console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`);
+    step_count++;
     const isValid = await validateSyntax(modifiedCode, runtime_env);
     if (!isValid) {
       throw new Error('[AST_FAULT] The generated code failed structural syntax validation. Aborting commit.');
     }
 
     console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('log', `[SYSTEM] Code generated cleanly. Provisioning task branch: ${branchName}`);
+    step_count++;
     await createTaskBranch(githubCtx, branchName, env);
 
     console.log(`[CODING_LAB] [${task_id}] Committing syntax modifications to Git tree`); await sendEvent('log', `[SYSTEM] Committing syntax modifications to Git tree`);
@@ -74,15 +117,24 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     const prTitle = `🤖 [ONYX BOT HOTFIX] Autonomous Remediation for Task #${task_id}`;
     const prBody = `## Autonomous Engineering Report\n\n**Origin Source:** ${origin_source}\n**Target File Asset:** \`${path}\`\n\n### Modifications Applied\n- Compiled structural patch based on ecosystem telemetry vectors.\n- Executed edge sanitization validation pass.\n\n*Review the diff maps in the tab above and press Merge to deploy.*`;
     
+    step_count++;
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
     console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('log', `[SYSTEM] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
 
+    step_count++;
+    tokens_consumed += 1500; // Approximated tokens
+    exit_code = 0;
     await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env);
 
   } catch (error: any) {
+    exit_code = 1;
+
     console.error(`[CODING_LAB_CRITICAL_FAULT] Task #${task_id} failed:`, error.message);
     await env.TASK_LOCKS.delete(`lock:${task_id}`);
     await logLabFaultToCore(task_id, error, env);
+  } finally {
+    const latency = Date.now() - startTime;
+    await pushTelemetry(latency, step_count, tokens_consumed, exit_code);
   }
 }
 
@@ -183,6 +235,7 @@ async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl
 
 async function logLabFaultToCore(taskId: string, error: any, env: Env): Promise<void> {
   try {
+    step_count++;
     const errorBody = {
       task_id: taskId,
       component: 'axim-coding-lab-generator',
@@ -256,6 +309,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
   const githubCtx = { owner, repo, path };
 
   try {
+    step_count++;
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} started for ${path}`);
     const currentFile = await fetchCurrentFileState(githubCtx, env);
     const depsContext = await fetchRepositoryDependencies(githubCtx, env);
@@ -283,6 +337,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     const modifiedCode = cleanSanitizedCodeBlob(result.content || '');
 
     const branchName = `axim-coder/task-${taskId.substring(0,8)}`;
+    step_count++;
     await createTaskBranch(githubCtx, branchName, env);
 
     const commitMessage = `feat/fix: ${task.title}`;
@@ -293,6 +348,9 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     const prUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
 
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} PR opened at ${prUrl}`);
+    step_count++;
+    tokens_consumed += 1500; // Approximated tokens
+    exit_code = 0;
     await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env);
     if (task.source === "axim-support-system" && task.ticketId) {
       const encoder = new TextEncoder();
@@ -313,6 +371,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
       const signatureArray = Array.from(new Uint8Array(signatureBuffer));
       const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, "0")).join("");
       try {
+    step_count++;
         const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${task.ticketId}/resolve-from-coder`, {
           method: "POST",
           headers: {
