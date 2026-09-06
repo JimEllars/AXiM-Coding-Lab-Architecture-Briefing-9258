@@ -28,7 +28,11 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') {
+        // Ignore transient TOKEN_REFRESHED cycles without clearing local user state
+        return;
+      }
       setSession(session);
     });
 

@@ -67,6 +67,18 @@ const DashboardLayout = () => {
 
 
   useEffect(() => {
+    const interval = setInterval(async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+         // Non-blocking background heartbeat, could silently log out or just refresh if needed, but per requirement:
+         // "without redirecting active users while they type or inspect diffs."
+         console.warn('[AUTH] Session heartbeat failed or missing session.');
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     const fetchTasks = async () => {
       const tasks = await labService.getTasks();
       updateLockCount(tasks);

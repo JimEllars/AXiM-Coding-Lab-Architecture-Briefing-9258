@@ -280,12 +280,38 @@ export const labService = {
       const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
       const signature = await generateHmacSignature(payloadBody, internalKey);
 
-      const response = await fetch(ingressUrl, {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData?.session;
+      const token = session?.access_token || '';
+
+      const fetchWithRetry = async (url, options, maxAttempts = 3) => {
+        let attempt = 0;
+        let delay = 1000;
+        while (attempt < maxAttempts) {
+          try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 8000);
+            const res = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(id);
+            if (res.ok) return res;
+            if (res.status >= 400 && res.status < 500) return res;
+            throw new Error(`HTTP ${res.status}`);
+          } catch (err) {
+            attempt++;
+            if (attempt >= maxAttempts) throw err;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2;
+          }
+        }
+      };
+
+      const response = await fetchWithRetry(ingressUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Axim-Signature': signature,
-          'Accept': 'text/event-stream'
+          'Accept': 'text/event-stream',
+          'Authorization': `Bearer ${token}`
         },
         body: payloadBody
       });

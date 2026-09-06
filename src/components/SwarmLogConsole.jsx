@@ -48,7 +48,7 @@ const SwarmLogConsole = () => {
                    type: 'system',
                    time: new Date(payload.new.created_at || Date.now()).toLocaleTimeString([], { hour12: false })
                 }];
-                return updatedLogs.slice(-150);
+                return updatedLogs.slice(-100); // Instructed to cache up to 100 historical logs in memory
              });
           })
           .subscribe();
