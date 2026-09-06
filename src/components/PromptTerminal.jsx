@@ -45,17 +45,44 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
 
       const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
 
-      const response = await fetch(ingressUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream',
-          'X-Axim-Signature': signature
-        },
-        body: payloadBody
-      });
 
-      if (response.ok && response.body) {
+      let response;
+      let attempt = 0;
+      const maxAttempts = 3;
+      const backoffs = [1000, 2000, 4000];
+
+      while (attempt < maxAttempts) {
+         try {
+            response = await fetch(ingressUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream',
+                'X-Axim-Signature': signature
+              },
+              body: payloadBody
+            });
+
+            if (response.ok || (response.status !== 502 && response.status !== 503)) {
+               break;
+            }
+            throw new Error(`Edge endpoint redeploying or unavailable (HTTP ${response.status})`);
+         } catch (e) {
+            attempt++;
+            if (attempt >= maxAttempts) {
+               setWarningMessage(`Task dispatch failed after retries: ${e.message}`);
+               labService.logToConsole({ id: Date.now() + Math.random(), text: `[CRITICAL] Edge Swarm Task Failed: ${e.message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) });
+               setIsGenerating(false);
+               return; // Exit preserving state
+            }
+            setWarningMessage(`Edge endpoint temporarily unavailable. Retrying in ${backoffs[attempt-1]/1000}s...`);
+            await new Promise(r => setTimeout(r, backoffs[attempt-1]));
+         }
+      }
+
+      setWarningMessage(null);
+
+      if (response && response.ok && response.body) {
          setPrompt('');
          setTargetFile('');
          setSelectedContext([]);

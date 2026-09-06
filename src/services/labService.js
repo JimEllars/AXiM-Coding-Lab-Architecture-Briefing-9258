@@ -89,7 +89,52 @@ const disconnectRealtime = () => {
 // Initial setup call
 initializeRealtime();
 
+let isRefreshing = false;
+let refreshSubscribers = [];
+
+const subscribeTokenRefresh = (cb) => {
+  refreshSubscribers.push(cb);
+};
+
+const onTokenRefreshed = (err, token) => {
+  refreshSubscribers.forEach(cb => cb(err, token));
+  refreshSubscribers = [];
+};
+
+const getValidToken = async () => {
+  const session = await supabase.auth.getSession();
+  const expiresAt = session?.data?.session?.expires_at;
+  const now = Math.floor(Date.now() / 1000);
+
+  // Buffer if token expires in less than 60s
+  if (expiresAt && (expiresAt - now) < 60) {
+     if (!isRefreshing) {
+        isRefreshing = true;
+        try {
+           const { data, error } = await supabase.auth.refreshSession();
+           isRefreshing = false;
+           if (error) throw error;
+           onTokenRefreshed(null, data.session.access_token);
+           return data.session.access_token;
+        } catch (e) {
+           isRefreshing = false;
+           onTokenRefreshed(e, null);
+           return null;
+        }
+     } else {
+        return new Promise((resolve) => {
+           subscribeTokenRefresh((err, token) => {
+              resolve(token);
+           });
+        });
+     }
+  }
+
+  return session?.data?.session?.access_token || localStorage.getItem('axim_internal_key');
+};
+
 export const labService = {
+  getValidToken,
   logToConsole(log) {
     addSystemLog(log);
     broadcast({ type: 'LOG_ADDED', log });

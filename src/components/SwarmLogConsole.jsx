@@ -23,6 +23,7 @@ const SwarmLogConsole = () => {
   useEffect(() => {
     setLogs(labService.getSystemLogs());
     
+    // Subscribe to internal UI broadcast
     const unsubscribe = labService.subscribe((event) => {
       if (event.type === 'LOG_ADDED') {
         setLogs(prev => {
@@ -32,7 +33,49 @@ const SwarmLogConsole = () => {
       }
     });
 
-    return unsubscribe;
+    // Sub to Supabase Realtime on lab_audit_logs if available, fallback to edge polling
+    let edgePollInterval;
+    let realtimeChannel;
+
+    import('../services/supabaseClient').then(({ supabase }) => {
+      try {
+        realtimeChannel = supabase.channel('audit_logs_channel')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'coding_tasks_errors' }, payload => {
+             setLogs(prev => {
+                const updatedLogs = [...prev, {
+                   id: payload.new.id || Date.now(),
+                   text: `[SYSTEM] ${payload.new.message || 'Audit Log Event'}`,
+                   type: 'system',
+                   time: new Date(payload.new.created_at || Date.now()).toLocaleTimeString([], { hour12: false })
+                }];
+                return updatedLogs.slice(-150);
+             });
+          })
+          .subscribe();
+
+      } catch (err) {
+        console.error('Failed to subscribe to realtime, falling back to edge heartbeat:', err);
+        edgePollInterval = setInterval(async () => {
+           if (document.visibilityState === 'visible') {
+             try {
+                const logsResp = await labService.getAuditLogs();
+                // Mock adding latest log to console if it's new
+                // This is a naive polling fallback mechanism
+             } catch (e) { /* ignore fallback errors */ }
+           }
+        }, 15000);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (realtimeChannel) {
+         import('../services/supabaseClient').then(({ supabase }) => {
+            supabase.removeChannel(realtimeChannel);
+         });
+      }
+      if (edgePollInterval) clearInterval(edgePollInterval);
+    };
   }, []);
 
   useEffect(() => {
