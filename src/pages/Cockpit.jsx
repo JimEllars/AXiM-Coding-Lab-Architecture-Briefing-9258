@@ -83,7 +83,7 @@ const Cockpit = () => {
         <div className="lg:col-span-4 space-y-6">
           <PipelineMonitor />
           
-          <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5 relative overflow-hidden group">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-600/5 blur-3xl rounded-full group-hover:bg-orange-600/10 transition-all"></div>
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
               <SafeIcon name="Shield" className="text-orange-400" />
@@ -121,14 +121,14 @@ const Cockpit = () => {
               <button
                 onClick={handleAutoPatch}
                 disabled={isPatching}
-                className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPatching ? 'Deploying Remediation Swarm...' : 'Auto-Patch Incident'}
               </button>
             </div>
           </div>
 
-          <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
               <SafeIcon name="Zap" className="text-blue-400" />
               Node Topology

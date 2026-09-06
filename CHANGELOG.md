@@ -25,3 +25,17 @@
 
 **Uptime/incidents during rollout:**
 - No incidents. Deploys successful.
+
+## [Unreleased]
+### Added
+- **Server-Sent Events (SSE)** via Cloudflare Edge to handle continuous event streams for the cognitive pipeline.
+- Heartbeats mechanism for continuous worker processing using `request.signal.addEventListener('abort')`.
+- Unified resilient envelope wrapper around Supabase access calls in `labService.js`.
+- Configured Supabase auth client with `persistSession` and `autoRefreshToken`.
+- Asynchronous API log dispatches using `logAuditEvent` in `labService.js`.
+- Lightweight polling every 10s for pipeline metrics within `Telemetry.jsx`.
+- Auto-scroll and manual logs export utility for `SwarmLogConsole.jsx`.
+- Updated colors across pages to slate-900/slate-800 for UI modernization.
+
+### Fixed
+- Fixed unhandled empty block statement inside stream chunk parsing.

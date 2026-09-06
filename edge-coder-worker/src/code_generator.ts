@@ -27,7 +27,8 @@ function prepareContextWindow(content: string, threshold: number = 32000): { con
   };
 }
 
-export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env): Promise<void> {
+export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env, writer?: WritableStreamDefaultWriter): Promise<void> {
+  const sendEvent = async (type: string, message: string) => { if (writer) { await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type, message })}\n\n`)).catch(() => {}); } };
   const {
     task_id,
     repository_owner: owner,
@@ -44,37 +45,37 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
   const githubCtx = { owner, repo, path, baseBranch: base_branch };
 
   try {
-    console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`);
+    console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`); await sendEvent('log', `[SYSTEM] Fetching current file state for: ${path}`);
     const currentFile = await fetchCurrentFileState(githubCtx, env);
 
     const { content: safeContent, truncated } = prepareContextWindow(currentFile.content);
 
-    console.log(`[CODING_LAB] [${task_id}] Fetching repository dependencies`);
+    console.log(`[CODING_LAB] [${task_id}] Fetching repository dependencies`); await sendEvent('log', `[SYSTEM] Fetching repository dependencies`);
     let rawDependenciesContext = await fetchRepositoryDependencies(githubCtx, env);
     const dependenciesContext = rawDependenciesContext.slice(0, 2000);
 
-    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
+    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
     const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env);
 
-    console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`);
+    console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`);
     const isValid = await validateSyntax(modifiedCode, runtime_env);
     if (!isValid) {
       throw new Error('[AST_FAULT] The generated code failed structural syntax validation. Aborting commit.');
     }
 
-    console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`);
+    console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('log', `[SYSTEM] Code generated cleanly. Provisioning task branch: ${branchName}`);
     await createTaskBranch(githubCtx, branchName, env);
 
-    console.log(`[CODING_LAB] [${task_id}] Committing syntax modifications to Git tree`);
+    console.log(`[CODING_LAB] [${task_id}] Committing syntax modifications to Git tree`); await sendEvent('log', `[SYSTEM] Committing syntax modifications to Git tree`);
     const commitMessage = `fix(${origin_source.toLowerCase()}): auto-remediation patch for task #${task_id}`;
     await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
 
-    console.log(`[CODING_LAB] [${task_id}] Opening Pull Request for engineering review`);
+    console.log(`[CODING_LAB] [${task_id}] Opening Pull Request for engineering review`); await sendEvent('log', `[SYSTEM] Opening Pull Request for engineering review`);
     const prTitle = `🤖 [ONYX BOT HOTFIX] Autonomous Remediation for Task #${task_id}`;
     const prBody = `## Autonomous Engineering Report\n\n**Origin Source:** ${origin_source}\n**Target File Asset:** \`${path}\`\n\n### Modifications Applied\n- Compiled structural patch based on ecosystem telemetry vectors.\n- Executed edge sanitization validation pass.\n\n*Review the diff maps in the tab above and press Merge to deploy.*`;
     
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
-    console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
+    console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('log', `[SYSTEM] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
 
     await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env);
 

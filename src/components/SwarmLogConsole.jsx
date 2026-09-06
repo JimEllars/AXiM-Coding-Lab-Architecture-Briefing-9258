@@ -4,10 +4,11 @@ import { labService } from '../services/labService';
 
 const SwarmLogConsole = () => {
   const [logs, setLogs] = useState([]);
+  const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
+    if (autoScroll && scrollRef.current) {
       requestAnimationFrame(() => {
         if (scrollRef.current) {
           scrollRef.current.scrollTo({
@@ -17,7 +18,7 @@ const SwarmLogConsole = () => {
         }
       });
     }
-  }, []);
+  }, [autoScroll]);
 
   useEffect(() => {
     setLogs(labService.getSystemLogs());
@@ -26,7 +27,6 @@ const SwarmLogConsole = () => {
       if (event.type === 'LOG_ADDED') {
         setLogs(prev => {
           const updatedLogs = [...prev, event.log];
-          // Keep strictly the last 150 logs to prevent memory leaks
           return updatedLogs.slice(-150);
         });
       }
@@ -39,6 +39,17 @@ const SwarmLogConsole = () => {
     scrollToBottom();
   }, [logs, scrollToBottom]);
 
+  const handleExport = () => {
+    const logText = logs.map(l => `[${l.time}] ${l.text}`).join('\n');
+    const blob = new Blob([logText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'swarm-logs.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="bg-[#030712] border border-gray-800 rounded-lg h-full flex flex-col font-mono text-[11px] overflow-hidden">
       <div className="px-3 py-2 border-b border-gray-800 bg-[#0a0f1c] flex items-center justify-between shrink-0">
@@ -46,7 +57,15 @@ const SwarmLogConsole = () => {
           <SafeIcon name="Cpu" className="text-blue-500 animate-pulse" />
           SYSTEM_KERNEL_LOGS
         </span>
-        <div className="flex gap-1">
+        <div className="flex gap-3 items-center">
+          <button onClick={() => setAutoScroll(!autoScroll)} className={`text-[9px] uppercase font-bold tracking-widest transition-colors flex items-center gap-1 ${autoScroll ? 'text-blue-400' : 'text-gray-500'}`}>
+             <SafeIcon name={autoScroll ? "Lock" : "Unlock"} className="text-[10px]" />
+             Scroll: {autoScroll ? 'ON' : 'OFF'}
+          </button>
+          <button onClick={handleExport} className="text-[9px] uppercase text-gray-500 hover:text-gray-300 font-bold tracking-widest transition-colors flex items-center gap-1">
+             <SafeIcon name="Download" className="text-[10px]" />
+             Export
+          </button>
           <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
         </div>
       </div>
@@ -71,7 +90,7 @@ const SwarmLogConsole = () => {
           </div>
         ))}
         {logs.length === 0 && <span className="text-gray-700 italic">No events recorded in current cycle.</span>}
-        <div className="inline-block w-2 h-4 bg-blue-500 animate-pulse align-middle ml-1"></div>
+        {<div className="inline-block w-2 h-4 bg-blue-500 animate-pulse align-middle ml-1"></div>}
       </div>
     </div>
   );
