@@ -25,4 +25,4 @@ id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 # 2. wrangler secret put GITHUB_PAT (Requires repo, workflow, and PR scopes)
 # 3. wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 [triggers]
-crons = ["0 14 * * *"]
+crons = ["0 14 * * *", "0 3 * * *", "0 */6 * * *"]

@@ -86,9 +86,10 @@ const AgentRegistry = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.1 }}
             key={agent.id}
-            className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-blue-500/30 transition-all"
+            className={`bg-slate-900/90 border ${agent.isPrimary ? 'border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]' : 'border-slate-800'} rounded-2xl p-6 relative overflow-hidden group hover:border-blue-500/30 transition-all`}
           >
             <div className={`absolute top-0 right-0 w-32 h-32 ${agent.status === 'ACTIVE' ? 'bg-blue-500/5' : 'bg-gray-500/5'} blur-3xl rounded-full`}></div>
+            {agent.isPrimary && <div className="absolute top-0 right-0 px-2 py-1 bg-cyan-500/20 text-cyan-400 text-[8px] font-bold tracking-widest uppercase rounded-bl-lg border-b border-l border-cyan-500/30">Primary Core</div>}
             
             <div className="flex items-center justify-between mb-6 relative z-10">
               <div className="flex items-center gap-4">
@@ -112,6 +113,29 @@ const AgentRegistry = () => {
               </div>
               
               <div className="pt-4 border-t border-slate-800">
+                {agent.isPrimary && (
+                  <div className="mb-4 space-y-2">
+                    <p className="text-[10px] text-cyan-500 font-mono uppercase tracking-widest">Core Telemetry</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-cyan-950/30 p-2 rounded border border-cyan-900/50">
+                        <p className="text-[8px] text-gray-400 font-mono uppercase mb-0.5">Active Queue</p>
+                        <p className="text-xs text-cyan-400 font-bold">12 Tasks</p>
+                      </div>
+                      <div className="bg-cyan-950/30 p-2 rounded border border-cyan-900/50">
+                        <p className="text-[8px] text-gray-400 font-mono uppercase mb-0.5">PRs Opened (Wk)</p>
+                        <p className="text-xs text-cyan-400 font-bold">84</p>
+                      </div>
+                      <div className="bg-cyan-950/30 p-2 rounded border border-cyan-900/50">
+                        <p className="text-[8px] text-gray-400 font-mono uppercase mb-0.5">Avg Review Time</p>
+                        <p className="text-xs text-cyan-400 font-bold">4.2s</p>
+                      </div>
+                      <div className="bg-cyan-950/30 p-2 rounded border border-cyan-900/50">
+                        <p className="text-[8px] text-gray-400 font-mono uppercase mb-0.5">Token Efficiency</p>
+                        <p className="text-xs text-emerald-400 font-bold">A+</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <p className="text-[10px] text-gray-500 font-mono uppercase mb-3 tracking-widest">Cognitive Stack</p>
                 <div className="space-y-2">
                   <div className="flex justify-between text-[11px] font-mono">

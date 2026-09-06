@@ -241,3 +241,35 @@ export async function fetchRepositoryDependencies(
 
   return 'No explicit dependency graph located.';
 }
+
+
+export async function fetchOpenPullRequests(ctx: GithubContext, env: Env): Promise<any[]> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls?state=open`;
+  const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  if (!response.ok) return [];
+  return await response.json();
+}
+
+export async function fetchPullRequestDiff(ctx: GithubContext, prNumber: number, env: Env): Promise<string> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}`;
+  const headers = getGithubHeaders(env.GITHUB_PAT);
+  headers['Accept'] = 'application/vnd.github.v3.diff';
+  const response = await fetch(url, { headers });
+  if (!response.ok) return '';
+  return await response.text();
+}
+
+export async function postPullRequestReview(ctx: GithubContext, prNumber: number, reviewText: string, env: Env): Promise<void> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/reviews`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: getGithubHeaders(env.GITHUB_PAT),
+    body: JSON.stringify({
+      body: reviewText,
+      event: 'COMMENT'
+    })
+  });
+  if (!response.ok) {
+    console.error(`[VCS_ERROR] Failed to post PR review on ${ctx.repo}#${prNumber}: ${response.statusText}`);
+  }
+}
