@@ -11,131 +11,29 @@ const Telemetry = () => {
   const [connectionStatus, setConnectionStatus] = useState('LOCAL CACHE');
   const [liveLogs, setLiveLogs] = useState([]);
 
-  const fetchTelemetryData = useCallback(async () => {
-    try {
-      const telemetryData = await labService.getTelemetryData();
-
-      // Fetch Live Edge Worker Metrics
-      let workerStatus = 'Unknown';
-      let workerColor = 'blue';
-      let workerLatency = '-';
-
-      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '';
-      const statsUrl = ingressUrl.replace('/api/v1/ingress', '/api/telemetry/stats').replace('/api/v1/tasks/dispatch', '/api/telemetry/stats');
-      const healthUrl = ingressUrl.replace('/api/v1/ingress', '/api/health').replace('/api/v1/tasks/dispatch', '/api/health');
-
-      try {
-        const statsResp = await fetch(statsUrl || 'http://localhost:8787/api/telemetry/stats', {
-          headers: {
-            'X-Axim-Signature': localStorage.getItem('axim_internal_key') || ''
-          }
-        });
-        if (statsResp.ok) {
-          const stats = await statsResp.json();
-          workerStatus = 'Nominal';
-          workerColor = 'green';
-          workerLatency = `${Math.floor(Math.random() * 20 + 30)}ms`; // Mocking latency for display if not provided
-
-          if (stats.request_throughput_counters?.requests_per_minute > 500) {
-            workerStatus = 'Degraded';
-            workerColor = 'yellow';
-            workerLatency = '250ms';
-          }
-        }
-      } catch (e) {
-        workerStatus = 'Critical';
-        workerColor = 'red';
-        workerLatency = 'ERR';
-      }
-
-      telemetryData.nodeHealth = [
-        { name: 'Core LLM Proxy', status: 'Nominal', latency: '124ms', color: 'green' },
-        { name: 'GitHub API Bridge', status: 'Nominal', latency: '45ms', color: 'green' },
-        { name: 'Asguard SOC Ingress', status: 'Nominal', latency: '85ms', color: 'green' },
-        { name: 'Worker Analytics (Edge)', status: workerStatus, latency: workerLatency, color: workerColor }
-      ];
-
-      setData(telemetryData);
-      localStorage.setItem('axim_telemetry_cache', JSON.stringify(telemetryData));
-
-      if (!error) setError(false);
-    } catch (err) {
-      console.error('Error fetching telemetry:', err);
-      setError(true);
-      const cachedTelemetry = localStorage.getItem('axim_telemetry_cache');
-      if (cachedTelemetry) {
-        setData(JSON.parse(cachedTelemetry));
-      } else {
-        setData({
-           dateLabels: [], tokenUsage: [],
-           nodeHealth: [
-             { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
-             { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
-             { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
-             { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
-           ],
-           roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
-           logs: []
-        });
-      }
-    }
-  }, [error]);
 
   useEffect(() => {
-    fetchTelemetryData();
-    let realtimeChannel;
-
-    import('../services/supabaseClient').then(({ supabase }) => {
-      realtimeChannel = supabase.channel('telemetry_live')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_events' }, payload => {
-           setLiveLogs(prev => {
-              const newLogs = [payload.new, ...prev];
-              return newLogs.slice(0, 100);
-           });
-           // Dynamically update some metrics if needed, but requirements say "caching up to 100 historical logs in memory without re-rendering the whole page"
-        })
-        .subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-                setConnectionStatus('ONLINE / REALTIME');
-            } else {
-                setConnectionStatus('LOCAL CACHE');
-            }
-        });
-    });
-
-    let intervalId;
-    const startPolling = () => {
-      intervalId = setInterval(() => {
-        if (document.visibilityState === 'visible') {
-          fetchTelemetryData();
+    let unsubscribe;
+    try {
+      unsubscribe = labService.subscribeToPipelineMetrics((metrics, status) => {
+        setData(metrics);
+        setConnectionStatus(status);
+        if (status && (status.includes('FALLBACK') || status.includes('CACHED') || status.includes('DEGRADED'))) {
+          setError(true);
+        } else {
+          setError(false);
         }
-      }, 15000);
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        clearInterval(intervalId);
-      } else {
-        fetchTelemetryData();
-        startPolling();
-      }
-    };
-
-    startPolling();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+      }, 3000);
+    } catch (e) {
+      console.error(e);
+      setError(true);
+    }
 
     return () => {
-      clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (realtimeChannel) {
-        import('../services/supabaseClient').then(({ supabase }) => {
-          supabase.removeChannel(realtimeChannel);
-        });
-      }
+      if (unsubscribe) unsubscribe();
     };
-  }, [fetchTelemetryData]);
-
-  if (!data) {
+  }, []);
+if (!data) {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex items-center justify-between mb-8">

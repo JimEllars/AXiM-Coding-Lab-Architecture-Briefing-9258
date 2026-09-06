@@ -115,11 +115,17 @@ const PipelineMonitor = () => {
 
     labService.getTasks().then(processTasks);
 
+
+    let batchTimeout;
     return labService.subscribe(event => {
       if (event.type === 'TASKS_UPDATED') {
-         processTasks(event.tasks);
+         if (batchTimeout) clearTimeout(batchTimeout);
+         batchTimeout = setTimeout(() => {
+            processTasks(event.tasks);
+         }, 250);
       }
     });
+
   }, []);
 
   return (
