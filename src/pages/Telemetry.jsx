@@ -8,6 +8,8 @@ import { labService } from '../services/labService';
 const Telemetry = () => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('LOCAL CACHE');
+  const [liveLogs, setLiveLogs] = useState([]);
 
   const fetchTelemetryData = useCallback(async () => {
     try {
@@ -81,22 +83,40 @@ const Telemetry = () => {
 
   useEffect(() => {
     fetchTelemetryData();
+    let realtimeChannel;
+
+    import('../services/supabaseClient').then(({ supabase }) => {
+      realtimeChannel = supabase.channel('telemetry_live')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_events' }, payload => {
+           setLiveLogs(prev => {
+              const newLogs = [payload.new, ...prev];
+              return newLogs.slice(0, 100);
+           });
+           // Dynamically update some metrics if needed, but requirements say "caching up to 100 historical logs in memory without re-rendering the whole page"
+        })
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                setConnectionStatus('ONLINE / REALTIME');
+            } else {
+                setConnectionStatus('LOCAL CACHE');
+            }
+        });
+    });
 
     let intervalId;
-
     const startPolling = () => {
       intervalId = setInterval(() => {
         if (document.visibilityState === 'visible') {
           fetchTelemetryData();
         }
-      }, 5000);
+      }, 15000);
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         clearInterval(intervalId);
       } else {
-        fetchTelemetryData(); // Fetch immediately on returning
+        fetchTelemetryData();
         startPolling();
       }
     };
@@ -107,6 +127,11 @@ const Telemetry = () => {
     return () => {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (realtimeChannel) {
+        import('../services/supabaseClient').then(({ supabase }) => {
+          supabase.removeChannel(realtimeChannel);
+        });
+      }
     };
   }, [fetchTelemetryData]);
 
@@ -118,10 +143,15 @@ const Telemetry = () => {
             <h1 className="text-2xl font-bold text-white">The Green Machine</h1>
             <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
           </div>
+          <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
             <SafeIcon name="Zap" className="text-sm" />
             OPTIMIZED
           </div>
+          <div className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border ${connectionStatus === 'ONLINE / REALTIME' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+            {connectionStatus}
+          </div>
+        </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -193,9 +223,14 @@ const Telemetry = () => {
           <h1 className="text-2xl font-bold text-white">The Green Machine</h1>
           <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
-          <SafeIcon name="Zap" className="text-sm" />
-          OPTIMIZED
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
+            <SafeIcon name="Zap" className="text-sm" />
+            OPTIMIZED
+          </div>
+          <div className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border ${connectionStatus === 'ONLINE / REALTIME' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+            {connectionStatus}
+          </div>
         </div>
       </div>
 

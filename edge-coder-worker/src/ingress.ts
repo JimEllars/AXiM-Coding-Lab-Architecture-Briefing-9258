@@ -42,6 +42,60 @@ function getCorsHeaders(request: Request) {
 }
 
 
+async function verifyHmacSignature(
+  payload: string,
+  signatureHex: string,
+  secret: string
+): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    const cleanSig = signatureHex.trim().toLowerCase().replace(/^sha256=/, '');
+    const sigBytes = new Uint8Array(
+      cleanSig.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || []
+    );
+
+    return await crypto.subtle.verify(
+      'HMAC',
+      key,
+      sigBytes,
+      encoder.encode(payload)
+    );
+  } catch (err) {
+    console.error('[HMAC_VERIFY_FAULT]', err);
+    return false;
+  }
+}
+
+async function verifySupabaseToken(
+  authHeader: string | null,
+  env: Env
+): Promise<boolean> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
+  const token = authHeader.replace(/^Bearer\s+/, '').trim();
+
+  try {
+    const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+      }
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+
+
 export default {
 
   async scheduled(event: any, env: any, ctx: any) {
@@ -135,20 +189,16 @@ export default {
       });
     }
 
-    if (request.method === 'GET' && url.pathname === '/api/health') {
+    if (request.method === 'GET' && url.pathname === '/healthz') {
       return new Response(JSON.stringify({
         status: 'healthy',
-        uptime: Date.now() - startTime,
-        colo: request.cf?.colo || 'unknown',
-        memory_usage: 'nominal',
-        LAB_STATE: !!env.LAB_STATE,
-        TASK_LOCKS: !!env.TASK_LOCKS,
-        AXIM_INTERNAL_KEY: !!env.AXIM_INTERNAL_KEY,
-        GITHUB_PAT: !!env.GITHUB_PAT,
-        SUPABASE_SERVICE_ROLE_KEY: !!env.SUPABASE_SERVICE_ROLE_KEY
+        timestamp: new Date().toISOString(),
+        cf_colo: request.cf?.colo || 'unknown'
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+      });
+    }
       });
     }
 
@@ -434,6 +484,10 @@ export default {
             }
 
             if (url.pathname === '/api/v1/deploy-action') {
+              const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);
+              if (!isAuth) {
+                return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+              }
 
               let taskIdentifier: string | null = null;
               try {
@@ -593,6 +647,12 @@ export default {
 
 
             // 3. Payload Extraction & Idempotency Lock
+            if (url.pathname === '/api/v1/ingress' || url.pathname === '/api/v1/tasks') {
+              const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);
+              if (!isAuth) {
+                return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+              }
+            }
             try {
               const payload: any = await request.json();
               payload.cf_ray = request.headers.get('cf-ray') || 'unknown';
