@@ -458,6 +458,7 @@ export default {
       }
     }
 
+
     // 3. Payload Extraction & Idempotency Lock
     try {
       const payload: any = await request.json();
@@ -491,6 +492,45 @@ export default {
       // Establish a 1-hour active lock for the generation cycle
       await env.TASK_LOCKS.put(`lock:${taskIdentifier}`, "active", { expirationTtl: 3600 });
 
+      // Transform to Server-Sent Events stream if requested by client (e.g. Accept: text/event-stream)
+      const acceptHeader = request.headers.get('Accept') || '';
+      if (acceptHeader.includes('text/event-stream')) {
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+
+        // Heartbeat mechanism to keep connection alive
+        const heartbeatInterval = setInterval(() => {
+          writer.write(new TextEncoder().encode(': ping\n\n')).catch(() => {});
+        }, 15000);
+
+        request.signal.addEventListener('abort', () => {
+          clearInterval(heartbeatInterval);
+          env.TASK_LOCKS.delete(`lock:${taskIdentifier}`).catch(() => {});
+        });
+
+        // Handoff to pipeline in the background and pipe progress to the SSE stream.
+        ctx.waitUntil((async () => {
+          try {
+            await executeCodingPipeline(payload, env, writer);
+          } catch (e: any) {
+            writer.write(new TextEncoder().encode(`data: {"type":"error","message":"${e.message}"}\n\n`)).catch(() => {});
+          } finally {
+            clearInterval(heartbeatInterval);
+            writer.close().catch(() => {});
+          }
+        })());
+
+        return new Response(readable, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            ...getCorsHeaders(request)
+          }
+        });
+      }
+
       // 4. Asynchronous Cognitive Handoff
       ctx.waitUntil(executeCodingPipeline(payload, env));
 
@@ -501,8 +541,7 @@ export default {
       }), {
         status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
-
-    } catch (error) {
+} catch (error) {
       return new Response(JSON.stringify({ error: 'Internal Ingress Error' }), { 
         status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });

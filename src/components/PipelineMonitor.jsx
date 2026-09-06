@@ -127,9 +127,9 @@ const PipelineMonitor = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.5 }}
-      className="bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden h-full flex flex-col"
+      className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col"
     >
-      <div className="h-12 border-b border-gray-800 px-4 flex items-center justify-between bg-[#0d1323]">
+      <div className="h-12 border-b border-slate-800 px-4 flex items-center justify-between bg-[#0d1323]">
         <h3 className="text-xs font-bold text-white flex items-center gap-2 uppercase tracking-widest">
           <SafeIcon name="Activity" className="text-green-500" />
           Task Pipeline
@@ -141,7 +141,7 @@ const PipelineMonitor = () => {
         {loading ? (
           <div className="space-y-3">
              {[1,2,3].map(i => (
-                <div key={i} className="bg-[#111827] border border-gray-800 rounded-lg p-3 h-[90px] animate-pulse">
+                <div key={i} className="bg-[#111827] border border-slate-800 rounded-lg p-3 h-[90px] animate-pulse">
                    <div className="flex justify-between items-start mb-2">
                      <div className="h-4 bg-slate-800/50 rounded w-20"></div>
                      <div className="h-5 bg-slate-800/50 rounded w-24"></div>
@@ -166,7 +166,7 @@ const PipelineMonitor = () => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
               key={task.id}
-              className="bg-[#111827] border border-gray-800 rounded-lg p-3 hover:border-blue-500/30 transition-all group relative overflow-hidden"
+              className="bg-[#111827] border border-slate-800 rounded-lg p-3 hover:border-blue-500/30 transition-all group relative overflow-hidden"
             >
               {task.status === 'Generating' && (
                 <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-shimmer"></div>

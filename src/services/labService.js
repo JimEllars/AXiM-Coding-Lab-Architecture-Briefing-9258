@@ -89,6 +89,35 @@ const disconnectRealtime = () => {
 initializeRealtime();
 
 export const labService = {
+  logToConsole(log) {
+    addSystemLog(log);
+    broadcast({ type: 'LOG_ADDED', log });
+  },
+
+  async executeSafely(operation) {
+    try {
+      const result = await operation();
+      return { success: true, data: result || [], error: null };
+    } catch (err) {
+      console.error('[labService] Operation failed:', err);
+      return { success: false, data: null, error: { code: 'NETWORK_ERROR', message: err.message || 'Unknown error' } };
+    }
+  },
+
+
+  logAuditEvent: (auditData) => {
+    // Non-blocking fire-and-forget telemetry push
+    supabase.from('coding_tasks_errors').insert({
+      component: auditData.component || 'UI Telemetry',
+      message: auditData.action || 'Unknown Action',
+      status: auditData.status || 'LOG',
+      context: { actor: auditData.actor || 'System', target: auditData.target || 'N/A' },
+      task_id: auditData.taskId || null
+    }).then(({ error }) => {
+      if (error) console.warn('[Telemetry] Failed to dispatch audit log:', error);
+    }).catch(() => {});
+  },
+
   disconnectRealtime,
   subscribe: (l) => {
     listeners.add(l);

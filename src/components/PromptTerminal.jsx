@@ -28,20 +28,66 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     }
     setIsGenerating(true);
     try {
-      await labService.triggerTask({
+      const taskId = `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;
+      const payloadBody = JSON.stringify({
         instruction_prompt: prompt,
         repository_name: targetRepo,
         target_file_path: targetFile,
         origin_source: 'Manual_Dev_Cockpit',
         contextIds: selectedContext,
-        task_id: `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`,
+        task_id: taskId,
         runtime_env: targetRuntime
       });
-      setPrompt('');
-      setTargetFile('');
-      setSelectedContext([]);
+
+      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
+      const { generateHmacSignature } = await import('../utils/crypto');
+      const signature = await generateHmacSignature(payloadBody, internalKey);
+
+      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+
+      const response = await fetch(ingressUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'X-Axim-Signature': signature
+        },
+        body: payloadBody
+      });
+
+      if (response.ok && response.body) {
+         setPrompt('');
+         setTargetFile('');
+         setSelectedContext([]);
+
+         const reader = response.body.getReader();
+         const decoder = new TextDecoder();
+         let done = false;
+
+         while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            done = readerDone;
+            if (value) {
+               const chunk = decoder.decode(value, { stream: true });
+               const lines = chunk.split('\n\n');
+               lines.forEach(line => {
+                  if (line.startsWith('data: ')) {
+                     try {
+                        const data = JSON.parse(line.substring(6));
+                        if (data.type === 'log') {
+                           labService.logToConsole({ id: Date.now() + Math.random(), text: data.message, time: new Date().toLocaleTimeString([], { hour12: false }) });
+                        }
+                     } catch (e) { /* ignore */ }
+                  }
+               });
+            }
+         }
+      } else {
+         labService.logToConsole({ id: Date.now() + Math.random(), text: '[CRITICAL] Edge Swarm Task Failed: ' + (await response.text()), type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) });
+      }
     } catch (error) {
       console.error('Failed to trigger task:', error);
+      labService.logToConsole({ id: Date.now() + Math.random(), text: '[CRITICAL] Edge Swarm Task Failed: ' + error.message, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) });
     } finally {
       setIsGenerating(false);
     }
@@ -57,9 +103,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     <motion.div 
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-[#0a0f1c] border border-gray-800 rounded-2xl overflow-hidden flex flex-col h-[500px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+      className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[500px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
     >
-      <div className="h-12 border-b border-gray-800 bg-[#0d1323] flex items-center justify-between px-6 shrink-0">
+      <div className="h-12 border-b border-slate-800 bg-[#0d1323] flex items-center justify-between px-6 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-red-500/20 border border-red-500/40"></div>
@@ -100,7 +146,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
             />
           </div>
 
-          <div className="p-4 border-t border-gray-800 bg-[#0d1323]/30 flex items-center justify-between shrink-0">
+          <div className="p-4 border-t border-slate-800 bg-[#0d1323]/30 flex items-center justify-between shrink-0">
             <div className="flex gap-4">
               <div className="space-y-1">
                 <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Repository</span>
@@ -151,8 +197,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         </div>
 
         {/* Brain Context Sidebar */}
-        <div className="w-72 bg-[#0d1323]/50 border-l border-gray-800 flex flex-col shrink-0">
-          <div className="p-4 border-b border-gray-800 bg-[#0a0f1c]/50">
+        <div className="w-72 bg-[#0d1323]/50 border-l border-slate-800 flex flex-col shrink-0">
+          <div className="p-4 border-b border-slate-800 bg-slate-900/90/50">
             <h4 className="text-[10px] text-gray-400 font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
               <SafeIcon name="Book" className="text-blue-500" /> Organizational Brain
             </h4>
@@ -165,7 +211,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 className={`w-full text-left p-3 rounded-xl border transition-all group ${
                   selectedContext.includes(item.id) 
                     ? 'bg-blue-600/10 border-blue-500/40 text-blue-400 shadow-[inset_0_0_15px_rgba(37,99,235,0.05)]' 
-                    : 'bg-[#111827]/50 border-gray-800 text-gray-500 hover:border-gray-700 hover:bg-[#111827]'
+                    : 'bg-[#111827]/50 border-slate-800 text-gray-500 hover:border-gray-700 hover:bg-[#111827]'
                 }`}
               >
                 <div className="flex justify-between items-start mb-1">
@@ -184,7 +230,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
               </button>
             ))}
           </div>
-          <div className="p-3 border-t border-gray-800 bg-[#0a0f1c]/80">
+          <div className="p-3 border-t border-slate-800 bg-slate-900/90/80">
             <p className="text-[9px] text-gray-600 font-mono text-center">
               {selectedContext.length} Context Nodes Selected
             </p>

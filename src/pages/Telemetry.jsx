@@ -45,6 +45,10 @@ const Telemetry = () => {
 
   useEffect(() => {
     fetchTelemetryData();
+    const intervalId = setInterval(() => {
+      fetchTelemetryData();
+    }, 10000);
+    return () => clearInterval(intervalId);
   }, [fetchTelemetryData]);
 
   if (!data) {
@@ -63,7 +67,7 @@ const Telemetry = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {[1,2,3,4].map(i => (
-            <div key={i} className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5 animate-pulse h-[104px]">
+            <div key={i} className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 animate-pulse h-[104px]">
                <div className="h-6 bg-slate-800/50 rounded w-24 mb-4"></div>
                <div className="h-8 bg-slate-800/50 rounded w-16"></div>
             </div>
@@ -71,11 +75,11 @@ const Telemetry = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 h-[406px] animate-pulse">
+          <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-6 h-[406px] animate-pulse">
              <div className="h-6 bg-slate-800/50 rounded w-48 mb-6"></div>
              <div className="h-[300px] bg-slate-800/50 rounded w-full"></div>
           </div>
-          <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 h-[406px] animate-pulse">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6 h-[406px] animate-pulse">
              <div className="h-6 bg-slate-800/50 rounded w-32 mb-6"></div>
              <div className="space-y-4">
                 {[1,2,3,4].map(i => (
@@ -151,21 +155,21 @@ const Telemetry = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 relative">
+        <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-6 relative">
           <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
             <SafeIcon name="Activity" className="text-blue-400" />
             Token Expenditure Swarm (7D)
           </h3>
           <div className="relative">
             {(isZeroData || data.tokenUsage.length === 0) && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center text-gray-500 font-mono text-xs bg-[#0a0f1c]/80 backdrop-blur-sm">
+              <div className="absolute inset-0 z-10 flex items-center justify-center text-gray-500 font-mono text-xs bg-slate-900/90/80 backdrop-blur-sm">
                 [STANDBY] No LLM Proxy consumption recorded for selected range.
               </div>
             )}
             <ReactECharts option={chartOption} style={{ height: '300px' }} />
           </div>
         </div>
-        <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6">
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6">
           <h3 className="text-sm font-medium text-white mb-4">Node Health Status</h3>
           <div className="space-y-4">
             {data.nodeHealth.map((node, i) => (
@@ -179,7 +183,7 @@ const Telemetry = () => {
 };
 
 const MetricCard = ({ label, value, icon, color }) => (
-  <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5">
+  <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
     <div className="flex items-center gap-3 mb-3">
       <div className={`p-2 rounded bg-${color}-500/10 text-${color}-400`}>
         <SafeIcon name={icon} className="text-lg" />
@@ -191,7 +195,7 @@ const MetricCard = ({ label, value, icon, color }) => (
 );
 
 const HealthItem = ({ label, status, latency, color }) => (
-  <div className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-gray-800">
+  <div className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-slate-800">
     <div className="flex flex-col">
       <span className="text-xs font-medium text-gray-300">{label}</span>
       <span className="text-[10px] text-gray-500 font-mono">{latency}</span>
