@@ -346,7 +346,7 @@ export default {
 
                 const payloadText = await request.clone().text();
                 const cleanSignature = signature.replace(/^sha256=/, '');
-                const isVerified = await verifyHmacSignature(payloadText, cleanSignature, env.AXIM_INTERNAL_KEY);
+                const isVerified = await verifyHmacSignature(payloadText, cleanSignature, env.GITHUB_PAT || env.AXIM_INTERNAL_KEY);
 
                 if (!isVerified) {
                   return new Response(JSON.stringify({ error: 'Unauthorized: Invalid GitHub Signature' }), {
@@ -798,7 +798,7 @@ export default {
                 // Handoff to pipeline in the background and pipe progress to the SSE stream.
                 ctx.waitUntil((async () => {
                   try {
-                    await executeCodingPipeline(payload, env, writer);
+                    await executeCodingPipeline(payload, env, writer, ctx);
                   } catch (e: any) {
                     writer.write(new TextEncoder().encode(`data: {"type":"error","message":"${e.message}"}\n\n`)).catch(() => {});
                   } finally {
@@ -819,7 +819,7 @@ export default {
               }
 
               // 4. Asynchronous Cognitive Handoff
-              ctx.waitUntil(executeCodingPipeline(payload, env));
+              ctx.waitUntil(executeCodingPipeline(payload, env, undefined, ctx));
 
               return new Response(JSON.stringify({
                 status: 'accepted',

@@ -4,14 +4,27 @@ import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
 
 const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
-  const [prompt, setPrompt] = useState(initialPrompt || '');
+  const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [targetRepo, setTargetRepo] = useState(initialRepo || 'axim-core-api');
-  const [targetFile, setTargetFile] = useState(initialFile || '');
+  const [targetRepo, setTargetRepo] = useState(initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-core-api');
+  const [targetFile, setTargetFile] = useState(initialFile || sessionStorage.getItem('axim_terminal_file') || '');
   const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
   const [knowledge, setKnowledge] = useState([]);
   const [selectedContext, setSelectedContext] = useState([]);
   const [warningMessage, setWarningMessage] = useState(null);
+
+
+  useEffect(() => {
+    sessionStorage.setItem('axim_terminal_prompt', prompt);
+  }, [prompt]);
+
+  useEffect(() => {
+    sessionStorage.setItem('axim_terminal_repo', targetRepo);
+  }, [targetRepo]);
+
+  useEffect(() => {
+    sessionStorage.setItem('axim_terminal_file', targetFile);
+  }, [targetFile]);
 
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);

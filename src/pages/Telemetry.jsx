@@ -7,15 +7,26 @@ import { labService } from '../services/labService';
 
 const Telemetry = () => {
   const [data, setData] = useState(null);
+  const [activeAgentCount, setActiveAgentCount] = useState(4);
+
+  useEffect(() => {
+    labService.getAgents().then(agents => {
+      const active = agents.filter(a => a.status === 'Active').length;
+      setActiveAgentCount(active);
+    });
+  }, []);
+
   const [error, setError] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('LOCAL CACHE');
   const [liveLogs, setLiveLogs] = useState([]);
 
 
+
   useEffect(() => {
-    let unsubscribe;
+    let unsubscribePipeline;
+    let unsubscribeTelemetry;
     try {
-      unsubscribe = labService.subscribeToPipelineMetrics((metrics, status) => {
+      unsubscribePipeline = labService.subscribeToPipelineMetrics((metrics, status) => {
         setData(metrics);
         setConnectionStatus(status);
         if (status && (status.includes('FALLBACK') || status.includes('CACHED') || status.includes('DEGRADED'))) {
@@ -24,15 +35,21 @@ const Telemetry = () => {
           setError(false);
         }
       }, 3000);
+
+      unsubscribeTelemetry = labService.subscribeToTelemetry((status) => {
+         setConnectionStatus(status);
+      });
     } catch (e) {
       console.error(e);
       setError(true);
     }
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribePipeline) unsubscribePipeline();
+      if (unsubscribeTelemetry) unsubscribeTelemetry();
     };
   }, []);
+
 if (!data) {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
@@ -52,7 +69,7 @@ if (!data) {
         </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           {[1,2,3,4].map(i => (
             <div key={i} className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 animate-pulse h-[104px]">
                <div className="h-6 bg-slate-800/50 rounded w-24 mb-4"></div>
@@ -139,7 +156,8 @@ if (!data) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+        <MetricCard label="ACTIVE AGENTS" value={activeAgentCount} icon="Users" color="green" />
         <MetricCard label="DEV HOURS SAVED" value={data.roiMetrics.hoursSaved} icon="Clock" color="blue" />
         <MetricCard label="EFFICIENCY GAIN" value={data.roiMetrics.efficiencyGain} icon="TrendingUp" color="green" />
         <MetricCard label="COMPUTE COST" value={data.roiMetrics.totalCost} icon="DollarSign" color="purple" />

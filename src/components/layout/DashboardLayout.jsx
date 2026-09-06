@@ -66,17 +66,21 @@ const DashboardLayout = () => {
   };
 
 
+
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-         // Non-blocking background heartbeat, could silently log out or just refresh if needed, but per requirement:
-         // "without redirecting active users while they type or inspect diffs."
-         console.warn('[AUTH] Session heartbeat failed or missing session.');
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        console.warn('[AUTH] Session heartbeat failed or missing session.');
+      } else if (event === 'TOKEN_REFRESHED') {
+         // Silently refreshed
       }
-    }, 5 * 60 * 1000); // 5 minutes
-    return () => clearInterval(interval);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
+
 
   useEffect(() => {
     const fetchTasks = async () => {

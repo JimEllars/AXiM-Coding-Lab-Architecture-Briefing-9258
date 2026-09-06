@@ -9,12 +9,14 @@ const listeners = new Set();
 const broadcast = (event) => listeners.forEach(l => l(event));
 
 // Store local system logs
-let SYSTEM_LOGS = [];
+let SYSTEM_LOGS = JSON.parse(sessionStorage.getItem('axim_system_logs') || '[]');
 const addSystemLog = (log) => {
+  if (SYSTEM_LOGS.length === 0) SYSTEM_LOGS = JSON.parse(sessionStorage.getItem('axim_system_logs') || '[]');
   SYSTEM_LOGS.push(log);
   if (SYSTEM_LOGS.length > 150) {
     SYSTEM_LOGS = SYSTEM_LOGS.slice(-150);
   }
+  sessionStorage.setItem('axim_system_logs', JSON.stringify(SYSTEM_LOGS));
 };
 
 let AGENTS = [
@@ -148,6 +150,46 @@ const getValidToken = async () => {
   };
 
 export const labService = {
+
+  subscribeToTelemetry: (callback) => {
+    let reconnectTimeout = null;
+    let telemetryChannel = null;
+
+    const connect = () => {
+      if (telemetryChannel) {
+        supabase.removeChannel(telemetryChannel);
+      }
+
+      telemetryChannel = supabase.channel('schema-db-changes');
+      telemetryChannel
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'audit_logs' },
+          () => {
+             // Dispatch new metrics when audit logs change (or trigger refresh)
+             callback('ONLINE / REALTIME');
+          }
+        )
+        .subscribe((status) => {
+           if (status === 'SUBSCRIBED') {
+             callback('ONLINE / REALTIME');
+           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+             callback('Live sync reconnecting...');
+             if (!reconnectTimeout) {
+               reconnectTimeout = setTimeout(connect, 3000);
+             }
+           }
+        });
+    };
+
+    connect();
+
+    return () => {
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (telemetryChannel) supabase.removeChannel(telemetryChannel);
+    };
+  },
+
   subscribeToPipelineMetrics: (callback, intervalMs = 3000) => {
     let pollingInterval;
     let eventSource;
