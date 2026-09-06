@@ -133,7 +133,75 @@ const getValidToken = async () => {
   return session?.data?.session?.access_token || localStorage.getItem('axim_internal_key');
 };
 
+
+  let pipelineMetricsCache = {
+    dateLabels: [],
+    tokenUsage: [],
+    nodeHealth: [
+      { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
+      { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+      { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
+      { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
+    ],
+    roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
+    logs: []
+  };
+
 export const labService = {
+  subscribeToPipelineMetrics: (callback, intervalMs = 3000) => {
+    let pollingInterval;
+    let eventSource;
+    let fallbackMode = false;
+    let lastHealthyState = JSON.parse(sessionStorage.getItem('axim_telemetry_cache') || 'null');
+
+    if (lastHealthyState) {
+       pipelineMetricsCache = lastHealthyState;
+       callback(pipelineMetricsCache, 'LOCAL CACHE');
+    }
+
+    const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '/api/telemetry/stream') : '/api/telemetry/stream';
+
+    const startStream = () => {
+      try {
+        eventSource = new EventSource(workerUrl);
+        eventSource.onmessage = (event) => {
+          fallbackMode = false;
+          // In real implementation we would merge this data, here we just invoke the callback
+          callback(pipelineMetricsCache, 'ONLINE / REALTIME');
+        };
+        eventSource.onerror = () => {
+          eventSource.close();
+          fallbackMode = true;
+          startPolling();
+        };
+      } catch (err) {
+         fallbackMode = true;
+         startPolling();
+      }
+    };
+
+    const startPolling = () => {
+      if (pollingInterval) clearInterval(pollingInterval);
+      pollingInterval = setInterval(async () => {
+        try {
+           const metrics = await labService.getTelemetryData();
+           pipelineMetricsCache = metrics;
+           sessionStorage.setItem('axim_telemetry_cache', JSON.stringify(metrics));
+           callback(metrics, 'DEGRADED / FALLBACK');
+        } catch (e) {
+           callback(pipelineMetricsCache, 'CACHED / OFFLINE');
+        }
+      }, intervalMs);
+    };
+
+    startStream();
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (pollingInterval) clearInterval(pollingInterval);
+    };
+  },
+
   getValidToken,
   logToConsole(log) {
     addSystemLog(log);

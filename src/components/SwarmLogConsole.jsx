@@ -24,14 +24,23 @@ const SwarmLogConsole = () => {
     setLogs(labService.getSystemLogs());
     
     // Subscribe to internal UI broadcast
+
+    let logBuffer = [];
+    let batchTimeout;
     const unsubscribe = labService.subscribe((event) => {
       if (event.type === 'LOG_ADDED') {
-        setLogs(prev => {
-          const updatedLogs = [...prev, event.log];
-          return updatedLogs.slice(-150);
-        });
+        logBuffer.push(event.log);
+        if (batchTimeout) clearTimeout(batchTimeout);
+        batchTimeout = setTimeout(() => {
+          setLogs(prev => {
+            const updatedLogs = [...prev, ...logBuffer];
+            logBuffer = [];
+            return updatedLogs.slice(-150);
+          });
+        }, 250);
       }
     });
+
 
     // Sub to Supabase Realtime on lab_audit_logs if available, fallback to edge polling
     let edgePollInterval;

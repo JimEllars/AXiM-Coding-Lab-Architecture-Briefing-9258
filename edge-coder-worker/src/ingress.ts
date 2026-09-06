@@ -233,6 +233,100 @@ export default {
               });
             }
 
+
+            // 2. Telemetry Endpoints
+            if (request.method === 'POST' && url.pathname === '/api/telemetry/event') {
+              try {
+                const payload = await request.json() as any;
+                const logEntry = {
+                  timestamp: Date.now(),
+                  source: "worker-edge-coder",
+                  level: payload.level || "info",
+                  event: payload.event || "UNKNOWN_EVENT",
+                  agentId: payload.agentId || "string",
+                  latencyMs: payload.latencyMs || 0,
+                  details: payload.details || {}
+                };
+
+                // Fire and forget upstream logging
+                ctx.waitUntil((async () => {
+                   try {
+                     const telemetryBody = [{
+                       app_id: 'axim-coding-lab',
+                       endpoint: '/api/telemetry/event',
+                       method: 'POST',
+                       status_code: 200,
+                       error_message: null,
+                       metadata: logEntry
+                     }];
+                     await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+                       method: 'POST',
+                       headers: {
+                         'Content-Type': 'application/json',
+                         'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                         'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                       },
+                       body: JSON.stringify(telemetryBody)
+                     });
+                   } catch (e) {
+                     // Degrade silently
+                   }
+                })());
+
+                return new Response(JSON.stringify({ status: 'logged' }), {
+                  status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              } catch (e) {
+                // Degrade silently without uncaught 500
+                return new Response(JSON.stringify({ status: 'ignored' }), {
+                  status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+            }
+
+            if (request.method === 'GET' && url.pathname === '/api/telemetry/stream') {
+              try {
+                // Use SSE to stream telemetry
+                const acceptHeader = request.headers.get('Accept') || '';
+                if (acceptHeader.includes('text/event-stream')) {
+                  const { readable, writable } = new TransformStream();
+                  const writer = writable.getWriter();
+
+                  // Heartbeat mechanism to keep connection alive
+                  const heartbeatInterval = setInterval(() => {
+                    writer.write(new TextEncoder().encode(': ping\n\n')).catch(() => {});
+                  }, 15000);
+
+                  request.signal.addEventListener('abort', () => {
+                    clearInterval(heartbeatInterval);
+                    writer.close().catch(() => {});
+                  });
+
+                  return new Response(readable, {
+                    status: 200,
+                    headers: {
+                      'Content-Type': 'text/event-stream; charset=utf-8',
+                      'Cache-Control': 'no-cache, no-transform',
+                      'Connection': 'keep-alive',
+                      ...getCorsHeaders(request)
+                    }
+                  });
+                } else {
+                  return new Response(JSON.stringify({
+                    timestamp: Date.now(),
+                    source: "worker-edge-coder",
+                    status: "healthy"
+                  }), {
+                    status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                  });
+                }
+              } catch (e) {
+                 return new Response(JSON.stringify({ status: 'degraded' }), {
+                    status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                 });
+              }
+            }
+
             // 1. Protocol Restriction
             if (request.method !== 'POST') {
               return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
