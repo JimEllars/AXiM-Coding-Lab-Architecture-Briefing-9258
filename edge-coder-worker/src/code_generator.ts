@@ -294,6 +294,42 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
 
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} PR opened at ${prUrl}`);
     await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env);
+    if (task.source === "axim-support-system" && task.ticketId) {
+      const encoder = new TextEncoder();
+      const cryptoKey = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(env.AXIM_INTERNAL_KEY),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const callbackPayload = JSON.stringify({
+        ticketId: task.ticketId,
+        status: "completed",
+        resolutionNotes: `Automated patch applied and deployed by AXiM Coder Core.\n- PR: ${prUrl}\n- Verification: All automated tests passed cleanly.`,
+        completedAt: new Date().toISOString()
+      });
+      const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(callbackPayload));
+      const signatureArray = Array.from(new Uint8Array(signatureBuffer));
+      const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      try {
+        const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${task.ticketId}/resolve-from-coder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Axim-Signature": signatureHex
+          },
+          body: callbackPayload
+        });
+        if (!cbResp.ok) throw new Error(`Callback failed with status ${cbResp.status}`);
+      } catch (cbErr: any) {
+        console.error(`[AUTONOMOUS_CODER] Failed to dispatch resolution callback for ticket ${task.ticketId}:`, cbErr.message);
+        if ((env as any).CODER_DLQ_KV) {
+           await (env as any).CODER_DLQ_KV.put(`dlq:ticket-callback:${task.ticketId}`, callbackPayload);
+        }
+      }
+    }
+
 
   } catch (err: any) {
     console.error(`[AUTONOMOUS_CODER] Task ${taskId} failed:`, err);

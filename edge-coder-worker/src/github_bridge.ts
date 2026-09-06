@@ -253,7 +253,8 @@ export async function fetchOpenPullRequests(ctx: GithubContext, env: Env): Promi
 export async function fetchPullRequestDiff(ctx: GithubContext, prNumber: number, env: Env): Promise<string> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}`;
   const headers = getGithubHeaders(env.GITHUB_PAT);
-  headers['Accept'] = 'application/vnd.github.v3.diff';
+  (headers as Record<string, string>)["Accept"] = "application/vnd.github.v3.diff";
+
   const response = await fetch(url, { headers });
   if (!response.ok) return '';
   return await response.text();

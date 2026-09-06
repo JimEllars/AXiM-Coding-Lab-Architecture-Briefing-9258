@@ -83,6 +83,53 @@ const Cockpit = () => {
         <div className="lg:col-span-4 space-y-6">
           <PipelineMonitor />
           
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 mb-6 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 blur-3xl rounded-full group-hover:bg-violet-600/10 transition-all"></div>
+            <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+              <SafeIcon name="LifeBuoy" className="text-violet-400" />
+              Incoming Support Tickets
+            </h3>
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-[#111827] border border-slate-800 text-[11px] text-gray-300">
+                <div className="flex justify-between items-center mb-2">
+                   <span className="font-bold text-violet-300">SUP-1042</span>
+                   <span className="px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 font-mono text-[9px]">IN_PROGRESS</span>
+                </div>
+                <p className="mb-3 truncate">Fix button padding on mobile viewport</p>
+                <div className="flex items-center gap-1.5 text-[9px] font-mono text-gray-500 uppercase">
+                   <span className="text-blue-400">[Received]</span> &rarr;
+                   <span className="text-blue-400">[Branching]</span> &rarr;
+                   <span className="text-purple-400">[Patching]</span> &rarr;
+                   <span>[PR Open]</span>
+                </div>
+                <div className="mt-3 flex gap-2">
+                   <a href="#" className="text-blue-400 hover:underline">View PR</a>
+                   <a href="#" className="text-violet-400 hover:underline">Support Ticket</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 mb-6">
+            <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+              <SafeIcon name="Mail" className="text-blue-400" />
+              HITL Comms
+            </h3>
+            <button
+              onClick={async () => {
+                try {
+                  await fetch("http://localhost:8787/api/v1/email/test-briefing", { method: "POST" });
+                  alert("Test briefing dispatched successfully.");
+                } catch (e) {
+                  alert("Failed to dispatch test briefing.");
+                }
+              }}
+              className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800"
+            >
+              Dispatch Test HITL Executive Briefing
+            </button>
+          </div>
+
           <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-600/5 blur-3xl rounded-full group-hover:bg-orange-600/10 transition-all"></div>
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">

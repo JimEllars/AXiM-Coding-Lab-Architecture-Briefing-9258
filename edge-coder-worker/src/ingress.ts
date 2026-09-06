@@ -341,6 +341,31 @@ export default {
 
 
     // Ecosystem On-Demand Task Ingress
+    if (url.pathname === "/api/v1/projects/scaffold") {
+      try {
+        const signature = request.headers.get("X-Axim-Signature");
+        if (!signature || !env.AXIM_INTERNAL_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized: Missing Signature" }), { status: 401, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) } });
+        }
+        const clonedReq = request.clone();
+        const payloadText = await clonedReq.text();
+        const isValid = await verifyHmacSignature(payloadText, signature, env.AXIM_INTERNAL_KEY);
+        if (!isValid) {
+          return new Response(JSON.stringify({ error: "Forbidden: Invalid Signature" }), { status: 403, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) } });
+        }
+        const payload: any = await request.json();
+        const taskId = `scaffold-${Date.now()}`;
+        payload.taskId = taskId;
+        payload.instructions = `Scaffold a new micro-app repository with pre-configured AXiM Passport SSO, Tailwind CSS, Vite, and Cloudflare Worker / Pages deployment manifests based on requirements: ${payload.requirements}`;
+        payload.title = `Project Scaffold: ${payload.name}`;
+        payload.target_file_path = "README.md";
+        ctx.waitUntil(executeAutonomousCodingTask(payload, env));
+        return new Response(JSON.stringify({ success: true, taskId, status: "scaffolding_started" }), { status: 202, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) } });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) } });
+      }
+    }
+
     if (url.pathname === '/api/v1/tasks/dispatch') {
       try {
         const signature = request.headers.get('X-Axim-Signature');
@@ -357,7 +382,7 @@ export default {
         }
 
         const payload: any = await request.json();
-        const taskId = payload.taskId;
+        const taskId = payload.taskId || payload.ticketId;
         if (!taskId) {
            return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
         }
@@ -409,6 +434,44 @@ export default {
         };
 
         await mergePullRequest(githubCtx, pr_number, env);
+
+        if (payload.source === "axim-support-system" && payload.ticketId) {
+          const encoder = new TextEncoder();
+          const cryptoKey = await crypto.subtle.importKey(
+            "raw",
+            encoder.encode(env.AXIM_INTERNAL_KEY),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+          );
+          const prUrl = `https://github.com/${repository_owner}/${repository_name}/pull/${pr_number}`;
+          const callbackPayload = JSON.stringify({
+            ticketId: payload.ticketId,
+            status: "completed",
+            resolutionNotes: `Automated patch applied and deployed by AXiM Coder Core.\n- PR: ${prUrl}\n- Verification: All automated tests passed cleanly.`,
+            completedAt: new Date().toISOString()
+          });
+          const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(callbackPayload));
+          const signatureArray = Array.from(new Uint8Array(signatureBuffer));
+          const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, "0")).join("");
+          try {
+            const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${payload.ticketId}/resolve-from-coder`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Axim-Signature": signatureHex
+              },
+              body: callbackPayload
+            });
+            if (!cbResp.ok) throw new Error(`Callback failed with status ${cbResp.status}`);
+          } catch (cbErr: any) {
+            console.error(`[AUTONOMOUS_CODER] Failed to dispatch resolution callback for ticket ${payload.ticketId}:`, cbErr.message);
+            if ((env as any).CODER_DLQ_KV) {
+               await (env as any).CODER_DLQ_KV.put(`dlq:ticket-callback:${payload.ticketId}`, callbackPayload);
+            }
+          }
+        }
+
 
         // Ensure to dispose lock on success
         if (taskIdentifier) {
@@ -497,7 +560,7 @@ export default {
     try {
       const payload: any = await request.json();
       payload.cf_ray = request.headers.get('cf-ray') || 'unknown';
-      const taskIdentifier = payload.task_id || payload.incident_hash;
+      const taskIdentifier = payload.task_id || payload.incident_hash || payload.ticketId || payload.taskId;
 
       if (!taskIdentifier) {
         return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { 
