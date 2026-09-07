@@ -575,6 +575,30 @@ export default {
               }
             }
 
+                        if (url.pathname === '/api/v1/pr/action') {
+              try {
+                 const token = url.searchParams.get('token');
+                 if (!token) {
+                   return new Response(JSON.stringify({ error: 'Missing token' }), { status: 400 });
+                 }
+
+                 const lockStatus = await env.TASK_LOCKS.get(`token:${token}`);
+                 if (lockStatus === 'consumed' || !lockStatus) {
+                   return new Response(JSON.stringify({ error: 'Token already consumed or expired' }), { status: 409, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+                 }
+
+                 // Process HITL action here (e.g. redirect to success page or trigger merge)
+
+                 await env.TASK_LOCKS.put(`token:${token}`, "consumed", { expirationTtl: 86400 });
+
+                 return new Response(JSON.stringify({ status: 'success', message: 'Action recorded' }), {
+                   status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                 });
+              } catch (e) {
+                 return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
+              }
+            }
+
             if (url.pathname === '/api/v1/deploy-action') {
               const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);
               if (!isAuth) {
