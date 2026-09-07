@@ -30,7 +30,10 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
-        // Ignore transient TOKEN_REFRESHED cycles without clearing local user state
+        // Preserve active components like PromptTerminal by not clearing session state to undefined during refresh
+        if (session) {
+           setSession(session);
+        }
         return;
       }
       setSession(session);
@@ -43,7 +46,7 @@ function App() {
   }, []);
 
   if (session === undefined) {
-    return <div className="flex h-screen items-center justify-center bg-[#0a0f1c] text-white">Loading...</div>;
+    return <div className="flex h-screen items-center justify-center bg-slate-900 text-white">Loading...</div>;
   }
 
   return (

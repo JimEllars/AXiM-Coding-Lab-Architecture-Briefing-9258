@@ -42,7 +42,7 @@ const Repositories = () => {
       </div>
 
       {repos.length === 0 ? (
-        <div className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-12 flex flex-col items-center justify-center text-center">
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-12 flex flex-col items-center justify-center text-center">
           <SafeIcon name="Database" className="text-4xl text-gray-600 mb-4" />
           <h3 className="text-lg font-bold text-white mb-2">No active repositories configured</h3>
           <p className="text-sm text-gray-500 max-w-md">Connect your first repository to begin autonomous swarm operations and codebase management.</p>
@@ -55,7 +55,7 @@ const Repositories = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.1 }}
-              className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all group relative overflow-hidden h-full flex flex-col"
+              className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all group relative overflow-hidden h-full flex flex-col"
             >
               {scanning === repo.id && (
                 <div className="absolute inset-0 bg-blue-600/5 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center space-y-3">
@@ -105,7 +105,7 @@ const Repositories = () => {
                 <div className="flex gap-2 pt-2">
                   <button 
                     onClick={(e) => handleScan(e, repo.id)}
-                    className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border border-gray-800"
+                    className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800"
                   >
                     Quick Scan
                   </button>

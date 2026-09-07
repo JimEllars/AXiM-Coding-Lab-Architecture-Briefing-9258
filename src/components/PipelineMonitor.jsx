@@ -9,11 +9,21 @@ const StatusBadge = ({ status }) => {
     'Generating': 'text-purple-400 bg-purple-500/10 border-purple-500/20',
     'Committing': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
     'Review Gate': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+    'Queued': 'text-gray-400 bg-gray-500/10 border-gray-500/20',
+    'Validating': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    'Completed': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    'Failed': 'text-red-400 bg-red-500/10 border-red-500/20',
+    'IN_PROGRESS': 'text-purple-400 bg-purple-500/10 border-purple-500/20'
   };
   const icon = {
     'Generating': 'Cpu',
     'Committing': 'GitCommit',
     'Review Gate': 'Eye',
+    'Queued': 'Clock',
+    'Validating': 'Shield',
+    'Completed': 'CheckCircle',
+    'Failed': 'AlertTriangle',
+    'IN_PROGRESS': 'Activity'
   };
   return (
     <span className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-bold font-mono border ${styles[status]}`}>
@@ -197,7 +207,7 @@ const PipelineMonitor = () => {
                   >
                     {confirmingEviction[task.id] ? "Confirm Eviction?" : "Evict Lock"}
                   </button>
-                  <span>{task.time}</span>
+                  <span className="opacity-80 flex items-center gap-1"><SafeIcon name="Clock" className="text-[10px]" /> {task.time || new Date().toLocaleTimeString([], { hour12: false })}</span>
                 </div>
               </div>
             </motion.div>

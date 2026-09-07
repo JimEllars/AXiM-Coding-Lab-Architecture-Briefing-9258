@@ -1,3 +1,5 @@
+import { validateEnv } from './ingress';
+
 export interface EmailPayload {
   to: string;
   bcc?: string;
@@ -6,6 +8,11 @@ export interface EmailPayload {
 }
 
 export async function sendEmailItMessage(payload: EmailPayload, env: any): Promise<boolean> {
+  const envValidation = validateEnv(env);
+  if (!envValidation.valid) {
+    console.error("Missing required environment configuration:", envValidation.missing);
+    return false;
+  }
   const url = 'https://api.emailit.com/v1/email/send';
 
   const emailData = {
