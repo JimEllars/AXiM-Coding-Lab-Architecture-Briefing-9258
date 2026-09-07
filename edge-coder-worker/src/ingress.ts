@@ -199,8 +199,6 @@ export default {
         headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
-      });
-    }
 
     if (request.method === 'GET' && url.pathname === '/api/telemetry/stats') {
       return new Response(JSON.stringify({
