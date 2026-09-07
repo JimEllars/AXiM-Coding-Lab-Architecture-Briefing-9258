@@ -1,4 +1,4 @@
-import { Env } from './ingress';
+import { Env, validateEnv } from './ingress';
 import { fetchCurrentFileState, createTaskBranch, commitGeneratedCode, openPullRequest, fetchRepositoryDependencies } from './github_bridge';
 
 export interface CodingTaskPayload {
@@ -28,6 +28,13 @@ function prepareContextWindow(content: string, threshold: number = 32000): { con
 }
 
 export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env, writer?: WritableStreamDefaultWriter, ctx?: any): Promise<void> {
+  const envValidation = validateEnv(env);
+  if (!envValidation.valid) {
+    if (writer) {
+      await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', message: "Missing required environment configuration: " + envValidation.missing.join(', ') })}\n\n`)).catch(() => {});
+    }
+    return;
+  }
   const sendEvent = async (type: string, message: string) => { if (writer) { await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type, message })}\n\n`)).catch(() => {}); } };
   const {
     task_id,

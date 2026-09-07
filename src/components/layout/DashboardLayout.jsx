@@ -10,8 +10,8 @@ import { supabase } from '../../services/supabaseClient';
 const Sidebar = ({ activeTaskCount }) => {
   const location = useLocation();
   return (
-    <div className="w-64 bg-[#0a0f1c] border-r border-gray-800 h-screen flex flex-col z-20">
-      <div className="h-16 flex items-center px-6 border-b border-gray-800">
+    <div className="w-64 bg-slate-900 border-r border-slate-800 h-screen flex flex-col z-20">
+      <div className="h-16 flex items-center px-6 border-b border-slate-800">
         <Link to="/" className="flex items-center gap-3">
           <div className="w-8 h-8 rounded bg-blue-600/20 flex items-center justify-center border border-blue-500/50">
             <SafeIcon name="Cpu" className="text-blue-400 text-lg" />
@@ -35,7 +35,7 @@ const Sidebar = ({ activeTaskCount }) => {
         <NavItem to="/audit" icon="List" label="Audit Logs" active={location.pathname === '/audit'} />
       </div>
 
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-slate-800">
         <NavItem to="/settings" icon="Settings" label="Settings" active={location.pathname === '/settings'} />
       </div>
     </div>
@@ -115,7 +115,7 @@ const DashboardLayout = () => {
         <header className="h-16 backdrop-blur-md bg-slate-900/85 border-b border-slate-800 flex items-center justify-between px-8 sticky top-0 z-40">
           <button 
             onClick={() => setIsSearchOpen(true)}
-            className="flex items-center gap-3 px-4 py-1.5 bg-gray-900 border border-gray-800 rounded-lg text-gray-500 hover:border-gray-700 transition-all"
+            className="flex items-center gap-3 px-4 py-1.5 bg-gray-900 border border-slate-800 rounded-lg text-gray-500 hover:border-gray-700 transition-all"
           >
             <SafeIcon name="Search" className="text-sm" />
             <span className="text-xs font-mono">Quick Search...</span>
@@ -129,7 +129,7 @@ const DashboardLayout = () => {
                   <span className="text-[10px] font-bold font-mono tracking-widest">{activeLocks} ACTIVE LOCKS</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-800/50 border border-gray-800 text-gray-500">
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-800/50 border border-slate-800 text-gray-500">
                   <SafeIcon name="Lock" className="text-sm" />
                   <span className="text-[10px] font-bold font-mono tracking-widest">0 LOCKS</span>
                 </div>

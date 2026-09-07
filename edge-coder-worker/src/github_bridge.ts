@@ -1,4 +1,4 @@
-import { Env } from './ingress';
+import { Env, validateEnv } from './ingress';
 
 
 /**

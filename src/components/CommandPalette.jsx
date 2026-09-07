@@ -12,9 +12,14 @@ const CommandPalette = ({ isOpen, onClose }) => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
+        e.stopPropagation();
         isOpen ? onClose() : null;
       }
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -68,12 +73,15 @@ const CommandPalette = ({ isOpen, onClose }) => {
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
+                e.stopPropagation();
                 setSelectedIndex((prev) => (prev < commands.length - 1 ? prev + 1 : prev));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
+                e.stopPropagation();
                 setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
               } else if (e.key === 'Enter') {
                 e.preventDefault();
+                e.stopPropagation();
                 if (commands[selectedIndex]) {
                   handleSelect(commands[selectedIndex].path);
                 }

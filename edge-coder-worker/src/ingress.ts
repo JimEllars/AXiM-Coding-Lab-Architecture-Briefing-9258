@@ -96,6 +96,18 @@ async function verifySupabaseToken(
 
 
 
+
+export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
+  const required = ['AXIM_INTERNAL_KEY', 'GITHUB_PAT', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+  const missing: string[] = [];
+  for (const key of required) {
+    if (!env[key as keyof Env]) {
+      missing.push(key);
+    }
+  }
+  return { valid: missing.length === 0, missing };
+}
+
 export default {
 
   async scheduled(event: any, env: any, ctx: any) {
@@ -179,6 +191,19 @@ export default {
 
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const startTime = Date.now();
+    const envValidation = validateEnv(env);
+    if (!envValidation.valid) {
+      return new Response(JSON.stringify({
+        error: "Missing required environment configuration",
+        code: "MISSING_ENV_CONFIG",
+        status: 503,
+        missing: envValidation.missing
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+      });
+    }
+
     const traceId = request.headers.get('cf-ray') || crypto.randomUUID();
     const url = new URL(request.url);
 
