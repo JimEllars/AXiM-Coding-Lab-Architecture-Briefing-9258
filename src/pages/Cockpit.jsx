@@ -10,6 +10,7 @@ import { labService } from '../services/labService';
 const Cockpit = () => {
   const [activeNodes, setActiveNodes] = useState(0);
   const [totalNodes, setTotalNodes] = useState(8);
+  const [supportTickets, setSupportTickets] = useState([]);
 
   useEffect(() => {
     const fetchNodes = async () => {
@@ -19,7 +20,22 @@ const Cockpit = () => {
         setActiveNodes(agents.filter(a => a.status === 'Active').length || 0);
       }
     };
+    const fetchTickets = async () => {
+      try {
+        const tasks = await labService.getTasks();
+        const filtered = (tasks || []).filter(task =>
+          task.origin_source === 'axim-support-system' ||
+          task.origin_source === 'Onyx_Support_Triage' ||
+          (task.id && task.id.startsWith('SUP-')) ||
+          task.ticketId
+        );
+        setSupportTickets(filtered);
+      } catch (err) {
+        console.error("Failed to fetch tickets", err);
+      }
+    };
     fetchNodes();
+    fetchTickets();
   }, []);
 
   const location = useLocation();
@@ -90,23 +106,31 @@ const Cockpit = () => {
               Incoming Support Tickets
             </h3>
             <div className="space-y-4">
-              <div className="p-3 rounded-lg bg-[#111827] border border-slate-800 text-[11px] text-gray-300">
-                <div className="flex justify-between items-center mb-2">
-                   <span className="font-bold text-violet-300">SUP-1042</span>
-                   <span className="px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 font-mono text-[9px]">IN_PROGRESS</span>
-                </div>
-                <p className="mb-3 truncate">Fix button padding on mobile viewport</p>
-                <div className="flex items-center gap-1.5 text-[9px] font-mono text-gray-500 uppercase">
-                   <span className="text-blue-400">[Received]</span> &rarr;
-                   <span className="text-blue-400">[Branching]</span> &rarr;
-                   <span className="text-purple-400">[Patching]</span> &rarr;
-                   <span>[PR Open]</span>
-                </div>
-                <div className="mt-3 flex gap-2">
-                   <a href="#" className="text-blue-400 hover:underline">View PR</a>
-                   <a href="#" className="text-violet-400 hover:underline">Support Ticket</a>
-                </div>
-              </div>
+              {supportTickets.length === 0 ? (
+                <div className="text-[11px] text-gray-500 italic">No active support remediation tickets in queue.</div>
+              ) : (
+                supportTickets.map(ticket => (
+                  <div key={ticket.id} className="p-3 rounded-lg bg-[#111827] border border-slate-800 text-[11px] text-gray-300">
+                    <div className="flex justify-between items-center mb-2">
+                       <span className="font-bold text-violet-300">{ticket.ticketId || ticket.id}</span>
+                       <span className="px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 font-mono text-[9px]">{ticket.status}</span>
+                    </div>
+                    <p className="mb-3 truncate">{ticket.instruction_prompt || ticket.description || 'Automated Remediation'}</p>
+                    <div className="flex items-center gap-1.5 text-[9px] font-mono text-gray-500 uppercase">
+                       <span className={ticket.status === 'Generating' ? 'text-blue-400 font-bold' : ''}>[Received]</span> &rarr;
+                       <span className={ticket.status === 'Committing' ? 'text-blue-400 font-bold' : ''}>[Branching]</span> &rarr;
+                       <span className={ticket.status === 'Review Gate' ? 'text-purple-400 font-bold' : ''}>[Patching]</span> &rarr;
+                       <span className={['MERGED', 'COMPLETED'].includes(ticket.status) ? 'text-green-400 font-bold' : ''}>[Merged]</span>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                       {ticket.pull_request_url && (
+                         <a href={ticket.pull_request_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">View PR</a>
+                       )}
+                       <a href="#" className="text-violet-400 hover:underline">Support Ticket</a>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -118,7 +142,15 @@ const Cockpit = () => {
             <button
               onClick={async () => {
                 try {
-                  await fetch("http://localhost:8787/api/v1/email/test-briefing", { method: "POST" });
+                  const workerBase = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';
+                  await fetch(`${workerBase}/api/v1/email/test-briefing`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${await labService.getValidToken()}`,
+                      'X-Axim-Signature': localStorage.getItem('axim_internal_key') || ''
+                    }
+                  });
                   alert("Test briefing dispatched successfully.");
                 } catch (e) {
                   alert("Failed to dispatch test briefing.");
