@@ -6,6 +6,7 @@ export interface KVNamespace {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: any): Promise<void>;
   delete(key: string): Promise<void>;
+  list(options?: any): Promise<{ keys: { name: string }[], list_complete: boolean, cursor?: string }>;
 }
 export interface ExecutionContext {
   waitUntil(promise: Promise<any>): void;
@@ -19,9 +20,12 @@ export interface Env {
   LAB_STATE: KVNamespace;
   TASK_LOCKS: KVNamespace;
   TELEMETRY_KV: KVNamespace;
+  CODER_DLQ_KV: KVNamespace;
   axim_coder_metrics: AnalyticsEngineDataset;
   AXIM_INTERNAL_KEY: string;
   GITHUB_PAT: string;
+  GITHUB_WEBHOOK_SECRET?: string;
+  EMAILIT_API_KEY?: string;
   SUPABASE_URL: string;
   SUPABASE_LLM_PROXY_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -112,6 +116,15 @@ export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
       missing.push(key);
     }
   }
+
+  if (!env.EMAILIT_API_KEY) {
+    console.warn("WARNING: EMAILIT_API_KEY is missing. Email dispatch will fail.");
+  }
+
+  if (!env.CODER_DLQ_KV) {
+    console.warn("WARNING: CODER_DLQ_KV namespace binding is missing.");
+  }
+
   return { valid: missing.length === 0, missing };
 }
 
@@ -233,15 +246,41 @@ export default {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/telemetry/stats') {
-      return new Response(JSON.stringify({
-        worker_uptime: Date.now() - startTime,
-        memory_execution_markers: { heap_used: "42MB", heap_total: "64MB" },
-        cloudflare_colo: request.cf?.colo || 'ORD',
-        request_throughput_counters: { requests_per_minute: 120, active_connections: 5 }
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-      });
+      try {
+        const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+        const agentFilter = url.searchParams.get("agentId");
+
+        const listParams = { limit: limit, prefix: agentFilter ? `telemetry:${agentFilter}:` : 'telemetry:' };
+        const listResult = await (env.TELEMETRY_KV).list(listParams);
+        const events = [];
+
+        for (const key of listResult.keys) {
+          const data = await env.TELEMETRY_KV.get(key.name);
+          if (data) {
+            events.push(JSON.parse(data));
+          }
+        }
+
+        events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        const stats = {
+          events,
+          total_events: events.length,
+          average_latency: events.length > 0 ? (events.reduce((sum, e) => sum + e.latencyMs, 0) / events.length) : 0,
+          total_tokens: events.reduce((sum, e) => sum + (e.tokensUsed || 0), 0),
+          worker_uptime: Date.now() - startTime,
+          memory_execution_markers: { heap_used: "42MB", heap_total: "64MB" },
+          cloudflare_colo: request.cf?.colo || 'ORD'
+        };
+
+        return new Response(JSON.stringify(stats), {
+          status: 200, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: "Internal Error fetching telemetry stats" }), {
+          status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+        });
+      }
     }
 
     let response: Response;
@@ -250,12 +289,58 @@ export default {
 
 
 
+
+            if (request.method === 'POST' && url.pathname === '/api/v1/email/test-briefing') {
+              const authHeader = request.headers.get('Authorization');
+              const sigHeader = request.headers.get('X-Axim-Signature');
+
+              let isAuth = false;
+              if (authHeader && authHeader.startsWith('Bearer ')) {
+                 isAuth = await verifySupabaseToken(authHeader, env);
+              } else if (sigHeader) {
+                 isAuth = sigHeader === env.AXIM_INTERNAL_KEY;
+              }
+
+              if (!isAuth) {
+                return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+              }
+
+              try {
+                const sampleToken = 'briefing_' + Date.now();
+                await env.TASK_LOCKS.put('pr_token_' + sampleToken, 'active', { expirationTtl: 86400 });
+
+                const payload = {
+                  to: 'james.ellars@axim.us.com',
+                  bcc: 'jrellars@gmail.com',
+                  subject: 'HITL Executive Briefing',
+                  html: `<h1>AXiM Executive Briefing</h1><p>Test briefing token: ${sampleToken}</p>`
+                };
+
+                await sendEmailItMessage(payload, env);
+
+                return new Response(JSON.stringify({ status: "dispatched", message: "Test briefing email sent successfully." }), {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              } catch (e) {
+                return new Response(JSON.stringify({ error: "Failed to dispatch briefing" }), {
+                  status: 500,
+                  headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+            }
+
             if (request.method === 'GET' && url.pathname === '/api/v1/health') {
               return new Response(JSON.stringify({
                 LAB_STATE: !!env.LAB_STATE,
                 TASK_LOCKS: !!env.TASK_LOCKS,
+                TELEMETRY_KV: !!env.TELEMETRY_KV,
+                CODER_DLQ_KV: !!env.CODER_DLQ_KV,
+                axim_coder_metrics: !!env.axim_coder_metrics,
                 AXIM_INTERNAL_KEY: !!env.AXIM_INTERNAL_KEY,
                 GITHUB_PAT: !!env.GITHUB_PAT,
+                GITHUB_WEBHOOK_SECRET: !!env.GITHUB_WEBHOOK_SECRET,
+                EMAILIT_API_KEY: !!env.EMAILIT_API_KEY,
                 SUPABASE_SERVICE_ROLE_KEY: !!env.SUPABASE_SERVICE_ROLE_KEY
               }), {
                 status: 200,
@@ -354,6 +439,83 @@ export default {
                  return new Response(JSON.stringify({ status: 'degraded' }), {
                     status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                  });
+              }
+            }
+
+            if (request.method === 'GET' && url.pathname === '/api/v1/pr/action') {
+              const token = url.searchParams.get('token');
+              const decision = url.searchParams.get('decision');
+
+              const renderHtml = (message) => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${message}</title>
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .card { background-color: #1e293b; padding: 2rem; border-radius: 0.5rem; border: 1px solid #334155; text-align: center; }
+    h1 { margin-top: 0; font-size: 1.5rem; color: #38bdf8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${message}</h1>
+  </div>
+</body>
+</html>`;
+
+              if (!token || await env.TASK_LOCKS.get('pr_token_' + token) === 'consumed') {
+                return new Response(renderHtml("Action Already Processed"), {
+                  status: 409,
+                  headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+                });
+              }
+
+              if (decision === 'merge') {
+                try {
+                  const githubCtx = { owner: 'axim-oss', repo: 'axim-core-api' };
+                  const prNumber = parseInt(url.searchParams.get('pr') || '0', 10);
+                  const taskId = url.searchParams.get('task_id');
+
+                  if (prNumber > 0) {
+                    await mergePullRequest(githubCtx, prNumber, env);
+
+                    if (taskId && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+                       await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
+                         method: 'PATCH',
+                         headers: {
+                           'Content-Type': 'application/json',
+                           'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+                           'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                         },
+                         body: JSON.stringify({ status: 'MERGED' })
+                       });
+                    }
+                  }
+
+                  await env.TASK_LOCKS.put('pr_token_' + token, 'consumed', { expirationTtl: 86400 });
+                  return new Response(renderHtml("PR Successfully Approved & Merged"), {
+                    status: 200,
+                    headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+                  });
+                } catch (e) {
+                  return new Response(renderHtml("Error Merging PR"), {
+                    status: 500,
+                    headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+                  });
+                }
+              } else if (decision === 'revise') {
+                await env.TASK_LOCKS.put('pr_token_' + token, 'consumed', { expirationTtl: 86400 });
+                return new Response(renderHtml("Revision Requested"), {
+                  status: 200,
+                  headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+                });
+              } else {
+                return new Response(renderHtml("Invalid Decision"), {
+                  status: 400,
+                  headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+                });
               }
             }
 
@@ -829,49 +991,7 @@ export default {
               }
             }
 
-            if (url.pathname === "/api/telemetry/stats" && request.method === "GET") {
-              try {
-                const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-                const agentFilter = url.searchParams.get("agentId");
 
-                const listParams: any = { limit: limit };
-                if (agentFilter) {
-                  listParams.prefix = `telemetry:${agentFilter}:`;
-                } else {
-                  listParams.prefix = `telemetry:`;
-                }
-
-                // Assuming list() is defined on KVNamespace, update the KVNamespace interface
-                const listResult = await (env.TELEMETRY_KV as any).list(listParams);
-                const events = [];
-
-                for (const key of listResult.keys) {
-                  const data = await env.TELEMETRY_KV.get(key.name);
-                  if (data) {
-                    events.push(JSON.parse(data));
-                  }
-                }
-
-                // Sort events by timestamp descending
-                events.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-                // Build a stats aggregate object
-                const stats = {
-                  events,
-                  total_events: events.length,
-                  average_latency: events.length > 0 ? (events.reduce((sum: number, e: any) => sum + e.latencyMs, 0) / events.length) : 0,
-                  total_tokens: events.reduce((sum: number, e: any) => sum + (e.tokensUsed || 0), 0)
-                };
-
-                return new Response(JSON.stringify(stats), {
-                  status: 200, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
-                });
-              } catch (error: any) {
-                return new Response(JSON.stringify({ error: "Internal Error fetching telemetry stats" }), {
-                  status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
-                });
-              }
-            }
             // 3. Payload Extraction & Idempotency Lock
             if (url.pathname === '/api/v1/ingress' || url.pathname === '/api/v1/tasks') {
               const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);

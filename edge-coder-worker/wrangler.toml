@@ -22,6 +22,11 @@ id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 binding = "TELEMETRY_KV"
 id = "b5a93d8b132f41c38d6fcb2f40004901"
 
+[[kv_namespaces]]
+binding = "CODER_DLQ_KV"
+id = "c7d83f2a419e42218d6fcb2f40005012"
+
+
 [[analytics_engine_datasets]]
 binding = "axim_coder_metrics"
 
@@ -31,5 +36,7 @@ binding = "axim_coder_metrics"
 # 1. wrangler secret put AXIM_INTERNAL_KEY
 # 2. wrangler secret put GITHUB_PAT (Requires repo, workflow, and PR scopes)
 # 3. wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# 4. wrangler secret put EMAILIT_API_KEY
+# 5. wrangler secret put GITHUB_WEBHOOK_SECRET
 [triggers]
 crons = ["0 14 * * *", "0 3 * * *", "0 */6 * * *"]
