@@ -19,6 +19,8 @@ const Telemetry = () => {
   const [error, setError] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('LOCAL CACHE');
   const [liveLogs, setLiveLogs] = useState([]);
+  const [timeWindow, setTimeWindow] = useState('7d');
+  const [edgeStats, setEdgeStats] = useState(null);
 
 
 
@@ -39,14 +41,19 @@ const Telemetry = () => {
             unsubscribeTelemetry = labService.subscribeToTelemetry(async (status) => {
          setConnectionStatus(status);
          if (status === 'ONLINE / REALTIME') {
-            const edgeStats = await labService.getEdgeTelemetry();
-            if (edgeStats && edgeStats.memory_execution_markers) {
+            // Poll real stats API
+            const stats = await labService.fetchTelemetryStats();
+            if (stats && stats.events) {
+               setEdgeStats(stats);
+            }
+
+            const edgeData = await labService.getEdgeTelemetry();
+            if (edgeData && edgeData.memory_execution_markers) {
               setData(prev => {
                 if (!prev) return prev;
-                // Update metrics if needed
                 return {
                   ...prev,
-                  edgeTelemetry: edgeStats
+                  edgeTelemetry: edgeData
                 };
               });
             }
@@ -146,21 +153,37 @@ if (!data) {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white">The Green Machine</h1>
           <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
-            <SafeIcon name="Zap" className="text-sm" />
-            OPTIMIZED
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-1 bg-gray-800/50 p-1 rounded-lg border border-slate-700">
+            {['1h', '6h', '24h', '7d'].map(tw => (
+              <button
+                key={tw}
+                onClick={() => setTimeWindow(tw)}
+                className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors ${timeWindow === tw ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                {tw.toUpperCase()}
+              </button>
+            ))}
           </div>
-          <div className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border ${connectionStatus === 'ONLINE / REALTIME' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-            {connectionStatus}
+          <div className="flex items-center gap-2">
+             <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
+               <SafeIcon name="Zap" className="text-sm" />
+               OPTIMIZED
+             </div>
+             <div className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest ${connectionStatus.includes('ONLINE') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : connectionStatus.includes('DEGRADED') ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+               <div className={`w-1.5 h-1.5 rounded-full ${connectionStatus.includes('ONLINE') ? 'bg-emerald-400 animate-pulse' : connectionStatus.includes('DEGRADED') ? 'bg-rose-400 animate-pulse' : 'bg-amber-400'}`}></div>
+               {connectionStatus}
+             </div>
           </div>
         </div>
       </div>
+
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3 text-red-400 font-mono text-sm">
@@ -174,9 +197,35 @@ if (!data) {
         <MetricCard label="ACTIVE AGENTS" value={activeAgentCount} icon="Users" color="green" />
         <MetricCard label="DEV HOURS SAVED" value={data.roiMetrics.hoursSaved} icon="Clock" color="blue" />
         <MetricCard label="EDGE MEMORY" value={data.edgeTelemetry ? data.edgeTelemetry.memory_execution_markers.heap_used : 'N/A'} icon="Cpu" color="purple" />
-        <MetricCard label="EDGE LATENCY" value={data.edgeTelemetry ? '12ms / 48ms' : 'N/A'} icon="Zap" color="blue" />
+        <MetricCard label="EDGE LATENCY" value={edgeStats ? `${edgeStats.average_latency.toFixed(0)}ms` : (data.edgeTelemetry ? '12ms' : 'N/A')} icon="Zap" color="blue" />
         <MetricCard label="EST. SAVINGS" value={data.roiMetrics.estimatedSavings} icon="Shield" color="green" />
       </div>
+
+      {edgeStats && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6 mb-6">
+          <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+            <SafeIcon name="Activity" className="text-blue-400" />
+            Live Edge Telemetry Events ({edgeStats.total_events})
+          </h3>
+          <div className="space-y-2 max-h-[300px] overflow-y-auto terminal-scroll">
+            {edgeStats.events.map((event, i) => (
+              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-slate-800">
+                <div className="flex flex-col">
+                  <span className="text-xs font-medium text-gray-300">{event.agentId}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">{new Date(event.timestamp).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                   <span className="text-xs text-gray-400 font-mono">{event.latencyMs}ms</span>
+                   <span className="text-xs text-blue-400 font-mono">{event.tokensUsed} tokens</span>
+                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${event.status === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                      {event.status}
+                   </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-6 relative">

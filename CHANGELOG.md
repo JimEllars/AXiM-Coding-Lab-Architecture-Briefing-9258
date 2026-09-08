@@ -1,4 +1,13 @@
 # Sprint v1.2 Build Prompt - Production Hardening & Telemetry Authenticity Pass
+## [Unreleased]
+### Added
+- `edge-coder-worker`: New telemetry pipeline ingestion route `POST /api/telemetry/events`.
+- `edge-coder-worker`: New telemetry stats fetch route `GET /api/telemetry/stats`.
+- `labService`: Real-time telemetry edge events stream query logic with caching and fallback.
+- Telemetry Dashboard: HUD polish with agent throughput, error budgets, SVG visual elements, and time-window filtering.
+### Fixed
+- Dashboard session resilience logic integrated into `DashboardLayout.jsx` with 15-minute optimistic session grace period evaluator for handling transient 5xx auth errors during active use.
+
 
 ## 6. Sprint Report
 
