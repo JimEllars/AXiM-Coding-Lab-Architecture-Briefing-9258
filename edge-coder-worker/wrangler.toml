@@ -18,6 +18,13 @@ id = "afc3219e3592439b8d3ae6fcb2f40004"
 binding = "TASK_LOCKS"
 id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 
+[[kv_namespaces]]
+binding = "TELEMETRY_KV"
+id = "b5a93d8b132f41c38d6fcb2f40004901"
+
+[[analytics_engine_datasets]]
+binding = "axim_coder_metrics"
+
 # -----------------------------------------------------------------------------
 # SECRET VAULTING INSTRUCTIONS (Execute via Cloudflare CLI, do not hardcode):
 # -----------------------------------------------------------------------------

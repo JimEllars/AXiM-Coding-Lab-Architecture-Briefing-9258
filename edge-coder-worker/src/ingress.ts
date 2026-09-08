@@ -10,9 +10,16 @@ export interface KVNamespace {
 export interface ExecutionContext {
   waitUntil(promise: Promise<any>): void;
 }
+
+export interface AnalyticsEngineDataset {
+  writeDataPoint(data: { doubles?: number[]; blobs?: string[]; indexes?: string[] }): void;
+}
+
 export interface Env {
   LAB_STATE: KVNamespace;
   TASK_LOCKS: KVNamespace;
+  TELEMETRY_KV: KVNamespace;
+  axim_coder_metrics: AnalyticsEngineDataset;
   AXIM_INTERNAL_KEY: string;
   GITHUB_PAT: string;
   SUPABASE_URL: string;
@@ -787,6 +794,84 @@ export default {
             }
 
 
+            // Telemetry endpoints
+            if (url.pathname === "/api/telemetry/events" && request.method === "POST") {
+              try {
+                const payload: any = await request.json();
+                const { timestamp, agentId, latencyMs, status, tokensUsed } = payload;
+
+                if (!timestamp || !agentId || typeof latencyMs !== "number" || !status) {
+                  return new Response(JSON.stringify({ error: "Bad Request: Missing or invalid telemetry fields" }), {
+                    status: 400, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                  });
+                }
+
+                // Store event in KV for fast recent querying
+                const eventId = `telemetry:${agentId}:${timestamp}`;
+                await env.TELEMETRY_KV.put(eventId, JSON.stringify(payload), { expirationTtl: 86400 * 7 }); // 7 days retention
+
+                // Write to Analytics Engine
+                if (env.axim_coder_metrics) {
+                  env.axim_coder_metrics.writeDataPoint({
+                    blobs: [agentId, status, new Date(timestamp).toISOString()],
+                    doubles: [latencyMs, tokensUsed || 0],
+                    indexes: [agentId]
+                  });
+                }
+
+                return new Response(JSON.stringify({ success: true }), {
+                  status: 200, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                  });
+              } catch (error: any) {
+                return new Response(JSON.stringify({ error: "Internal Error processing telemetry" }), {
+                  status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                });
+              }
+            }
+
+            if (url.pathname === "/api/telemetry/stats" && request.method === "GET") {
+              try {
+                const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+                const agentFilter = url.searchParams.get("agentId");
+
+                const listParams: any = { limit: limit };
+                if (agentFilter) {
+                  listParams.prefix = `telemetry:${agentFilter}:`;
+                } else {
+                  listParams.prefix = `telemetry:`;
+                }
+
+                // Assuming list() is defined on KVNamespace, update the KVNamespace interface
+                const listResult = await (env.TELEMETRY_KV as any).list(listParams);
+                const events = [];
+
+                for (const key of listResult.keys) {
+                  const data = await env.TELEMETRY_KV.get(key.name);
+                  if (data) {
+                    events.push(JSON.parse(data));
+                  }
+                }
+
+                // Sort events by timestamp descending
+                events.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+                // Build a stats aggregate object
+                const stats = {
+                  events,
+                  total_events: events.length,
+                  average_latency: events.length > 0 ? (events.reduce((sum: number, e: any) => sum + e.latencyMs, 0) / events.length) : 0,
+                  total_tokens: events.reduce((sum: number, e: any) => sum + (e.tokensUsed || 0), 0)
+                };
+
+                return new Response(JSON.stringify(stats), {
+                  status: 200, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                });
+              } catch (error: any) {
+                return new Response(JSON.stringify({ error: "Internal Error fetching telemetry stats" }), {
+                  status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                });
+              }
+            }
             // 3. Payload Extraction & Idempotency Lock
             if (url.pathname === '/api/v1/ingress' || url.pathname === '/api/v1/tasks') {
               const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);

@@ -60,6 +60,7 @@ const DashboardLayout = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const [activeLocks, setActiveLocks] = useState(0);
+  const [gracePeriodTimer, setGracePeriodTimer] = useState(null);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -70,16 +71,36 @@ const DashboardLayout = () => {
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
-        console.warn('[AUTH] Session heartbeat failed or missing session.');
+        // Optimistic session evaluator logic
+        const cachedSession = localStorage.getItem('sb-fallback-anon-key-auth-token') || localStorage.getItem('axim_internal_key');
+        const hasActiveGracePeriod = localStorage.getItem('axim_auth_grace_period');
+
+        if (cachedSession && !hasActiveGracePeriod) {
+           console.warn('[AUTH] Session heartbeat failed. Initiating 15-minute optimistic grace period.');
+           localStorage.setItem('axim_auth_grace_period', Date.now().toString());
+           const timer = setTimeout(() => {
+             localStorage.removeItem('axim_auth_grace_period');
+             window.location.href = '/login';
+           }, 15 * 60 * 1000);
+           setGracePeriodTimer(timer);
+        } else if (!cachedSession && !hasActiveGracePeriod) {
+           window.location.href = '/login';
+        }
       } else if (event === 'TOKEN_REFRESHED') {
          // Silently refreshed
+         localStorage.removeItem('axim_auth_grace_period');
+         if (gracePeriodTimer) {
+            clearTimeout(gracePeriodTimer);
+            setGracePeriodTimer(null);
+         }
       }
     });
 
     return () => {
       authListener.subscription.unsubscribe();
+      if (gracePeriodTimer) clearTimeout(gracePeriodTimer);
     };
-  }, []);
+  }, [gracePeriodTimer]);
 
 
   useEffect(() => {

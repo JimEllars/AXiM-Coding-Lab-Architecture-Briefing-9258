@@ -190,6 +190,30 @@ export const labService = {
     };
   },
 
+  fetchTelemetryStats: async () => {
+    const cacheKey = 'axim_telemetry_stats_cache';
+    const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
+    const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '/api/telemetry/stats') : '/api/telemetry/stats';
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+
+      const res = await fetch(workerUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error('Failed to fetch telemetry stats');
+      const stats = await res.json();
+
+      // Cache successful response
+      sessionStorage.setItem(cacheKey, JSON.stringify(stats));
+      return stats;
+    } catch (error) {
+      console.warn('Telemetry fetch failed, using local cached averages:', error);
+      return cached || { total_events: 0, average_latency: 0, total_tokens: 0, events: [] };
+    }
+  },
+
   subscribeToPipelineMetrics: (callback, intervalMs = 3000) => {
     let pollingInterval;
     let eventSource;
