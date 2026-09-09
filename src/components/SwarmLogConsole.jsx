@@ -25,6 +25,7 @@ const SwarmLogConsole = () => {
     
     // Subscribe to internal UI broadcast
 
+
     let logBuffer = [];
     let batchTimeout;
     const unsubscribe = labService.subscribe((event) => {
@@ -35,7 +36,7 @@ const SwarmLogConsole = () => {
           setLogs(prev => {
             const updatedLogs = [...prev, ...logBuffer];
             logBuffer = [];
-            return updatedLogs.slice(-150);
+            return updatedLogs.slice(-1000); // Increased buffer to 1000 lines
           });
         }, 250);
       }
@@ -57,10 +58,11 @@ const SwarmLogConsole = () => {
                    type: 'system',
                    time: new Date(payload.new.created_at || Date.now()).toLocaleTimeString([], { hour12: false })
                 }];
-                return updatedLogs.slice(-100); // Instructed to cache up to 100 historical logs in memory
+                return updatedLogs.slice(-1000); // 1000 limit
              });
           })
           .subscribe();
+
 
       } catch (err) {
         console.error('Failed to subscribe to realtime, falling back to edge heartbeat:', err);
@@ -127,19 +129,20 @@ const SwarmLogConsole = () => {
             <span className="text-gray-600 select-none">[{log.time}]</span>
             <span className={`
               ${
-                log.text.includes('FORCE_UNLOCKED') || log.text.includes('[BRAIN] New knowledge node')
+                log.text.includes('FORCE_UNLOCKED') || log.text.includes('[BRAIN] New knowledge node') || log.text.includes('[WARN]')
                   ? 'text-orange-400 font-bold bg-orange-500/5 border-l-2 border-orange-500 px-2 rounded-r'
-                  : log.text.includes('[LLM]') ? 'text-purple-400' :
-                log.text.includes('[GITOPS]') ? 'text-blue-400' : 
-                log.text.includes('[INGRESS]') ? 'text-green-400' :
+                  : log.text.includes('[Synthesizer]') || log.text.includes('[LLM]') ? 'text-purple-400' :
+                log.text.includes('[Validator]') || log.text.includes('[GITOPS]') ? 'text-blue-400' :
+                log.text.includes('[SecOps]') || log.text.includes('[INGRESS]') ? 'text-green-400' :
                 log.text.includes('[SYSTEM]') && log.text.includes('Reconnecting') ? 'text-yellow-400' :
-                log.text.includes('[SYSTEM]') ? 'text-gray-400' :
-                log.text.includes('[CRITICAL]') ? 'text-red-400' :
+                log.text.includes('[SYSTEM]') || log.text.includes('[INFO]') ? 'text-gray-400' :
+                log.text.includes('[CRITICAL]') ? 'text-red-400 font-bold bg-red-900/50 px-2 rounded' :
                 'text-gray-400'}
             `}>
               {log.text}
             </span>
           </div>
+
         ))}
         {logs.length === 0 && <span className="text-gray-700 italic">No events recorded in current cycle.</span>}
         {<div className="inline-block w-2 h-4 bg-blue-500 animate-pulse align-middle ml-1"></div>}

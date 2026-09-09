@@ -234,11 +234,26 @@ export default {
       });
     }
 
-    if (request.method === 'GET' && url.pathname === '/healthz') {
+    if (request.method === 'GET' && (url.pathname === '/healthz' || url.pathname === '/livez')) {
+      const activeBindings = {
+        SUPABASE_URL: !!env.SUPABASE_URL,
+        GITHUB_TOKEN: !!env.GITHUB_PAT,
+        EMAILIT_API_KEY: !!env.EMAILIT_API_KEY
+      };
+
+      const memoryUsage = (typeof process !== 'undefined' && process.memoryUsage) ? process.memoryUsage() : { heapUsed: 0, heapTotal: 0 };
+      const memoryStatus = {
+        heap_used: memoryUsage.heapUsed ? `${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB` : 'unknown',
+        heap_total: memoryUsage.heapTotal ? `${Math.round(memoryUsage.heapTotal / 1024 / 1024)}MB` : 'unknown'
+      };
+
       return new Response(JSON.stringify({
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        cf_colo: request.cf?.colo || 'unknown'
+        cf_colo: request.cf?.colo || 'unknown',
+        bindings: activeBindings,
+        memory: memoryStatus,
+        runtime: 'Cloudflare Worker V8'
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
@@ -1002,13 +1017,40 @@ export default {
             try {
               const payload: any = await request.json();
               payload.cf_ray = request.headers.get('cf-ray') || 'unknown';
-              const taskIdentifier = payload.task_id || payload.incident_hash || payload.ticketId || payload.taskId;
 
-              if (!taskIdentifier) {
+              const idempotencyKey = request.headers.get('Idempotency-Key') || request.headers.get('X-GitHub-Delivery') || request.headers.get('x-github-delivery');
+              if (idempotencyKey) {
+                const isDuplicate = await env.TASK_LOCKS.get(`idempotency:${idempotencyKey}`);
+                if (isDuplicate) {
+                  return new Response(JSON.stringify({
+                    status: 'ignored',
+                    message: 'Idempotent request already processed.'
+                  }), {
+                    status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                  });
+                }
+                await env.TASK_LOCKS.put(`idempotency:${idempotencyKey}`, "processed", { expirationTtl: 86400 }); // 24h window
+              }
+
+              // Schema validation for dispatch payloads
+              if (!payload.task_id && !payload.incident_hash && !payload.ticketId && !payload.taskId) {
                 return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), {
                   status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               }
+              if (!payload.repository_owner || !payload.repository_name) {
+                // If it's a structural payload for code_generator, require these
+                if (url.pathname === '/api/v1/ingress') {
+                  if (!payload.repository_owner || !payload.repository_name || !payload.instruction_prompt) {
+                     return new Response(JSON.stringify({ error: 'Bad Request: Invalid JSON Schema for CodingTaskPayload. Missing repository_owner, repository_name, or instruction_prompt.' }), {
+                       status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                     });
+                  }
+                }
+              }
+
+              const taskIdentifier = payload.task_id || payload.incident_hash || payload.ticketId || payload.taskId;
+
 
               // Query KV to ensure this specific bug/feature isn't already being coded by the swarm
               let activeLock;

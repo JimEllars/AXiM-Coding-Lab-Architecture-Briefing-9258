@@ -5,7 +5,7 @@ import { supabase } from '../services/supabaseClient';
 import { generateHmacSignature } from '../utils/crypto';
 
 const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
-  const [issubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorToast, setErrorToast] = useState(null);
 
@@ -32,7 +32,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
 
 
   const handleAction = async (status) => {
-    if (!taskId) return;
+    if (!taskId || isSubmitting) return; // Prevent double dispatch via lock
     setIsSubmitting(true);
     setErrorToast(null);
 
@@ -114,7 +114,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
           exit={{ opacity: 0, filter: 'blur(10px)', transition: { duration: 0.5 } }}
           className="bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden flex flex-col h-full relative"
         >
-          {issubmitting && (
+          {isSubmitting && (
             <div className="absolute inset-0 z-50 bg-[#0a0f1c]/50 backdrop-blur-sm flex items-center justify-center">
               <motion.div
                 animate={{ rotate: 360 }}
@@ -143,14 +143,14 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleAction('REJECTED')}
-                disabled={issubmitting}
+                disabled={isSubmitting}
                 className="px-3 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-400 rounded border border-red-600/20 text-[10px] font-bold uppercase transition-colors disabled:opacity-50"
               >
                 Reject Patch
               </button>
               <button
                 onClick={() => handleAction('APPROVED')}
-                disabled={issubmitting}
+                disabled={isSubmitting}
                 className="flex items-center gap-1.5 px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(22,163,74,0.2)] disabled:opacity-50"
               >
                 <SafeIcon name="GitMerge" className="text-[10px]" />

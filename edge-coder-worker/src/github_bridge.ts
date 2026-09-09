@@ -29,6 +29,35 @@ function encodeBase64Unicode(str: string): string {
   return btoa(binaryString);
 }
 
+
+/**
+ * Utility: fetch with exponential backoff retry
+ */
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  let retries = 0;
+  while (retries < maxRetries) {
+    try {
+      const response = await fetchWithRetry(url, options);
+      if (response.status === 403 || response.status === 429) {
+        const resetHeader = response.headers.get('x-ratelimit-reset');
+        const resetTime = resetHeader ? parseInt(resetHeader, 10) * 1000 : Date.now() + Math.pow(2, retries) * 1000;
+        const delay = Math.max(0, resetTime - Date.now());
+        if (delay < 10000) { // Only wait if delay is less than 10 seconds, otherwise fail
+            await new Promise(resolve => setTimeout(resolve, delay + 500));
+            retries++;
+            continue;
+        }
+      }
+      return response;
+    } catch (err) {
+      if (retries === maxRetries - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
+      retries++;
+    }
+  }
+  throw new Error("Max retries reached");
+}
+
 export interface GithubContext {
   owner: string;
   repo: string;
@@ -61,7 +90,7 @@ export async function fetchCurrentFileState(
 ): Promise<FileState> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}?ref=${ctx.baseBranch || 'main'}`;
   
-  const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
   
   if (!response.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch file state: ${response.statusText}`);
@@ -87,7 +116,7 @@ export async function createTaskBranch(
   const base = ctx.baseBranch || 'main';
   
   const refUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/ref/heads/${base}`;
-  const refResponse = await fetch(refUrl, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const refResponse = await fetchWithRetry(refUrl, { headers: getGithubHeaders(env.GITHUB_PAT) });
   
   if (!refResponse.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch base branch reference: ${refResponse.statusText}`);
@@ -97,7 +126,7 @@ export async function createTaskBranch(
   const baseSha = refData.object.sha;
 
   const createUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/refs`;
-  const createResponse = await fetch(createUrl, {
+  const createResponse = await fetchWithRetry(createUrl, {
     method: 'POST',
     headers: getGithubHeaders(env.GITHUB_PAT),
     body: JSON.stringify({
@@ -125,7 +154,7 @@ export async function commitGeneratedCode(
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}`;
   const encodedContent = encodeBase64Unicode(newContent);
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'PUT',
     headers: getGithubHeaders(env.GITHUB_PAT),
     body: JSON.stringify({
@@ -154,7 +183,7 @@ export async function openPullRequest(
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls`;
   const base = ctx.baseBranch || 'main';
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: getGithubHeaders(env.GITHUB_PAT),
     body: JSON.stringify({
@@ -182,7 +211,7 @@ export async function mergePullRequest(
 ): Promise<void> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/merge`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'PUT',
     headers: getGithubHeaders(env.GITHUB_PAT),
     body: JSON.stringify({
@@ -214,7 +243,7 @@ export async function fetchRepositoryDependencies(
 ): Promise<string> {
   const tryFetch = async (filePath: string): Promise<string | null> => {
     const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}?ref=${ctx.baseBranch || 'main'}`;
-    const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+    const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
     if (!response.ok) {
       if (response.status === 404) {
         return null;
@@ -245,7 +274,7 @@ export async function fetchRepositoryDependencies(
 
 export async function fetchOpenPullRequests(ctx: GithubContext, env: Env): Promise<any[]> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls?state=open`;
-  const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
   if (!response.ok) return [];
   return await response.json();
 }
@@ -255,14 +284,14 @@ export async function fetchPullRequestDiff(ctx: GithubContext, prNumber: number,
   const headers = getGithubHeaders(env.GITHUB_PAT);
   (headers as Record<string, string>)["Accept"] = "application/vnd.github.v3.diff";
 
-  const response = await fetch(url, { headers });
+  const response = await fetchWithRetry(url, { headers });
   if (!response.ok) return '';
   return await response.text();
 }
 
 export async function postPullRequestReview(ctx: GithubContext, prNumber: number, reviewText: string, env: Env): Promise<void> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/reviews`;
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: getGithubHeaders(env.GITHUB_PAT),
     body: JSON.stringify({

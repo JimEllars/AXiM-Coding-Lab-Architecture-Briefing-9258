@@ -18,6 +18,7 @@ const AuthCallback = () => {
         return;
       }
 
+
       try {
         // Strip the token from URL
         window.history.replaceState({}, document.title, '/');
@@ -36,19 +37,27 @@ const AuthCallback = () => {
         localStorage.setItem('axim_user_role', mockRole);
         localStorage.setItem('axim_user_profile', JSON.stringify({ role: mockRole, name: 'Admin Ellars' }));
 
-        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-          access_token: token,
-          refresh_token: token,
-        });
+        try {
+          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+            access_token: token,
+            refresh_token: token,
+          });
 
-        if (sessionError) {
-           console.warn('Supabase setSession failed, attempting silent anonymous login fallback:', sessionError);
-
-           // Fallback for demo environments without actual SSO JWTs
-           const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
-           if (anonError) {
-             console.error("Anonymous fallback failed:", anonError);
-           }
+          if (sessionError) {
+             console.warn('Supabase setSession failed:', sessionError);
+             setError("Critical auth failure, redirecting...");
+             setTimeout(() => {
+                navigate('/login?error=sso_failed', { replace: true });
+             }, 1000);
+             return;
+          }
+        } catch (supabaseAuthErr) {
+            console.error("Critical supabase auth error:", supabaseAuthErr);
+            setError("Critical auth failure, redirecting...");
+            setTimeout(() => {
+                navigate('/login?error=sso_failed', { replace: true });
+            }, 2000);
+            return;
         }
 
         // Redirect after a short delay to allow session to settle
@@ -57,7 +66,11 @@ const AuthCallback = () => {
       } catch (err) {
         setError('Failed to process authentication token.');
         console.error(err);
+        setTimeout(() => {
+            navigate('/login?error=sso_failed', { replace: true });
+        }, 2000);
       }
+
     };
 
     processToken();
