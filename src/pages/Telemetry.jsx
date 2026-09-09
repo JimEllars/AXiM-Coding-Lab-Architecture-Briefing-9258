@@ -38,27 +38,25 @@ const Telemetry = () => {
         }
       }, 3000);
 
-            unsubscribeTelemetry = labService.subscribeToTelemetry(async (status) => {
-         setConnectionStatus(status);
-         if (status === 'ONLINE / REALTIME') {
-            // Poll real stats API
-            const stats = await labService.fetchTelemetryStats();
-            if (stats && stats.events) {
-               setEdgeStats(stats);
-            }
 
-            const edgeData = await labService.getEdgeTelemetry();
-            if (edgeData && edgeData.memory_execution_markers) {
-              setData(prev => {
-                if (!prev) return prev;
-                return {
-                  ...prev,
-                  edgeTelemetry: edgeData
-                };
-              });
+      unsubscribeTelemetry = labService.subscribeToTelemetry(async (status) => {
+         setConnectionStatus(status);
+         if (status === 'ONLINE / REALTIME' || status === 'CACHED') {
+            try {
+              // Poll real stats API, labService.getTelemetryData now includes it
+              const metrics = await labService.getTelemetryData();
+              if (metrics) {
+                 setData(metrics);
+                 if (metrics.edgeTelemetry) {
+                    setEdgeStats(metrics.edgeTelemetry);
+                 }
+              }
+            } catch (err) {
+               console.warn("Failed to update telemetry via subscription", err);
             }
          }
       });
+
     } catch (e) {
       console.error(e);
       setError(true);

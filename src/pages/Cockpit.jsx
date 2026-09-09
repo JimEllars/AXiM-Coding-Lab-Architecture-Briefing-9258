@@ -45,6 +45,7 @@ const Cockpit = () => {
   const [patchStatus, setPatchStatus] = useState('UNRESOLVED');
 
   const handleAutoPatch = async () => {
+    if (isPatching) return; // Prevent double dispatch
     setIsPatching(true);
     setPatchStatus('PATCHING');
     try {

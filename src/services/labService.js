@@ -576,15 +576,29 @@ export const labService = {
     }
   },
 
+
   getTelemetryData: async () => {
     try {
+      const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';
+      let edgeData = null;
+      if (workerUrl) {
+          try {
+             const res = await fetch(`${workerUrl}/api/telemetry/stats`);
+             if (res.ok) {
+                 edgeData = await res.json();
+             }
+          } catch (e) {
+             console.warn('Failed to fetch from worker telemetry API. Falling back to DB...', e);
+          }
+      }
+
       // Basic analytical grouping query over api_usage_logs
       const { data: logs, error } = await supabase
         .from('api_usage_logs')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (error) {
+      if (error && !edgeData) {
         console.error('Error fetching telemetry:', error);
         return {
           dateLabels: [],
@@ -596,13 +610,14 @@ export const labService = {
             { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
           ],
           roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
-          logs: []
+          logs: [],
+          edgeTelemetry: edgeData
         };
       }
 
     const tokenUsageMap = new Map();
-    let totalTokens = 0;
-    let totalRequests = 0;
+    let totalTokens = edgeData ? edgeData.total_tokens : 0;
+    let totalRequests = edgeData ? edgeData.total_events : 0;
     let totalCost = 0;
 
     if (logs && logs.length > 0) {
@@ -655,7 +670,7 @@ export const labService = {
           { name: 'Core LLM Proxy', status: 'Operational', latency: 'N/A', color: 'green' },
           { name: 'GitHub API Bridge', status: 'Nominal', latency: 'N/A', color: 'green' },
           { name: 'Asguard SOC Ingress', status: 'Active', latency: 'N/A', color: 'green' },
-          { name: 'Worker Analytics (Edge)', status: 'Active', latency: 'N/A', color: 'green' }
+          { name: 'Worker Analytics (Edge)', status: edgeData ? 'Active' : 'Degraded', latency: edgeData ? `${edgeData.average_latency}ms` : 'N/A', color: edgeData ? 'green' : 'yellow' }
         ],
         roiMetrics: {
           hoursSaved,
@@ -663,7 +678,8 @@ export const labService = {
           totalCost: `${totalCost.toFixed(2)}`,
           estimatedSavings: `${Math.max(0, estimatedSavings).toFixed(2)}`
         },
-        logs: logs || []
+        logs: logs || [],
+        edgeTelemetry: edgeData
       };
     } catch (err) {
       console.error('Exception fetching telemetry:', err);
@@ -677,7 +693,8 @@ export const labService = {
           { name: 'Worker Analytics (Edge)', status: 'Unknown', latency: '-', color: 'blue' }
         ],
         roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
-        logs: []
+        logs: [],
+        edgeTelemetry: null
       };
     }
   },
