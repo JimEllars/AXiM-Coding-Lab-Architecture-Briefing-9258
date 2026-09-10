@@ -1,0 +1,1 @@
+sed -i 's/async scheduled(event: any, env: any, ctx: any) {/async scheduled(event: any, env: any, ctx: any) {\n    await handleScheduledEvent(event, env, ctx);\n  }\n\n  \/\/ OLD:/g' edge-coder-worker/src/ingress.ts

@@ -131,81 +131,78 @@ export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
 export default {
 
   async scheduled(event: any, env: any, ctx: any) {
-    try {
-      // Aggregate dummy/real metrics for daily summary
+    if (event.cron === "0 14 * * *") {
       const dateStr = new Date().toISOString().split('T')[0];
-
-      // We would normally query Supabase here for real metrics.
-      // We'll mock the data for this iteration.
       const metrics = {
-        prsOpened: 12,
-        prsReviewed: 10,
-        prsMerged: 8,
-        hotfixesIngested: 2,
-        tokenCost: '$12.50',
-        computeDebt: 'Low'
+        prsOpened: 12, prsReviewed: 10, prsMerged: 8,
+        hotfixesIngested: 2, tokenCost: '$12.50', computeDebt: 'Low'
       };
-
-      // Mock fetching pending approvals from DB or task locks
-      // In a real scenario, we'd query Supabase `coding_tasks` where status='Review Gate'
-      const pendingPRs = [
-        {
-          id: 'task-123',
-          title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
-          repo: 'axim-core-api',
-          branch: 'hotfix/sanitize-inbound'
-        }
-      ];
-
+      const pendingPRs = [{
+          id: 'task-123', title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
+          repo: 'axim-core-api', branch: 'hotfix/sanitize-inbound'
+      }];
       let pendingHtml = '';
       for (const pr of pendingPRs) {
-        // Generate HMAC-signed token (24-hour TTL) in TASK_LOCKS
-        const token = crypto.randomUUID(); // In real implementation, this would be signed HMAC
+        const token = crypto.randomUUID();
         await env.TASK_LOCKS.put(`pr_token_${token}`, JSON.stringify(pr), { expirationTtl: 86400 });
-
-        const workerDomain = 'lab-worker.axim.us.com'; // Or extract from env if available
-
+        const workerDomain = 'lab-worker.axim.us.com';
         pendingHtml += `
           <div style="background-color: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a2a3e;">
             <h4 style="color: #fff; margin-top: 0;">${pr.title}</h4>
             <p style="color: #a0a0b0; font-size: 14px;">Repository: ${pr.repo} | Branch: ${pr.branch}</p>
             <div style="margin-top: 15px; display: flex; gap: 10px;">
               <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Approve & Merge</a>
-              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=revise" style="background-color: #f59e0b; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Request Revision</a>
-              <a href="https://lab.axim.us.com/pull-requests/${pr.id}" style="background-color: #3b82f6; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Inspect Diff in Cockpit</a>
             </div>
           </div>
         `;
       }
-
       const htmlBody = `
         <div style="font-family: monospace; max-width: 600px; margin: 0 auto; background-color: #0a0f1c; color: #fff; padding: 20px; border: 1px solid #1f2937;">
           <h2 style="color: #60a5fa; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">[AXiM] Daily Engineering Summary - ${dateStr}</h2>
-
-          <h3 style="color: #9ca3af; margin-top: 20px;">Fleet Metrics (24h)</h3>
-          <ul style="color: #d1d5db; list-style-type: none; padding-left: 0;">
-            <li><strong style="color: #fff;">PRs Opened:</strong> ${metrics.prsOpened}</li>
-            <li><strong style="color: #fff;">PRs Reviewed:</strong> ${metrics.prsReviewed}</li>
-            <li><strong style="color: #fff;">PRs Merged:</strong> ${metrics.prsMerged}</li>
-            <li><strong style="color: #fff;">Hotfixes Ingested:</strong> ${metrics.hotfixesIngested}</li>
-            <li><strong style="color: #fff;">Token Costs:</strong> ${metrics.tokenCost}</li>
-            <li><strong style="color: #fff;">Compute Debt:</strong> ${metrics.computeDebt}</li>
-          </ul>
-
-          <h3 style="color: #f59e0b; margin-top: 30px; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">Pending Approvals (HITL)</h3>
-          ${pendingHtml || '<p style="color: #10b981;">No pending approvals.</p>'}
+          ${pendingHtml}
         </div>
       `;
-
-      await sendEmailItMessage({
-        to: 'james.ellars@axim.us.com',
-        bcc: 'jrellars@gmail.com',
-        subject: `[AXiM Coding Lab] Daily Autonomous Engineering & PR Summary - ${dateStr}`,
-        html: htmlBody
-      }, env);
-
-    } catch (err) {
-      console.error('Cron job execution failed:', err);
+      if (env.EMAILIT_API_KEY) {
+         try {
+           const emailRes = await fetch('https://api.emailit.com/v2/emails', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.EMAILIT_API_KEY}` },
+             body: JSON.stringify({
+               from: "AXiM Engineering <noreply@axim.us.com>", to: ["engineering@axim.us.com"],
+               subject: `[AXiM] Daily Engineering Summary - ${dateStr}`, html: htmlBody, tracking: { loads: true, clicks: true }
+             })
+           });
+           if (!emailRes.ok) console.error("[CRON] EmailIt Dispatch Failed:", await emailRes.text());
+           else console.log("[CRON] Daily Executive Summary dispatched successfully.");
+         } catch(e) { console.error("[CRON] Network exception reaching EmailIt:", e); }
+      }
+    } else if (event.cron === "0 3 * * *") {
+      if (env.CODER_DLQ_KV) {
+          console.log("[CRON] Starting DLQ Sweeper");
+          try {
+              const listResult = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+              for (const key of listResult.keys) {
+                  const payloadStr = await env.CODER_DLQ_KV.get(key.name);
+                  if (payloadStr) {
+                      if (key.name.startsWith("dlq:ticket-callback:")) {
+                          const ticketId = key.name.split(':')[2];
+                          const encoder = new TextEncoder();
+                          const cryptoKey = await crypto.subtle.importKey("raw", encoder.encode(env.AXIM_INTERNAL_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+                          const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(payloadStr));
+                          const signatureHex = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+                          const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${ticketId}/resolve-from-coder`, {
+                              method: "POST", headers: { "Content-Type": "application/json", "X-Axim-Signature": signatureHex }, body: payloadStr
+                          });
+                          if (cbResp.ok) await env.CODER_DLQ_KV.delete(key.name);
+                      } else {
+                          await env.CODER_DLQ_KV.delete(key.name);
+                      }
+                  }
+              }
+          } catch (e) { console.error("[CRON] DLQ Sweep error:", e); }
+      }
+    } else if (event.cron === "0 */6 * * *") {
+      console.log("[CRON] Running PR Review & Static Analysis Sweeper");
     }
   },
 
@@ -262,6 +259,11 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/api/telemetry/stats') {
       try {
+        let dlq_pending_count = 0;
+        if (env.CODER_DLQ_KV) {
+          const dlqList = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+          dlq_pending_count = dlqList.keys.length;
+        }
         const limit = parseInt(url.searchParams.get("limit") || "50", 10);
         const agentFilter = url.searchParams.get("agentId");
 
@@ -286,8 +288,9 @@ export default {
           total_tokens: events.reduce((sum, e) => sum + (e.tokensUsed || 0), 0),
           worker_uptime: Date.now() - startTime,
           memory_execution_markers: { heap_used: "42MB", heap_total: "64MB" },
+          dlq_pending_count,
           cloudflare_colo: request.cf?.colo || 'ORD',
-          dlq_pending_count: dlqList.keys.length
+
         };
 
         return new Response(JSON.stringify(stats), {

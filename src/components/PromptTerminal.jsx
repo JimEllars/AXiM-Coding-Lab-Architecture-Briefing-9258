@@ -42,6 +42,14 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     setIsGenerating(true);
     try {
       const taskId = `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;
+      const prefsStr = localStorage.getItem("axim_lab_preferences");
+      let selectedModel = "deepseek-coder";
+      if (prefsStr) {
+        try {
+          const prefs = JSON.parse(prefsStr);
+          if (prefs.activeModel) selectedModel = prefs.activeModel;
+        } catch (e) { console.error(e); }
+      }
       const payloadBody = JSON.stringify({
         instruction_prompt: prompt,
         repository_name: targetRepo,
@@ -49,7 +57,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         origin_source: 'Manual_Dev_Cockpit',
         contextIds: selectedContext,
         task_id: taskId,
-        runtime_env: targetRuntime
+        runtime_env: targetRuntime,
+        assigned_model: selectedModel
       });
 
       const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';

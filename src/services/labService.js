@@ -376,8 +376,48 @@ export const labService = {
     }
   },
 
+  scaffoldProject: async ({ name, type, requirements }) => {
+    const taskId = "scaffold-" + Date.now();
+    const payloadBody = JSON.stringify({
+      taskId,
+      repository_name: name,
+      deployment_type: type,
+      instructions: requirements
+    });
+    const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || "development-key";
+    const signature = await generateHmacSignature(payloadBody, internalKey);
+    const ingressUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace("/ingress", "/projects/scaffold") : "http://localhost:8787/api/v1/projects/scaffold";
+
+    try {
+      const response = await fetch(ingressUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${internalKey}`,
+          "X-Axim-Signature": signature
+        },
+        body: payloadBody
+      });
+      if (!response.ok) throw new Error("Scaffolding failed");
+      return { success: true, taskId };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
   triggerTask: async (payload) => {
     const taskId = payload.task_id || `TASK-${Math.random().toString(36).substring(7).toUpperCase()}`;
+
+    if (!payload.assigned_model) {
+      const prefsStr = localStorage.getItem("axim_lab_preferences");
+      if (prefsStr) {
+        try {
+          const prefs = JSON.parse(prefsStr);
+          if (prefs.activeModel) payload.assigned_model = prefs.activeModel;
+        } catch (e) { console.error(e); }
+      }
+    }
     broadcast({ type: 'REASONING_START', taskId, prompt: payload.instruction_prompt });
 
     const agent = AGENTS[Math.floor(Math.random() * AGENTS.length)];
