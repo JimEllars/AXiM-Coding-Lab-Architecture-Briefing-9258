@@ -278,6 +278,7 @@ export default {
 
         events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+        const dlqList = await (env.CODER_DLQ_KV).list({ prefix: 'dlq:' });
         const stats = {
           events,
           total_events: events.length,
@@ -285,7 +286,8 @@ export default {
           total_tokens: events.reduce((sum, e) => sum + (e.tokensUsed || 0), 0),
           worker_uptime: Date.now() - startTime,
           memory_execution_markers: { heap_used: "42MB", heap_total: "64MB" },
-          cloudflare_colo: request.cf?.colo || 'ORD'
+          cloudflare_colo: request.cf?.colo || 'ORD',
+          dlq_pending_count: dlqList.keys.length
         };
 
         return new Response(JSON.stringify(stats), {
