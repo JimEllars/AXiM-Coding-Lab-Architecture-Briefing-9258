@@ -163,18 +163,12 @@ export default {
         </div>
       `;
       if (env.EMAILIT_API_KEY) {
-         try {
-           const emailRes = await fetch('https://api.emailit.com/v2/emails', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.EMAILIT_API_KEY}` },
-             body: JSON.stringify({
-               from: "AXiM Engineering <noreply@axim.us.com>", to: ["engineering@axim.us.com"],
-               subject: `[AXiM] Daily Engineering Summary - ${dateStr}`, html: htmlBody, tracking: { loads: true, clicks: true }
-             })
-           });
-           if (!emailRes.ok) console.error("[CRON] EmailIt Dispatch Failed:", await emailRes.text());
-           else console.log("[CRON] Daily Executive Summary dispatched successfully.");
-         } catch(e) { console.error("[CRON] Network exception reaching EmailIt:", e); }
+         const emailPayload = {
+             to: "engineering@axim.us.com",
+             subject: `[AXiM] Daily Engineering Summary - ${dateStr}`,
+             html: htmlBody
+         };
+         await sendEmailItMessage(emailPayload, env);
       }
     } else if (event.cron === "0 3 * * *") {
       if (env.CODER_DLQ_KV) {
@@ -194,6 +188,14 @@ export default {
                               method: "POST", headers: { "Content-Type": "application/json", "X-Axim-Signature": signatureHex }, body: payloadStr
                           });
                           if (cbResp.ok) await env.CODER_DLQ_KV.delete(key.name);
+                      } else if (key.name.startsWith("dlq_email_") || key.name.startsWith("dlq:email:")) {
+                           try {
+                               const emailPayload = JSON.parse(payloadStr);
+                               const emailRes = await sendEmailItMessage(emailPayload, env);
+                               if (emailRes) await env.CODER_DLQ_KV.delete(key.name);
+                           } catch (e) {
+                               console.error("[CRON] DLQ email replay failed:", e);
+                           }
                       } else {
                           await env.CODER_DLQ_KV.delete(key.name);
                       }
@@ -203,9 +205,37 @@ export default {
       }
     } else if (event.cron === "0 */6 * * *") {
       console.log("[CRON] Running PR Review & Static Analysis Sweeper");
-    }
-  },
+      try {
+          const repos = ['axim-core-api', 'frontend-dashboard', 'shared-styles'];
+          for (const repo of repos) {
+              const ctxObj = { owner: 'axim', repo: repo, path: '' };
+              const prs = await fetchOpenPullRequests(ctxObj, env);
+              for (const pr of prs) {
+                 const diff = await fetchPullRequestDiff(ctxObj, pr.number, env);
+                 const proxyPayload = {
+                     provider: 'deepseek',
+                     prompt: `Review the following PR diff and provide a short, professional review focusing on security and performance:
 
+${diff}`,
+                     options: { model: 'claude-3-5', temperature: 0.2, system: 'You are an automated AXiM code reviewer.' }
+                 };
+                 const res = await fetch(env.SUPABASE_LLM_PROXY_URL, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` },
+                     body: JSON.stringify(proxyPayload)
+                 });
+                 if (res.ok) {
+                    const data = await res.json() as any;
+                    if (data && data.content) {
+                       await postPullRequestReview(ctxObj, pr.number, data.content, env);
+                    }
+                 }
+              }
+          }
+      } catch (e) {
+          console.error("[CRON] PR Sweeper error:", e);
+      }
+    }
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const startTime = Date.now();
     const envValidation = validateEnv(env);

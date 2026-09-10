@@ -1,3 +1,5 @@
-sed -i 's/const taskId = `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;/const taskId = `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;\n      const prefsStr = localStorage.getItem("axim_lab_preferences");\n      let selectedModel = "deepseek-coder";\n      if (prefsStr) {\n        try {\n          const prefs = JSON.parse(prefsStr);\n          if (prefs.activeModel) selectedModel = prefs.activeModel;\n        } catch (e) {}\n      }/g' src/components/PromptTerminal.jsx
-
-sed -i 's/runtime_env: targetRuntime/runtime_env: targetRuntime,\n        assigned_model: selectedModel/g' src/components/PromptTerminal.jsx
+sed -i 's/let selectedModel = "deepseek-coder";/let selectedModel = "deepseek-coder";/g' src/components/PromptTerminal.jsx
+# Ensure assigned_model is added to payloadBody if not already
+if ! grep -q "assigned_model: selectedModel" src/components/PromptTerminal.jsx; then
+    sed -i 's/runtime_env: targetRuntime/runtime_env: targetRuntime,\n        assigned_model: selectedModel/' src/components/PromptTerminal.jsx
+fi

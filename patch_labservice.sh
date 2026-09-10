@@ -1,1 +1,12 @@
-sed -i 's/const taskId = payload.task_id || `TASK-${Math.random().toString(36).substring(7).toUpperCase()}`;/const taskId = payload.task_id || `TASK-${Math.random().toString(36).substring(7).toUpperCase()}`;\n\n    if (!payload.assigned_model) {\n      const prefsStr = localStorage.getItem("axim_lab_preferences");\n      if (prefsStr) {\n        try {\n          const prefs = JSON.parse(prefsStr);\n          if (prefs.activeModel) payload.assigned_model = prefs.activeModel;\n        } catch (e) {}\n      }\n    }/g' src/services/labService.js
+if ! grep -q "payload.assigned_model =" src/services/labService.js; then
+    sed -i '/const taskId = payload.task_id/a \
+    if (!payload.assigned_model) {\
+      const prefsStr = localStorage.getItem("axim_lab_preferences");\
+      if (prefsStr) {\
+        try {\
+          const prefs = JSON.parse(prefsStr);\
+          if (prefs.activeModel) payload.assigned_model = prefs.activeModel;\
+        } catch (e) { console.error(e); }\
+      }\
+    }' src/services/labService.js
+fi

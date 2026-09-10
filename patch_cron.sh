@@ -1,99 +1,121 @@
-# We'll just replace the `scheduled` function body.
-cat << 'INNER_EOF' > schedule_code.txt
-  async scheduled(event: any, env: any, ctx: any) {
-    if (event.cron === "0 14 * * *") {
-      const dateStr = new Date().toISOString().split('T')[0];
-      const metrics = {
-        prsOpened: 12, prsReviewed: 10, prsMerged: 8,
-        hotfixesIngested: 2, tokenCost: '$12.50', computeDebt: 'Low'
-      };
-      const pendingPRs = [{
-          id: 'task-123', title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
-          repo: 'axim-core-api', branch: 'hotfix/sanitize-inbound'
-      }];
-      let pendingHtml = '';
-      for (const pr of pendingPRs) {
-        const token = crypto.randomUUID();
-        await env.TASK_LOCKS.put(`pr_token_${token}`, JSON.stringify(pr), { expirationTtl: 86400 });
-        const workerDomain = 'lab-worker.axim.us.com';
-        pendingHtml += `
-          <div style="background-color: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a2a3e;">
-            <h4 style="color: #fff; margin-top: 0;">${pr.title}</h4>
-            <p style="color: #a0a0b0; font-size: 14px;">Repository: ${pr.repo} | Branch: ${pr.branch}</p>
-            <div style="margin-top: 15px; display: flex; gap: 10px;">
-              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Approve & Merge</a>
-            </div>
-          </div>
-        `;
-      }
-      const htmlBody = `
-        <div style="font-family: monospace; max-width: 600px; margin: 0 auto; background-color: #0a0f1c; color: #fff; padding: 20px; border: 1px solid #1f2937;">
-          <h2 style="color: #60a5fa; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">[AXiM] Daily Engineering Summary - ${dateStr}</h2>
-          ${pendingHtml}
-        </div>
-      `;
-      if (env.EMAILIT_API_KEY) {
-         try {
-           const emailRes = await fetch('https://api.emailit.com/v2/emails', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.EMAILIT_API_KEY}` },
-             body: JSON.stringify({
-               from: "AXiM Engineering <noreply@axim.us.com>", to: ["engineering@axim.us.com"],
-               subject: `[AXiM] Daily Engineering Summary - ${dateStr}`, html: htmlBody, tracking: { loads: true, clicks: true }
-             })
-           });
-           if (!emailRes.ok) console.error("[CRON] EmailIt Dispatch Failed:", await emailRes.text());
-           else console.log("[CRON] Daily Executive Summary dispatched successfully.");
-         } catch(e) { console.error("[CRON] Network exception reaching EmailIt:", e); }
-      }
-    } else if (event.cron === "0 3 * * *") {
-      if (env.CODER_DLQ_KV) {
-          console.log("[CRON] Starting DLQ Sweeper");
-          try {
-              const listResult = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
-              for (const key of listResult.keys) {
-                  const payloadStr = await env.CODER_DLQ_KV.get(key.name);
-                  if (payloadStr) {
-                      if (key.name.startsWith("dlq:ticket-callback:")) {
-                          const ticketId = key.name.split(':')[2];
-                          const encoder = new TextEncoder();
-                          const cryptoKey = await crypto.subtle.importKey("raw", encoder.encode(env.AXIM_INTERNAL_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-                          const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(payloadStr));
-                          const signatureHex = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
-                          const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${ticketId}/resolve-from-coder`, {
-                              method: "POST", headers: { "Content-Type": "application/json", "X-Axim-Signature": signatureHex }, body: payloadStr
-                          });
-                          if (cbResp.ok) await env.CODER_DLQ_KV.delete(key.name);
-                      } else {
-                          await env.CODER_DLQ_KV.delete(key.name);
-                      }
-                  }
-              }
-          } catch (e) { console.error("[CRON] DLQ Sweep error:", e); }
-      }
-    } else if (event.cron === "0 */6 * * *") {
-      console.log("[CRON] Running PR Review & Static Analysis Sweeper");
-    }
-  },
-INNER_EOF
-
-# Replace the scheduled function in ingress.ts
+# Create a modified edge-coder-worker/src/ingress.ts with the new cron functionality
 awk '
-/async scheduled\(event: any, env: any, ctx: any\)/ {
-  in_scheduled = 1
-  while (getline line < "schedule_code.txt") {
-    print line
-  }
+BEGIN { skip = 0 }
+/if \(event.cron === "0 14/ {
+  print "    if (event.cron === \"0 14 * * *\") {"
+  print "      const dateStr = new Date().toISOString().split('\''T'\'')[0];"
+  print "      const metrics = {"
+  print "        prsOpened: 12, prsReviewed: 10, prsMerged: 8,"
+  print "        hotfixesIngested: 2, tokenCost: '\''$12.50'\'', computeDebt: '\''Low'\''"
+  print "      };"
+  print "      const pendingPRs = [{"
+  print "          id: '\''task-123'\'', title: '\''CRITICAL HOTFIX: Sanitize inbound parameters'\'',"
+  print "          repo: '\''axim-core-api'\'', branch: '\''hotfix/sanitize-inbound'\''"
+  print "      }];"
+  print "      let pendingHtml = '\'''\'';"
+  print "      for (const pr of pendingPRs) {"
+  print "        const token = crypto.randomUUID();"
+  print "        await env.TASK_LOCKS.put(`pr_token_${token}`, JSON.stringify(pr), { expirationTtl: 86400 });"
+  print "        const workerDomain = '\''lab-worker.axim.us.com'\'';"
+  print "        pendingHtml += `"
+  print "          <div style=\"background-color: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a2a3e;\">"
+  print "            <h4 style=\"color: #fff; margin-top: 0;\">${pr.title}</h4>"
+  print "            <p style=\"color: #a0a0b0; font-size: 14px;\">Repository: ${pr.repo} | Branch: ${pr.branch}</p>"
+  print "            <div style=\"margin-top: 15px; display: flex; gap: 10px;\">"
+  print "              <a href=\"https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge\" style=\"background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;\">Approve & Merge</a>"
+  print "            </div>"
+  print "          </div>"
+  print "        `;"
+  print "      }"
+  print "      const htmlBody = `"
+  print "        <div style=\"font-family: monospace; max-width: 600px; margin: 0 auto; background-color: #0a0f1c; color: #fff; padding: 20px; border: 1px solid #1f2937;\">"
+  print "          <h2 style=\"color: #60a5fa; border-bottom: 1px solid #1f2937; padding-bottom: 10px;\">[AXiM] Daily Engineering Summary - ${dateStr}</h2>"
+  print "          ${pendingHtml}"
+  print "        </div>"
+  print "      `;"
+  print "      if (env.EMAILIT_API_KEY) {"
+  print "         const emailPayload = {"
+  print "             to: \"engineering@axim.us.com\","
+  print "             subject: `[AXiM] Daily Engineering Summary - ${dateStr}`,"
+  print "             html: htmlBody"
+  print "         };"
+  print "         await sendEmailItMessage(emailPayload, env);"
+  print "      }"
+  print "    } else if (event.cron === \"0 3 * * *\") {"
+  print "      if (env.CODER_DLQ_KV) {"
+  print "          console.log(\"[CRON] Starting DLQ Sweeper\");"
+  print "          try {"
+  print "              const listResult = await env.CODER_DLQ_KV.list({ prefix: '\''dlq:'\'' });"
+  print "              for (const key of listResult.keys) {"
+  print "                  const payloadStr = await env.CODER_DLQ_KV.get(key.name);"
+  print "                  if (payloadStr) {"
+  print "                      if (key.name.startsWith(\"dlq:ticket-callback:\")) {"
+  print "                          const ticketId = key.name.split('\':'\'')[2];"
+  print "                          const encoder = new TextEncoder();"
+  print "                          const cryptoKey = await crypto.subtle.importKey(\"raw\", encoder.encode(env.AXIM_INTERNAL_KEY), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"]);"
+  print "                          const signatureBuffer = await crypto.subtle.sign(\"HMAC\", cryptoKey, encoder.encode(payloadStr));"
+  print "                          const signatureHex = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, \"0\")).join(\"\");"
+  print "                          const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${ticketId}/resolve-from-coder`, {"
+  print "                              method: \"POST\", headers: { \"Content-Type\": \"application/json\", \"X-Axim-Signature\": signatureHex }, body: payloadStr"
+  print "                          });"
+  print "                          if (cbResp.ok) await env.CODER_DLQ_KV.delete(key.name);"
+  print "                      } else if (key.name.startsWith(\"dlq_email_\") || key.name.startsWith(\"dlq:email:\")) {"
+  print "                           try {"
+  print "                               const emailPayload = JSON.parse(payloadStr);"
+  print "                               const emailRes = await sendEmailItMessage(emailPayload, env);"
+  print "                               if (emailRes) await env.CODER_DLQ_KV.delete(key.name);"
+  print "                           } catch (e) {"
+  print "                               console.error(\"[CRON] DLQ email replay failed:\", e);"
+  print "                           }"
+  print "                      } else {"
+  print "                          await env.CODER_DLQ_KV.delete(key.name);"
+  print "                      }"
+  print "                  }"
+  print "              }"
+  print "          } catch (e) { console.error(\"[CRON] DLQ Sweep error:\", e); }"
+  print "      }"
+  print "    } else if (event.cron === \"0 */6 * * *\") {"
+  print "      console.log(\"[CRON] Running PR Review & Static Analysis Sweeper\");"
+  print "      try {"
+  print "          const repos = ['\''axim-core-api'\'', '\''frontend-dashboard'\'', '\''shared-styles'\''];"
+  print "          for (const repo of repos) {"
+  print "              const ctxObj = { owner: '\''axim'\'', repo: repo, path: '\'''\'' };"
+  print "              const prs = await fetchOpenPullRequests(ctxObj, env);"
+  print "              for (const pr of prs) {"
+  print "                 const diff = await fetchPullRequestDiff(ctxObj, pr.number, env);"
+  print "                 const proxyPayload = {"
+  print "                     provider: '\''deepseek'\'',"
+  print "                     prompt: `Review the following PR diff and provide a short, professional review focusing on security and performance:\n\n${diff}`,"
+  print "                     options: { model: '\''claude-3-5'\'', temperature: 0.2, system: '\''You are an automated AXiM code reviewer.'\'' }"
+  print "                 };"
+  print "                 const res = await fetch(env.SUPABASE_LLM_PROXY_URL, {"
+  print "                     method: '\''POST'\'',"
+  print "                     headers: { '\''Content-Type'\'': '\''application/json'\'', '\''Authorization'\'': \`Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}\` },"
+  print "                     body: JSON.stringify(proxyPayload)"
+  print "                 });"
+  print "                 if (res.ok) {"
+  print "                    const data = await res.json() as any;"
+  print "                    if (data && data.content) {"
+  print "                       await postPullRequestReview(ctxObj, pr.number, data.content, env);"
+  print "                    }"
+  print "                 }"
+  print "              }"
+  print "          }"
+  print "      } catch (e) {"
+  print "          console.error(\"[CRON] PR Sweeper error:\", e);"
+  print "      }"
+  print "    }"
+  skip = 1
   next
 }
-in_scheduled {
-  # count braces
-  open_braces += gsub(/{/, "{", $0)
-  close_braces += gsub(/}/, "}", $0)
-  if (close_braces > open_braces) {
-    in_scheduled = 0
-  }
-  next
+
+skip == 1 && /async fetch\(/ {
+  skip = 0
 }
-{ print }
-' edge-coder-worker/src/ingress.ts > temp.ts && mv temp.ts edge-coder-worker/src/ingress.ts
+
+skip == 0 {
+  print $0
+}
+' edge-coder-worker/src/ingress.ts > edge-coder-worker/src/ingress.ts.tmp
+
+mv edge-coder-worker/src/ingress.ts.tmp edge-coder-worker/src/ingress.ts
