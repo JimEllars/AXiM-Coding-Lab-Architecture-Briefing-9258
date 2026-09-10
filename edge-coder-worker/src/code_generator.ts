@@ -11,6 +11,7 @@ export interface CodingTaskPayload {
   origin_source: 'Asguard_WAF' | 'Onyx_Support_Triage' | 'Manual_Dev_Cockpit';
   cf_ray?: string;
   runtime_env?: string;
+  assigned_model?: string;
 }
 
 
@@ -45,7 +46,8 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     instruction_prompt,
     origin_source,
     cf_ray,
-    runtime_env = 'Node.js Edge'
+    runtime_env = 'Node.js Edge',
+    assigned_model = 'deepseek-coder'
   } = payload;
 
   const branchName = `axim-bot/hotfix-${task_id.substring(0, 8)}-${Date.now().toString().slice(-4)}`;
@@ -103,7 +105,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
 
     console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
     step_count++;
-    const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env);
+    const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env, assigned_model);
 
     console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`);
     step_count++;
@@ -145,7 +147,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
   }
 }
 
-async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, runtime_env: string, dependenciesContext: string, env: Env): Promise<string> {
+async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, runtime_env: string, dependenciesContext: string, env: Env, assigned_model: string = "deepseek-coder"): Promise<string> {
   const systemInstructions = `You are an expert full-stack systems engineer specializing in ${runtime_env} architecture and scalable execution environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter. When generating Python code, you must ensure strict PEP-8 indentation and AST-valid logic. Do not return markdown explanations outside of the code block. Your output must be transport-ready for a sandboxed execution environment.`;
   
   const promptBody = `### Active Workspace Dependencies:\n${dependenciesContext}\n\n### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
@@ -154,7 +156,7 @@ async function requestCognitiveCodeGeneration(currentCode: string, instructions:
     provider: 'deepseek',
     prompt: promptBody,
     options: {
-      model: 'deepseek-coder',
+      model: assigned_model,
       temperature: 0.2,
       system: systemInstructions
     }
@@ -202,7 +204,7 @@ function cleanSanitizedCodeBlob(rawText: string): string {
   return clean;
 }
 
-async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false, runtimeEnv: string = 'Node.js Edge'): Promise<void> {
+async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false, runtimeEnv: string = 'Node.js Edge', assigned_model?: string): Promise<void> {
   const telemetryBody = [{
     app_id: 'axim-coding-lab',
     endpoint: '/v1/gitops/pr-creation',
@@ -224,7 +226,8 @@ async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl
       context: {
         truncated: truncated,
         execution_target: 'Python/Node',
-        runtime_env: runtimeEnv
+        runtime_env: runtimeEnv,
+        assigned_model: assigned_model
       }
     })
   });
@@ -358,7 +361,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     step_count++;
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
-    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env);
+    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, 'Node.js Edge', 'deepseek-coder');
     if (task.source === "axim-support-system" && task.ticketId) {
       const encoder = new TextEncoder();
       const cryptoKey = await crypto.subtle.importKey(

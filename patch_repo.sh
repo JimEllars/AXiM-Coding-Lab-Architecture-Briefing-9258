@@ -1,3 +1,4 @@
+cat << 'INNER_EOF' > src/pages/Repositories.jsx
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
@@ -135,7 +136,7 @@ const Repositories = () => {
                 <span className="text-gray-700">|</span>
                 <span>{repo.lastPatch}</span>
               </div>
-              
+
               <div className="space-y-4 mt-auto">
                 <div className="space-y-2">
                   <div className="flex justify-between items-center text-[10px] uppercase font-mono tracking-widest">
@@ -143,7 +144,7 @@ const Repositories = () => {
                     <span className={repo.health > 90 ? 'text-[#10b981]' : 'text-[#f59e0b]'}>{repo.health}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-gray-800/50 rounded-full overflow-hidden">
-                    <motion.div 
+                    <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${repo.health}%` }}
                       transition={{ duration: 1, delay: 0.5 }}
@@ -153,7 +154,7 @@ const Repositories = () => {
                 </div>
 
                 <div className="flex gap-2 pt-2">
-                  <button 
+                  <button
                     onClick={(e) => handleScan(e, repo.id)}
                     className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800"
                   >
@@ -276,3 +277,4 @@ const Repositories = () => {
 };
 
 export default Repositories;
+INNER_EOF
