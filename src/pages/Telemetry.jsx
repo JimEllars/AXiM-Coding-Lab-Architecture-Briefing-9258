@@ -190,9 +190,15 @@ if (!data) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
 
         <MetricCard label="ACTIVE AGENTS" value={activeAgentCount} icon="Users" color="green" />
+        <MetricCard
+          label="DLQ REPLAY BUFFER"
+          value={data.edgeTelemetry ? (data.edgeTelemetry.dlq_pending_count || 0) : (edgeStats?.dlq_pending_count || 0)}
+          icon="Database"
+          color={(data.edgeTelemetry?.dlq_pending_count || edgeStats?.dlq_pending_count) > 0 ? "amber" : "emerald"}
+        />
         <MetricCard label="DEV HOURS SAVED" value={data.roiMetrics.hoursSaved} icon="Clock" color="blue" />
         <MetricCard label="EDGE MEMORY" value={data.edgeTelemetry ? data.edgeTelemetry.memory_execution_markers.heap_used : 'N/A'} icon="Cpu" color="purple" />
         <MetricCard label="EDGE LATENCY" value={edgeStats ? `${edgeStats.average_latency.toFixed(0)}ms` : (data.edgeTelemetry ? '12ms' : 'N/A')} icon="Zap" color="blue" />
