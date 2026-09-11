@@ -133,7 +133,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     step_count++;
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
-    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env);
+    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env, assigned_model);
 
   } catch (error: any) {
     exit_code = 1;
