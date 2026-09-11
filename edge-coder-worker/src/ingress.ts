@@ -85,22 +85,41 @@ async function verifyHmacSignature(
   }
 }
 
-async function verifySupabaseToken(
-  authHeader: string | null,
-  env: Env
-): Promise<boolean> {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
-  const token = authHeader.replace(/^Bearer\s+/, '').trim();
-
+async function verifySupabaseToken(authHeader: string | null, env: Env): Promise<boolean> {
+  if (!authHeader) return false;
+  const token = authHeader.replace('Bearer ', '');
+  if (token === env.AXIM_INTERNAL_KEY) return true; // allow internal key bypass
   try {
-    const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'apikey': env.SUPABASE_SERVICE_ROLE_KEY
-      }
-    });
-    return res.ok;
-  } catch {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    const decoded = JSON.parse(jsonPayload);
+    const email = decoded?.email;
+    if (email !== 'james.ellars@axim.us.com' && email !== 'jrellars@gmail.com') {
+      console.warn("Unauthorized execution attempt by non-super-user:", email);
+
+      // Attempt to log to DB
+      fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+           'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+           'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+         },
+         body: JSON.stringify({
+           component: 'auth',
+           message: 'UNAUTHORIZED_EXECUTION_ATTEMPT by ' + email,
+           status: 'FAILED',
+           task_id: 'auth-violation'
+         })
+      }).catch(e => {});
+
+      return false;
+    }
+    return true;
+  } catch (e) {
     return false;
   }
 }
@@ -129,7 +148,6 @@ export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
 }
 
 export default {
-
   async scheduled(event: any, env: any, ctx: any) {
     if (event.cron === "0 14 * * *") {
       const dateStr = new Date().toISOString().split('T')[0];
@@ -236,7 +254,8 @@ ${diff}`,
           console.error("[CRON] PR Sweeper error:", e);
       }
     }
-    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  },
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const startTime = Date.now();
     const envValidation = validateEnv(env);
     if (!envValidation.valid) {

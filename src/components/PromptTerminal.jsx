@@ -11,6 +11,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
   const [knowledge, setKnowledge] = useState([]);
   const [selectedContext, setSelectedContext] = useState([]);
+
+  const userRole = localStorage.getItem('axim_user_role') || 'engineer';
+  const isSuperUser = userRole === 'super_user';
   const [warningMessage, setWarningMessage] = useState(null);
 
 
@@ -152,9 +155,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     <motion.div 
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[500px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+      className="bg-[#111726] border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[500px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
     >
-      <div className="h-12 border-b border-slate-800 bg-[#0d1323] flex items-center justify-between px-6 shrink-0">
+      <div className="h-12 border-b border-slate-800 bg-[#0A0D14] flex items-center justify-between px-6 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-red-500/20 border border-red-500/40"></div>
@@ -185,6 +188,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 {warningMessage}
               </div>
             )}
+            {!isSuperUser && (
+              <div className="absolute top-0 left-0 w-full h-full bg-black/40 backdrop-blur-sm z-20 flex items-center justify-center flex-col">
+                <SafeIcon name="Lock" className="text-4xl text-yellow-500 mb-2" />
+                <span className="text-yellow-500 font-mono text-sm tracking-widest bg-yellow-500/10 px-4 py-2 border border-yellow-500/50 rounded">SUPER USER CLEARANCE REQUIRED</span>
+              </div>
+            )}
             <textarea 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -195,14 +204,14 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
             />
           </div>
 
-          <div className="p-4 border-t border-slate-800 bg-[#0d1323]/30 flex items-center justify-between shrink-0">
+          <div className="p-4 border-t border-slate-800 bg-[#0A0D14]/30 flex items-center justify-between shrink-0">
             <div className="flex gap-4">
               <div className="space-y-1">
                 <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Repository</span>
                 <select 
                   value={targetRepo}
                   onChange={(e) => setTargetRepo(e.target.value)}
-                  className="block w-40 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-40 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   <option value="axim-core-api">axim-core-api</option>
                   <option value="frontend-dashboard">frontend-dashboard</option>
@@ -214,7 +223,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 <select
                   value={targetRuntime}
                   onChange={(e) => setTargetRuntime(e.target.value)}
-                  className="block w-36 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-36 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   <option value="Node.js Edge">Node.js Edge</option>
                   <option value="Python Sandbox">Python Sandbox</option>
@@ -226,13 +235,13 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                   value={targetFile}
                   onChange={(e) => setTargetFile(e.target.value)}
                   placeholder="src/routes/auth.ts" 
-                  className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-48 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 />
               </div>
             </div>
             <button 
               onClick={handleDeploy}
-              disabled={isGenerating || !prompt.trim()}
+              disabled={isGenerating || !prompt.trim() || !isSuperUser}
               className={`px-8 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-3 ${
                 isGenerating 
                   ? 'bg-blue-600/10 text-blue-400 border border-blue-500/30' 
@@ -246,8 +255,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         </div>
 
         {/* Brain Context Sidebar */}
-        <div className="w-72 bg-[#0d1323]/50 border-l border-slate-800 flex flex-col shrink-0">
-          <div className="p-4 border-b border-slate-800 bg-slate-900/90/50">
+        <div className="w-72 bg-[#0A0D14]/50 border-l border-slate-800 flex flex-col shrink-0">
+          <div className="p-4 border-b border-slate-800 bg-[#111726]/50">
             <h4 className="text-[10px] text-gray-400 font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
               <SafeIcon name="Book" className="text-blue-500" /> Organizational Brain
             </h4>
@@ -260,7 +269,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 className={`w-full text-left p-3 rounded-xl border transition-all group ${
                   selectedContext.includes(item.id) 
                     ? 'bg-blue-600/10 border-blue-500/40 text-blue-400 shadow-[inset_0_0_15px_rgba(37,99,235,0.05)]' 
-                    : 'bg-[#111827]/50 border-slate-800 text-gray-500 hover:border-gray-700 hover:bg-[#111827]'
+                    : 'bg-[#111726]/50 border-slate-800 text-gray-500 hover:border-gray-700 hover:bg-[#111726]'
                 }`}
               >
                 <div className="flex justify-between items-start mb-1">
@@ -279,7 +288,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
               </button>
             ))}
           </div>
-          <div className="p-3 border-t border-slate-800 bg-slate-900/90/80">
+          <div className="p-3 border-t border-slate-800 bg-[#111726]/80">
             <p className="text-[9px] text-gray-600 font-mono text-center">
               {selectedContext.length} Context Nodes Selected
             </p>

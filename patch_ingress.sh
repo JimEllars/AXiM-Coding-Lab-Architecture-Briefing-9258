@@ -1,1 +1,0 @@
-sed -i '/async scheduled(event: any, env: any, ctx: any) {/,/        console.error("\[CRON\] EmailIt Dispatch Failed:", err);/!b;//!d;/async scheduled(event: any, env: any, ctx: any) {/!d' edge-coder-worker/src/ingress.ts

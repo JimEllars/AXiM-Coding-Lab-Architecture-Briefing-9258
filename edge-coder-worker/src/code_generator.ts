@@ -152,16 +152,24 @@ async function requestCognitiveCodeGeneration(currentCode: string, instructions:
   
   const promptBody = `### Active Workspace Dependencies:\n${dependenciesContext}\n\n### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
 
+
+  // Economic model routing
+  let active_model = assigned_model;
+  if (!active_model) {
+      const isComplex = instructions.toLowerCase().includes('refactor') || instructions.toLowerCase().includes('security') || instructions.length > 300;
+      active_model = isComplex ? 'claude-3-5' : 'deepseek-coder';
+  }
   const proxyPayload = {
     provider: 'deepseek',
     prompt: promptBody,
     options: {
-      model: assigned_model,
+      model: active_model,
       temperature: 0.2,
       system: systemInstructions
     }
   };
 
+  const startCompute = Date.now();
   const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
     method: 'POST',
     headers: {
@@ -330,7 +338,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
       provider: 'deepseek',
       prompt: promptBody,
       options: {
-        model: task.priority === 'high' ? 'claude-3-5' : 'deepseek-coder',
+        model: (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder',
         temperature: 0.2,
         system: `You are AXiM Coder Core. Modify the code as requested. Output ONLY raw source code.`
       }
