@@ -100,7 +100,7 @@ const Cockpit = () => {
         <div className="lg:col-span-4 space-y-6">
           <PipelineMonitor />
           
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 mb-6 relative overflow-hidden group">
+          <div className="bg-[#111726] border border-slate-800 rounded-xl p-5 mb-6 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 blur-3xl rounded-full group-hover:bg-violet-600/10 transition-all"></div>
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
               <SafeIcon name="LifeBuoy" className="text-violet-400" />
@@ -111,7 +111,7 @@ const Cockpit = () => {
                 <div className="text-[11px] text-gray-500 italic">No active support remediation tickets in queue.</div>
               ) : (
                 supportTickets.map(ticket => (
-                  <div key={ticket.id} className="p-3 rounded-lg bg-[#111827] border border-slate-800 text-[11px] text-gray-300">
+                  <div key={ticket.id} className="p-3 rounded-lg bg-[#111726] border border-slate-800 text-[11px] text-gray-300">
                     <div className="flex justify-between items-center mb-2">
                        <span className="font-bold text-violet-300">{ticket.ticketId || ticket.id}</span>
                        <span className="px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 font-mono text-[9px]">{ticket.status}</span>
@@ -135,7 +135,7 @@ const Cockpit = () => {
             </div>
           </div>
 
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 mb-6">
+          <div className="bg-[#111726] border border-slate-800 rounded-xl p-5 mb-6">
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
               <SafeIcon name="Mail" className="text-blue-400" />
               HITL Comms
@@ -157,13 +157,13 @@ const Cockpit = () => {
                   alert("Failed to dispatch test briefing.");
                 }
               }}
-              className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800"
+              className="w-full py-2 bg-[#111726] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800"
             >
               Dispatch Test HITL Executive Briefing
             </button>
           </div>
 
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 relative overflow-hidden group">
+          <div className="bg-[#111726] border border-slate-800 rounded-xl p-5 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-600/5 blur-3xl rounded-full group-hover:bg-orange-600/10 transition-all"></div>
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
               <SafeIcon name="Shield" className="text-orange-400" />
@@ -201,14 +201,14 @@ const Cockpit = () => {
               <button
                 onClick={handleAutoPatch}
                 disabled={isPatching}
-                className="w-full py-2 bg-[#111827] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-2 bg-[#111726] hover:bg-gray-800 text-gray-300 rounded text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPatching ? 'Deploying Remediation Swarm...' : 'Auto-Patch Incident'}
               </button>
             </div>
           </div>
 
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
+          <div className="bg-[#111726] border border-slate-800 rounded-xl p-5">
             <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
               <SafeIcon name="Zap" className="text-blue-400" />
               Node Topology

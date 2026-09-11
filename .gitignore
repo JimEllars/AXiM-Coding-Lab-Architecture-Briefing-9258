@@ -25,3 +25,11 @@ dist-ssr
 .envb64.txt
 *.py
 scripts/archive/
+patch_*.sh
+*.patch
+*.diff
+temp_*.sh
+schedule_*.txt
+test_*.js
+test-results/
+.last-run.json
