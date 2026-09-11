@@ -50,7 +50,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
       if (prefsStr) {
         try {
           const prefs = JSON.parse(prefsStr);
-          if (prefs.activeModel) selectedModel = prefs.activeModel;
+          if (prefs.model) selectedModel = prefs.model;
         } catch (e) { console.error(e); }
       }
       const payloadBody = JSON.stringify({
@@ -128,6 +128,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                         const data = JSON.parse(line.substring(6));
                         if (data.type === 'log') {
                            labService.logToConsole({ id: Date.now() + Math.random(), text: data.message, time: new Date().toLocaleTimeString([], { hour12: false }) });
+                        } else if (data.type === 'reasoning_step') {
+                           const stepData = JSON.parse(data.message);
+                           labService.broadcast({ type: 'REASONING_STEP', taskId, step: stepData });
                         }
                      } catch (e) { /* ignore */ }
                   }

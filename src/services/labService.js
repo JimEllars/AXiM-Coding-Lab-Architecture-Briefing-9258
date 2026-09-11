@@ -414,7 +414,7 @@ export const labService = {
       if (prefsStr) {
         try {
           const prefs = JSON.parse(prefsStr);
-          if (prefs.activeModel) payload.assigned_model = prefs.activeModel;
+          if (prefs.model) payload.assigned_model = prefs.model;
         } catch (e) { console.error(e); }
       }
     }
