@@ -16,6 +16,7 @@ const CognitiveReasoning = () => {
 
   const [activeTask, setActiveTask] = useState(null);
   const [thoughtChain, setThoughtChain] = useState([]);
+  const [isExpanded, setIsExpanded] = useState(true);
 
   useEffect(() => {
     return labService.subscribe((event) => {
@@ -69,9 +70,15 @@ const CognitiveReasoning = () => {
                 <span className="text-xs font-bold text-white uppercase tracking-widest">Onyx_Cognitive_Reasoning</span>
               </div>
               <span className="text-[10px] font-mono text-blue-400">{activeTask.id}</span>
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="ml-4 text-[10px] font-mono text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                {isExpanded ? 'Collapse' : 'Expand'}
+              </button>
             </div>
             
-            <div className="p-6 space-y-6">
+            {isExpanded && (<div className="p-6 space-y-6">
               <div className="space-y-2">
                 <p className="text-[10px] text-gray-500 font-mono uppercase">Instruction Ingress</p>
                 <p className="text-sm text-gray-300 italic">"{activeTask.prompt}"</p>
@@ -105,7 +112,7 @@ const CognitiveReasoning = () => {
                   <div className="text-xs font-mono text-gray-500 italic">No reasoning trace available for this task.</div>
                 )}
               </div>
-            </div>
+            </div>)}
 
             <div className="p-4 bg-black/40 border-t border-gray-800 flex items-center justify-between">
               <div className="flex gap-1">

@@ -448,7 +448,8 @@ export const labService = {
           instruction_prompt: payload.instruction_prompt,
           origin_source: payload.origin_source || 'Manual_Dev_Cockpit',
           contextIds: payload.contextIds,
-          runtime_env: payload.runtime_env
+          runtime_env: payload.runtime_env,
+          assigned_model: payload.assigned_model
         });
 
       const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
