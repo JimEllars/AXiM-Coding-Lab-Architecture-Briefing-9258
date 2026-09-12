@@ -47,7 +47,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     origin_source,
     cf_ray,
     runtime_env = 'Node.js Edge',
-    assigned_model = 'deepseek-coder'
+    assigned_model
   } = payload;
 
   const branchName = `axim-bot/hotfix-${task_id.substring(0, 8)}-${Date.now().toString().slice(-4)}`;
@@ -155,8 +155,8 @@ async function requestCognitiveCodeGeneration(currentCode: string, instructions:
 
   // Economic model routing
   let active_model = assigned_model;
-  if (!active_model) {
-      const isComplex = instructions.toLowerCase().includes('refactor') || instructions.toLowerCase().includes('security') || instructions.length > 300;
+  const isComplex = instructions.toLowerCase().includes('refactor') || instructions.toLowerCase().includes('security') || instructions.length > 300;
+  if (!active_model || active_model === 'auto') {
       active_model = isComplex ? 'claude-3-5' : 'deepseek-coder';
   }
   const proxyPayload = {
@@ -369,7 +369,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     step_count++;
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
-    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, 'Node.js Edge', 'deepseek-coder');
+    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, 'Node.js Edge', 'auto');
     if (task.source === "axim-support-system" && task.ticketId) {
       const encoder = new TextEncoder();
       const cryptoKey = await crypto.subtle.importKey(

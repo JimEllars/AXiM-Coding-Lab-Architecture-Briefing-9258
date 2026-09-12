@@ -514,9 +514,13 @@ export const labService = {
                                  if (dataStr && !dataStr.startsWith('{": ping"}') && dataStr !== 'ping' && dataStr !== ': ping') {
                                      try {
                                          const ev = JSON.parse(dataStr);
-                                         const log = { id: Date.now() + Math.random(), text: ev.type === 'error' ? `[CRITICAL] ${ev.message}` : `[SYSTEM] ${ev.message}`, type: ev.type, time: new Date().toLocaleTimeString([], { hour12: false }) };
-                                         addSystemLog(log);
-                                         broadcast({ type: 'LOG_ADDED', log });
+                                         if (ev.type === 'reasoning_step') {
+                                             broadcast({ type: 'REASONING_STEP', step: JSON.parse(ev.message) });
+                                         } else {
+                                             const log = { id: Date.now() + Math.random(), text: ev.type === 'error' ? `[CRITICAL] ${ev.message}` : `[SYSTEM] ${ev.message}`, type: ev.type, time: new Date().toLocaleTimeString([], { hour12: false }) };
+                                             addSystemLog(log);
+                                             broadcast({ type: 'LOG_ADDED', log });
+                                         }
                                      } catch (e) {
                                         // Ignore parse errors on stream
                                      }
