@@ -36,6 +36,18 @@ const CognitiveReasoning = () => {
       if (event.type === 'REASONING_END') {
         setTimeout(() => setActiveTask(null), 2000);
       }
+      if (event.type === 'REASONING_STEP') {
+        setThoughtChain(prev => {
+          const stepIndex = prev.findIndex(t => t.step === event.step.step);
+          if (stepIndex !== -1) {
+             const newChain = [...prev];
+             newChain[stepIndex] = { ...newChain[stepIndex], ...event.step };
+             return newChain;
+          } else {
+             return [...prev, { ...event.step, text: `${event.step.title} ${event.step.content}` }];
+          }
+        });
+      }
     });
   }, []);
 
@@ -76,14 +88,14 @@ const CognitiveReasoning = () => {
                         key={idx}
                         className="flex items-center gap-3"
                       >
-                        {thought.status === 'loading' ? (
-                          <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                        {thought.status === 'thinking' ? (
+                          <div className="w-4 h-4 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin"></div>
                         ) : (
-                          <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
+                          <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
                             <SafeIcon name="Check" className="text-[10px] text-white" />
                           </div>
                         )}
-                        <span className={`text-xs font-mono ${thought.status === 'loading' ? 'text-blue-400 animate-pulse' : 'text-gray-400'}`}>
+                        <span className={`text-xs font-mono ${thought.status === 'thinking' ? 'text-yellow-400 animate-pulse' : 'text-gray-400'}`}>
                           {thought.text}
                         </span>
                       </motion.div>

@@ -94,27 +94,27 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
 
   try {
     step_count++;
-    console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`); await sendEvent('log', `[SYSTEM] Fetching current file state for: ${path}`);
+    console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`); await sendEvent('log', `[SYSTEM] Fetching current file state for: ${path}`); await sendEvent('reasoning_step', JSON.stringify({ step: 1, title: '[INGRESS]', content: 'Transmitting payload to edge router and fetching current file state...', status: 'thinking' }));
     const currentFile = await fetchCurrentFileState(githubCtx, env);
 
     const { content: safeContent, truncated } = prepareContextWindow(currentFile.content);
 
-    console.log(`[CODING_LAB] [${task_id}] Fetching repository dependencies`); await sendEvent('log', `[SYSTEM] Fetching repository dependencies`);
+    console.log(`[CODING_LAB] [${task_id}] Fetching repository dependencies`); await sendEvent('log', `[SYSTEM] Fetching repository dependencies`); await sendEvent('reasoning_step', JSON.stringify({ step: 1, title: '[INGRESS]', content: 'Transmitting payload to edge router and fetching current file state...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'thinking' }));
     let rawDependenciesContext = await fetchRepositoryDependencies(githubCtx, env);
     const dependenciesContext = rawDependenciesContext.slice(0, 2000);
 
-    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`);
+    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Analyzing payload and reasoning through patch generation via LLM gateway...', status: 'thinking' }));
     step_count++;
     const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env, assigned_model);
 
-    console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`);
+    console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`); await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Analyzing payload and reasoning through patch generation via LLM gateway...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'thinking' }));
     step_count++;
     const isValid = await validateSyntax(modifiedCode, runtime_env);
     if (!isValid) {
       throw new Error('[AST_FAULT] The generated code failed structural syntax validation. Aborting commit.');
     }
 
-    console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('log', `[SYSTEM] Code generated cleanly. Provisioning task branch: ${branchName}`);
+    console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('log', `[SYSTEM] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 5, title: '[PATCH_GEN]', content: 'Provisioning branch and committing generated patch...', status: 'thinking' }));
     step_count++;
     await createTaskBranch(githubCtx, branchName, env);
 
@@ -128,7 +128,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     
     step_count++;
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
-    console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('log', `[SYSTEM] Pipeline completed successfully. PR open at: ${pullRequestUrl}`);
+    console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('log', `[SYSTEM] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('reasoning_step', JSON.stringify({ step: 5, title: '[PATCH_GEN]', content: 'Provisioning branch and committing generated patch...', status: 'complete' }));
 
     step_count++;
     tokens_consumed += 1500; // Approximated tokens
