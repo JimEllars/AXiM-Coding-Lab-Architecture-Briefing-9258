@@ -1,5 +1,19 @@
 # Sprint v1.2 Build Prompt - Production Hardening & Telemetry Authenticity Pass
 ## [Unreleased]
+### Security
+- Enforced strict HMAC-SHA256 signature verification and isolated uniform error payloads in ingress.ts.
+
+### Resilience
+- Added exponential backoff and retry handling for external Jules API delegations (HTTP 429).
+
+### Telemetry & State
+- Connected live Supabase pipeline logging with sessionStorage fallback caching and listener cleanup on unmount.
+
+### UX/UI
+- Implemented terminal scroll locks, ANSI stream decoding, and guarded SafeIcon against malformed names.
+
+### Auth
+- Fortified App.jsx and supabaseClient.js against offline and intermittent session drops.
 ### Added
 - `edge-coder-worker`: New telemetry pipeline ingestion route `POST /api/telemetry/events`.
 - `edge-coder-worker`: New telemetry stats fetch route `GET /api/telemetry/stats`.
