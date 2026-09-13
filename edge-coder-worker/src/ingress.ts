@@ -1025,6 +1025,77 @@ ${diff}`,
             }
 
 
+
+            // DLQ Sweep endpoint
+            if (url.pathname === "/api/v1/dlq/sweep" && request.method === "POST") {
+              const authHeader = request.headers.get('Authorization');
+              const sigHeader = request.headers.get('X-Axim-Signature');
+              let isAuth = false;
+
+              if (authHeader) {
+                isAuth = await verifySupabaseToken(authHeader, env);
+              } else if (sigHeader && env.AXIM_INTERNAL_KEY) {
+                try {
+                  const bodyText = await request.clone().text();
+                  const encoder = new TextEncoder();
+                  const keyMaterial = await crypto.subtle.importKey(
+                    'raw',
+                    encoder.encode(env.AXIM_INTERNAL_KEY),
+                    { name: 'HMAC', hash: 'SHA-256' },
+                    false,
+                    ['verify']
+                  );
+                  const sigHex = sigHeader.trim();
+                  const sigBytes = new Uint8Array(sigHex.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
+                  isAuth = await crypto.subtle.verify('HMAC', keyMaterial, sigBytes, encoder.encode(bodyText));
+                } catch (e) {
+                  isAuth = false;
+                }
+              }
+
+              if (!isAuth) {
+                return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+              }
+
+              try {
+                const dlqKeys = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+                let reprocessedCount = 0;
+
+                for (const key of dlqKeys.keys) {
+                  const payloadStr = await env.CODER_DLQ_KV.get(key.name);
+                  if (payloadStr) {
+                    try {
+                      const payload = JSON.parse(payloadStr);
+                      // Try redispatching to support system
+                      const res = await fetch('https://support.axim.us.com/api/v1/axim-resolution', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'x-axim-token': env.SUPABASE_SERVICE_ROLE_KEY
+                        },
+                        body: JSON.stringify(payload)
+                      });
+
+                      if (res.ok) {
+                        await env.CODER_DLQ_KV.delete(key.name);
+                        reprocessedCount++;
+                      }
+                    } catch (e) {
+                       // Skip on failure, remains in DLQ
+                    }
+                  }
+                }
+
+                return new Response(JSON.stringify({ status: "success", reprocessed: reprocessedCount }), {
+                  status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              } catch (error) {
+                return new Response(JSON.stringify({ error: 'Internal Error processing DLQ sweep' }), {
+                  status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+            }
+
             // Telemetry endpoints
             if (url.pathname === "/api/telemetry/events" && request.method === "POST") {
               try {
@@ -1188,6 +1259,7 @@ ${diff}`,
       });
     }
 
+
     const executionTimeMs = Date.now() - startTime;
     console.log(JSON.stringify({
       level: 'info',
@@ -1199,6 +1271,16 @@ ${diff}`,
       user_agent: request.headers.get('User-Agent') || 'unknown'
     }));
 
-    return response;
+    // Explicitly add telemetry headers to all responses
+    const headers = new Headers(response.headers);
+    headers.set('X-Edge-Ray-Id', traceId);
+    headers.set('X-Edge-Colo', request.cf?.colo || 'ORD');
+    headers.set('X-Response-Time-Ms', executionTimeMs.toString());
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: headers
+    });
   }
 };

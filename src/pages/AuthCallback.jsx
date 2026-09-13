@@ -66,8 +66,8 @@ const AuthCallback = () => {
         localStorage.setItem('axim_user_role', role);
         localStorage.setItem('axim_user_profile', JSON.stringify({ role, email }));
 
-        try {
-          const { error: sessionError } = await supabase.auth.setSession({
+try {
+          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
             access_token: token,
             refresh_token: token,
           });
@@ -75,6 +75,13 @@ const AuthCallback = () => {
           if (sessionError) {
              console.warn('Supabase setSession failed:', sessionError);
              // We continue since we are handling local storage for AXiM SSO auth
+          } else if (sessionData && sessionData.session && sessionData.session.user) {
+             const sessionEmail = sessionData.session.user.email;
+             const extractedRole = (sessionEmail === 'james.ellars@axim.us.com' || sessionEmail === 'jrellars@gmail.com') ? 'super_user' : 'engineer';
+
+             localStorage.setItem('axim_user_email', sessionEmail);
+             localStorage.setItem('axim_user_role', extractedRole);
+             localStorage.setItem('axim_user_profile', JSON.stringify({ role: extractedRole, email: sessionEmail }));
           }
         } catch (supabaseAuthErr) {
             console.error("Critical supabase auth error:", supabaseAuthErr);
