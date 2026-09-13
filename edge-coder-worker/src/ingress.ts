@@ -1,6 +1,7 @@
 import { sendEmailItMessage } from './emailService';
 import { executeCodingPipeline, executeAutonomousCodingTask } from './code_generator';
 import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
+import { dispatchToJulesAgent } from './jules_bridge';
 
 export interface KVNamespace {
   get(key: string): Promise<string | null>;
@@ -26,6 +27,7 @@ export interface Env {
   GITHUB_PAT: string;
   GITHUB_WEBHOOK_SECRET?: string;
   EMAILIT_API_KEY?: string;
+  JULES_API_KEY?: string;
   SUPABASE_URL: string;
   SUPABASE_LLM_PROXY_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -1217,7 +1219,12 @@ ${diff}`,
                 // Handoff to pipeline in the background and pipe progress to the SSE stream.
                 ctx.waitUntil((async () => {
                   try {
-                    await executeCodingPipeline(payload, env, writer, ctx);
+                    if (payload.delegate_to_jules) {
+                      await dispatchToJulesAgent({ repoOwner: payload.repository_owner || 'axim-dev', repoName: payload.repository_name, prompt: payload.instruction_prompt, taskId: taskIdentifier }, env);
+                      writer.write(new TextEncoder().encode(`data: {"type":"log","message":"[Jules Bridge] External agent handoff completed."}\n\n`)).catch(() => {});
+                    } else {
+                      await executeCodingPipeline(payload, env, writer, ctx);
+                    }
                   } catch (e: any) {
                     writer.write(new TextEncoder().encode(`data: {"type":"error","message":"${e.message}"}\n\n`)).catch(() => {});
                   } finally {
@@ -1238,7 +1245,11 @@ ${diff}`,
               }
 
               // 4. Asynchronous Cognitive Handoff
-              ctx.waitUntil(executeCodingPipeline(payload, env, undefined, ctx));
+              if (payload.delegate_to_jules) {
+                ctx.waitUntil(dispatchToJulesAgent({ repoOwner: payload.repository_owner || 'axim-dev', repoName: payload.repository_name, prompt: payload.instruction_prompt, taskId: taskIdentifier }, env));
+              } else {
+                ctx.waitUntil(executeCodingPipeline(payload, env, undefined, ctx));
+              }
 
               return new Response(JSON.stringify({
                 status: 'accepted',

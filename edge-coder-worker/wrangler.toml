@@ -38,5 +38,6 @@ binding = "axim_coder_metrics"
 # 3. wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 # 4. wrangler secret put EMAILIT_API_KEY
 # 5. wrangler secret put GITHUB_WEBHOOK_SECRET
+# 6. wrangler secret put JULES_API_KEY
 [triggers]
 crons = ["0 14 * * *", "0 3 * * *", "0 */6 * * *"]
