@@ -9,6 +9,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [targetRepo, setTargetRepo] = useState(initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-core-api');
   const [targetFile, setTargetFile] = useState(initialFile || sessionStorage.getItem('axim_terminal_file') || '');
   const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
+  const [executionEngine, setExecutionEngine] = useState(sessionStorage.getItem('axim_terminal_engine') || 'AXiM Swarm (In-House)');
   const [knowledge, setKnowledge] = useState([]);
   const [selectedContext, setSelectedContext] = useState([]);
 
@@ -28,6 +29,10 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   useEffect(() => {
     sessionStorage.setItem('axim_terminal_file', targetFile);
   }, [targetFile]);
+
+  useEffect(() => {
+    sessionStorage.setItem('axim_terminal_engine', executionEngine);
+  }, [executionEngine]);
 
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);
@@ -61,7 +66,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         contextIds: selectedContext,
         task_id: taskId,
         runtime_env: targetRuntime,
-        assigned_model: selectedModel
+        assigned_model: selectedModel,
+        delegate_to_jules: executionEngine === 'Jules Agent (External Google Cloud)'
       });
 
       const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
@@ -219,6 +225,17 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                   <option value="axim-core-api">axim-core-api</option>
                   <option value="frontend-dashboard">frontend-dashboard</option>
                   <option value="shared-styles">shared-styles</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Execution Engine</span>
+                <select
+                  value={executionEngine}
+                  onChange={(e) => setExecutionEngine(e.target.value)}
+                  className="block w-40 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                >
+                  <option value="AXiM Swarm (In-House)">AXiM Swarm (In-House)</option>
+                  <option value="Jules Agent (External Google Cloud)">Jules Agent (External)</option>
                 </select>
               </div>
               <div className="space-y-1">
