@@ -25,8 +25,23 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
   React.useEffect(() => {
     if (processedDiff === 'Unable to parse Base64 encoded payload' && !errorToast) {
       setErrorToast("Unable to parse Base64 encoded payload");
+    } else {
+      const lines = processedDiff.split('\n');
+      const hunks = new Set();
+      let currentHunkId = 0;
+
+      lines.forEach((line, i) => {
+        if (line.startsWith('@@')) {
+          currentHunkId = i;
+          hunks.add(currentHunkId);
+        } else if (i === 0 && !line.startsWith('@@')) { // Handle diffs without explicit hunk headers at start
+          currentHunkId = 0;
+          hunks.add(currentHunkId);
+        }
+      });
+      setAcceptedHunks(hunks);
     }
-  }, [processedDiff, errorToast]);
+  }, [processedDiff]);
 
   const lines = processedDiff.split('\n');
 
@@ -275,6 +290,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
               let lineClass = "text-gray-400";
               let bgClass = "hover:bg-gray-800/30";
 
+
               if (line.startsWith('+')) {
                 lineClass = "text-green-400";
                 bgClass = "bg-green-500/5 border-l-2 border-green-500/50";
@@ -300,8 +316,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
                  );
               });
             })()}
-              let lineClass = "text-gray-400";
-              let bgClass = "hover:bg-gray-800/30";
+
 
           </div>
         </motion.div>

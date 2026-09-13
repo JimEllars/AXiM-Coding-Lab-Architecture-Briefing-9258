@@ -193,12 +193,39 @@ if (!data) {
       <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
 
         <MetricCard label="ACTIVE AGENTS" value={activeAgentCount} icon="Users" color="green" />
-        <MetricCard
-          label="DLQ REPLAY BUFFER"
-          value={data.edgeTelemetry ? (data.edgeTelemetry.dlq_pending_count || 0) : (edgeStats?.dlq_pending_count || 0)}
-          icon="Database"
-          color={(data.edgeTelemetry?.dlq_pending_count || edgeStats?.dlq_pending_count) > 0 ? "amber" : "emerald"}
-        />
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between relative overflow-hidden">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded ${(data.edgeTelemetry?.dlq_pending_count || edgeStats?.dlq_pending_count) > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                <SafeIcon name="Database" className="text-lg" />
+              </div>
+              <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">DLQ HEALTH</span>
+            </div>
+            {localStorage.getItem('axim_user_role') === 'super_user' && (
+              <button
+                onClick={async () => {
+                   const res = await labService.triggerDlqSweep();
+                   if (res.success) {
+                     alert('DLQ Sweep Triggered Successfully: ' + res.processedCount + ' items processed');
+                   } else {
+                     alert('DLQ Sweep failed');
+                   }
+                }}
+                className="text-[9px] px-2 py-1 bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 rounded border border-amber-500/30 uppercase font-bold transition-colors"
+              >
+                Sweep DLQ Queue
+              </button>
+            )}
+          </div>
+          <div className="flex items-end justify-between">
+            <div className="text-2xl font-bold text-white tracking-tight">
+              {edgeStats ? (edgeStats.dlq_pending_count || 0) : 'N/A'}
+            </div>
+            <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${(edgeStats?.dlq_pending_count || 0) > 0 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+              {(edgeStats?.dlq_pending_count || 0) > 0 ? 'PENDING RETRIES' : 'NOMINAL'}
+            </span>
+          </div>
+        </div>
         <MetricCard label="DEV HOURS SAVED" value={data.roiMetrics.hoursSaved} icon="Clock" color="blue" />
         <MetricCard label="EDGE MEMORY" value={data.edgeTelemetry ? data.edgeTelemetry.memory_execution_markers.heap_used : 'N/A'} icon="Cpu" color="purple" />
         <MetricCard label="EDGE LATENCY" value={edgeStats ? `${edgeStats.average_latency.toFixed(0)}ms` : (data.edgeTelemetry ? '12ms' : 'N/A')} icon="Zap" color="blue" />

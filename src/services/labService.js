@@ -765,6 +765,46 @@ export const labService = {
     }
   },
 
+  triggerDlqSweep: async () => {
+    try {
+      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+      const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/dlq/sweep');
+      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
+      const payloadBody = JSON.stringify({ action: 'sweep', timestamp: Date.now() });
+      const signature = await generateHmacSignature(payloadBody, internalKey);
+
+      const response = await fetch(actionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Axim-Signature': signature
+        },
+        body: payloadBody
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to trigger DLQ sweep: ${response.statusText}`);
+      }
+
+      const resData = await response.json();
+
+      const log = {
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'info',
+        agent: 'AXiM Coder Core',
+        message: `Operator executed manual DLQ Sweep. Reprocessed ${resData.reprocessed || 0} failed callbacks.`
+      };
+      addSystemLog(log);
+      broadcast({ type: 'LOG_ADDED', log });
+
+      return { success: true, processedCount: resData.reprocessed || 0 };
+    } catch (err) {
+      console.error('Exception triggering DLQ sweep:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
   mergePR: async (taskId) => {
     try {
       const { error: insertError } = await supabase.from('coding_tasks_errors').insert({
