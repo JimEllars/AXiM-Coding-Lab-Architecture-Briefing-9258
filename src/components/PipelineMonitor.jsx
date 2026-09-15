@@ -9,11 +9,21 @@ const StatusBadge = ({ status }) => {
     'Generating': 'text-purple-400 bg-purple-500/10 border-purple-500/20',
     'Committing': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
     'Review Gate': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+    'Queued': 'text-gray-400 bg-gray-500/10 border-gray-500/20',
+    'Validating': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    'Completed': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    'Failed': 'text-red-400 bg-red-500/10 border-red-500/20',
+    'IN_PROGRESS': 'text-purple-400 bg-purple-500/10 border-purple-500/20'
   };
   const icon = {
     'Generating': 'Cpu',
     'Committing': 'GitCommit',
     'Review Gate': 'Eye',
+    'Queued': 'Clock',
+    'Validating': 'Shield',
+    'Completed': 'CheckCircle',
+    'Failed': 'AlertTriangle',
+    'IN_PROGRESS': 'Activity'
   };
   return (
     <span className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-bold font-mono border ${styles[status]}`}>
@@ -53,6 +63,7 @@ const OriginBadge = ({ origin_source }) => {
 
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
+  const [activePipeline, setActivePipeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingEviction, setConfirmingEviction] = useState({});
 
@@ -85,16 +96,28 @@ const PipelineMonitor = () => {
   };
 
   useEffect(() => {
-    labService.getTasks().then((res) => {
-      setTasks(res);
+    const processTasks = (newTasks) => {
+      setTasks(newTasks);
+      const active = newTasks
+        .filter(t => ['Generating', 'Committing', 'Review Gate', 'IN_PROGRESS'].includes(t.status))
+        .slice(0, 4);
+      setActivePipeline(active);
       setLoading(false);
-    });
+    };
+
+    labService.getTasks().then(processTasks);
+
+
+    let batchTimeout;
     return labService.subscribe(event => {
       if (event.type === 'TASKS_UPDATED') {
-         setTasks(event.tasks);
-         setLoading(false);
+         if (batchTimeout) clearTimeout(batchTimeout);
+         batchTimeout = setTimeout(() => {
+            processTasks(event.tasks);
+         }, 250);
       }
     });
+
   }, []);
 
   return (
@@ -102,21 +125,21 @@ const PipelineMonitor = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.5 }}
-      className="bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden h-full flex flex-col"
+      className="bg-[#111726] border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col"
     >
-      <div className="h-12 border-b border-gray-800 px-4 flex items-center justify-between bg-[#0d1323]">
+      <div className="h-12 border-b border-slate-800 px-4 flex items-center justify-between bg-[#0A0D14]">
         <h3 className="text-xs font-bold text-white flex items-center gap-2 uppercase tracking-widest">
           <SafeIcon name="Activity" className="text-green-500" />
           Task Pipeline
         </h3>
-        <span className="text-[10px] text-gray-500 font-mono">{tasks.length} ACTIVE LOCKS</span>
+        <span className="text-[10px] text-gray-500 font-mono">{activePipeline.length} ACTIVE LOCKS</span>
       </div>
       
       <div className="flex-1 overflow-y-auto p-3 space-y-3 terminal-scroll">
         {loading ? (
           <div className="space-y-3">
              {[1,2,3].map(i => (
-                <div key={i} className="bg-[#111827] border border-gray-800 rounded-lg p-3 h-[90px] animate-pulse">
+                <div key={i} className="bg-[#111726] border border-slate-800 rounded-lg p-3 h-[90px] animate-pulse">
                    <div className="flex justify-between items-start mb-2">
                      <div className="h-4 bg-slate-800/50 rounded w-20"></div>
                      <div className="h-5 bg-slate-800/50 rounded w-24"></div>
@@ -131,14 +154,17 @@ const PipelineMonitor = () => {
           </div>
         ) : (
           <AnimatePresence initial={false}>
-          {tasks.map((task, idx) => (
+          {activePipeline.length === 0 ? (
+            <div className="p-4 text-center text-gray-500 text-xs font-mono">NO ACTIVE OPERATIONS IN PIPELINE</div>
+          ) : (
+            activePipeline.map((task, idx) => (
             <motion.div
               layout
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
               key={task.id}
-              className="bg-[#111827] border border-gray-800 rounded-lg p-3 hover:border-blue-500/30 transition-all group relative overflow-hidden"
+              className="bg-[#111726] border border-slate-800 rounded-lg p-3 hover:border-blue-500/30 transition-all group relative overflow-hidden"
             >
               {task.status === 'Generating' && (
                 <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-shimmer"></div>
@@ -163,11 +189,11 @@ const PipelineMonitor = () => {
                   >
                     {confirmingEviction[task.id] ? "Confirm Eviction?" : "Evict Lock"}
                   </button>
-                  <span>{task.time}</span>
+                  <span className="opacity-80 flex items-center gap-1"><SafeIcon name="Clock" className="text-[10px]" /> {task.time || new Date().toLocaleTimeString([], { hour12: false })}</span>
                 </div>
               </div>
             </motion.div>
-          ))}
+          )))}
         </AnimatePresence>
         )}
       </div>

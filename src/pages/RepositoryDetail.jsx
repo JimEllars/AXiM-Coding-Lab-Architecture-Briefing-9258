@@ -9,10 +9,37 @@ const RepositoryDetail = () => {
   const navigate = useNavigate();
   const [repo, setRepo] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [filePaths, setFilePaths] = useState([]);
+  const [activeTasks, setActiveTasks] = useState([]);
 
   useEffect(() => {
     labService.getRepositories().then(data => {
-      setRepo(data.find(r => r.id === id));
+      const foundRepo = data.find(r => r.id === id);
+      setRepo(foundRepo);
+
+      if (foundRepo) {
+        labService.getTasks().then(tasks => {
+          const repoTasks = tasks.filter(t => t.repository_name === foundRepo.name && t.target_file_path);
+          const pathMap = new Map();
+
+          repoTasks.forEach(t => {
+            const path = t.target_file_path;
+            if (!pathMap.has(path)) {
+              pathMap.set(path, { name: path, health: 100, warning: false });
+            }
+            const current = pathMap.get(path);
+            if (t.status === 'ERROR' || t.status === 'FAILED') {
+              current.health = Math.max(0, current.health - 20);
+              current.warning = true;
+            } else if (t.status === 'IN_PROGRESS') {
+              current.health = Math.max(50, current.health - 10);
+            }
+          });
+
+          setFilePaths(Array.from(pathMap.values()));
+          setActiveTasks(repoTasks.filter(t => t.status !== 'SUCCESS' && t.status !== 'ERROR' && t.status !== 'FAILED'));
+        });
+      }
     });
   }, [id]);
 
@@ -21,7 +48,7 @@ const RepositoryDetail = () => {
     navigate('/', { state: { 
       repoId: repo.name, 
       filePath: selectedFile.name,
-      autoPrompt: `Refactor ${selectedFile.name} to improve structural integrity and security headers.`
+      autoPrompt: 'Refactor ' + selectedFile.name
     }});
   };
 
@@ -87,13 +114,23 @@ const RepositoryDetail = () => {
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1 terminal-scroll">
-              <FileRow name="src/core/auth.ts" health={99} isSelected={selectedFile?.name === 'src/core/auth.ts'} onSelect={() => setSelectedFile({ name: 'src/core/auth.ts' })} />
-              <FileRow name="src/api/router.ts" health={94} isSelected={selectedFile?.name === 'src/api/router.ts'} onSelect={() => setSelectedFile({ name: 'src/api/router.ts' })} />
-              <FileRow name="middleware/logger.ts" health={100} isSelected={selectedFile?.name === 'middleware/logger.ts'} onSelect={() => setSelectedFile({ name: 'middleware/logger.ts' })} />
-              <FileRow name="config/security.yaml" health={62} warning isSelected={selectedFile?.name === 'config/security.yaml'} onSelect={() => setSelectedFile({ name: 'config/security.yaml' })} />
-              <FileRow name="src/main.ts" health={98} isSelected={selectedFile?.name === 'src/main.ts'} onSelect={() => setSelectedFile({ name: 'src/main.ts' })} />
-              <FileRow name="src/utils/crypto.ts" health={91} isSelected={selectedFile?.name === 'src/utils/crypto.ts'} onSelect={() => setSelectedFile({ name: 'src/utils/crypto.ts' })} />
-              <FileRow name="tests/auth.spec.ts" health={88} isSelected={selectedFile?.name === 'tests/auth.spec.ts'} onSelect={() => setSelectedFile({ name: 'tests/auth.spec.ts' })} />
+              {filePaths.length > 0 ? (
+                filePaths.map((f, i) => (
+                  <FileRow
+                    key={i}
+                    name={f.name}
+                    health={f.health}
+                    warning={f.warning}
+                    isSelected={selectedFile?.name === f.name}
+                    onSelect={() => setSelectedFile(f)}
+                  />
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center p-4">
+                  <SafeIcon name="FolderMinus" className="text-gray-600 text-3xl mb-2" />
+                  <p className="text-gray-500 text-xs font-mono">No active file paths indexed for this repository</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -108,10 +145,10 @@ const RepositoryDetail = () => {
               <div className="flex justify-between items-end">
                 <div className="space-y-1">
                   <p className="text-[10px] text-gray-500 font-mono">LATENCY</p>
-                  <p className="text-lg font-bold text-white">42ms</p>
+                  <p className="text-lg font-bold text-white">N/A</p>
                 </div>
                 <div className="w-24 h-8 flex items-end gap-1">
-                  {[40, 60, 30, 80, 50, 90, 40].map((h, i) => (
+                  {[0, 0, 0, 0, 0, 0, 0].map((h, i) => (
                     <div key={i} className="flex-1 bg-blue-500/20 rounded-t-sm" style={{ height: `${h}%` }}></div>
                   ))}
                 </div>
@@ -132,6 +169,29 @@ const RepositoryDetail = () => {
               </div>
             </div>
           </div>
+
+          <div className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-6 mt-6">
+            <h3 className="text-xs font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2">
+              <SafeIcon name="GitPullRequest" className="text-blue-400" />
+              ACTIVE PULL REQUESTS
+            </h3>
+            <div className="space-y-4">
+              {activeTasks.length > 0 ? (
+                activeTasks.map(t => (
+                  <div key={t.id} className="p-3 rounded-lg bg-[#111827] border border-gray-800 flex justify-between items-center">
+                    <span className="text-xs text-gray-300 font-mono truncate mr-2">{t.id}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase bg-blue-500/10 text-blue-400">
+                      {t.status}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 rounded-lg bg-[#111827] border border-gray-800 text-center">
+                  <p className="text-[10px] text-gray-500 font-mono">No active swarm operations.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -146,9 +206,11 @@ const Stat = ({ label, value, color }) => (
 );
 
 const FileRow = ({ name, health, warning, isSelected, onSelect }) => (
-  <div 
+  <button
     onClick={onSelect}
-    className={`flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer border ${
+    type="button"
+    className={`w-full text-left flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer border ${
+
       isSelected ? 'bg-blue-600/10 border-blue-500/40' : 'bg-transparent border-transparent hover:bg-gray-800/30'
     }`}
   >
@@ -164,7 +226,7 @@ const FileRow = ({ name, health, warning, isSelected, onSelect }) => (
         <div className={`h-full ${health > 90 ? 'bg-green-500' : health > 70 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${health}%` }}></div>
       </div>
     </div>
-  </div>
+  </button>
 );
 
 export default RepositoryDetail;

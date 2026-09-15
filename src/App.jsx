@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import '@questlabs/react-sdk/dist/style.css';
 import DashboardLayout from './components/layout/DashboardLayout';
 import Cockpit from './pages/Cockpit';
@@ -13,12 +13,49 @@ import Settings from './pages/Settings';
 import SecOps from './pages/SecOps';
 import KnowledgeBase from './pages/KnowledgeBase';
 import AgentRegistry from './pages/AgentRegistry';
+import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
+import { labService } from './services/labService';
+import { supabase } from './services/supabaseClient';
 
 function App() {
+  const [session, setSession] = useState(undefined);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') {
+        // Preserve active components like PromptTerminal by not clearing session state to undefined during refresh
+        if (session) {
+           setSession(session);
+        }
+        return;
+      }
+      setSession(session);
+    });
+
+    return () => {
+      labService.disconnectRealtime();
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  if (session === undefined) {
+    return <div className="flex h-screen items-center justify-center bg-slate-900 text-white">Loading...</div>;
+  }
+
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<DashboardLayout />}>
+        <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+
+        <Route path="/" element={session ? <DashboardLayout /> : <Navigate to="/login" />}>
           <Route index element={<Cockpit />} />
           <Route path="prs" element={<PullRequests />} />
           <Route path="repositories" element={<Repositories />} />

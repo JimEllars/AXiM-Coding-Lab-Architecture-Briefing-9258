@@ -1,4 +1,62 @@
-import { Env } from './ingress';
+import { Env, validateEnv } from './ingress';
+
+
+/**
+ * Utility: Unicode-safe Base64 decoding
+ */
+function decodeBase64Unicode(str: string): string {
+  // GitHub returns Base64 with newlines, so we need to remove them first
+  const cleanStr = str.replace(/\n/g, '');
+  const binaryString = atob(cleanStr);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Utility: Unicode-safe Base64 encoding
+ */
+function encodeBase64Unicode(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binaryString = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binaryString += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binaryString);
+}
+
+
+/**
+ * Utility: fetch with exponential backoff retry
+ */
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  let retries = 0;
+  while (retries < maxRetries) {
+    try {
+      const response = await fetchWithRetry(url, options);
+      if (response.status === 403 || response.status === 429) {
+        const resetHeader = response.headers.get('x-ratelimit-reset');
+        const resetTime = resetHeader ? parseInt(resetHeader, 10) * 1000 : Date.now() + Math.pow(2, retries) * 1000;
+        const delay = Math.max(0, resetTime - Date.now());
+        if (delay < 10000) { // Only wait if delay is less than 10 seconds, otherwise fail
+            await new Promise(resolve => setTimeout(resolve, delay + 500));
+            retries++;
+            continue;
+        }
+      }
+      return response;
+    } catch (err) {
+      if (retries === maxRetries - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
+      retries++;
+    }
+  }
+  throw new Error("Max retries reached");
+}
 
 export interface GithubContext {
   owner: string;
@@ -32,14 +90,14 @@ export async function fetchCurrentFileState(
 ): Promise<FileState> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}?ref=${ctx.baseBranch || 'main'}`;
   
-  const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
+  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   
   if (!response.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch file state: ${response.statusText}`);
   }
 
   const data: any = await response.json();
-  const decodedContent = atob(data.content);
+  const decodedContent = decodeBase64Unicode(data.content);
   
   return {
     content: decodedContent,
@@ -58,7 +116,7 @@ export async function createTaskBranch(
   const base = ctx.baseBranch || 'main';
   
   const refUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/ref/heads/${base}`;
-  const refResponse = await fetch(refUrl, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
+  const refResponse = await fetchWithRetry(refUrl, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   
   if (!refResponse.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch base branch reference: ${refResponse.statusText}`);
@@ -68,7 +126,7 @@ export async function createTaskBranch(
   const baseSha = refData.object.sha;
 
   const createUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/refs`;
-  const createResponse = await fetch(createUrl, {
+  const createResponse = await fetchWithRetry(createUrl, {
     method: 'POST',
     headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
@@ -94,9 +152,9 @@ export async function commitGeneratedCode(
   env: Env
 ): Promise<void> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}`;
-  const encodedContent = btoa(unescape(encodeURIComponent(newContent)));
+  const encodedContent = encodeBase64Unicode(newContent);
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'PUT',
     headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
@@ -125,7 +183,7 @@ export async function openPullRequest(
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls`;
   const base = ctx.baseBranch || 'main';
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
@@ -153,7 +211,7 @@ export async function mergePullRequest(
 ): Promise<void> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/merge`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'PUT',
     headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
@@ -173,5 +231,75 @@ export async function mergePullRequest(
       // Ignore
     }
     if (response.status === 409) { throw new Error(`Merge Conflict: PR #${prNumber} cannot be merged (409). Detail: ${errorDetail}`); } if (response.status === 422) { throw new Error(`Unprocessable Entity: PR #${prNumber} failed checks or protection (422). Detail: ${errorDetail}`); } throw new Error(`Failed to merge PR #${prNumber}: [${response.status}] ${errorDetail}`);
+  }
+}
+
+/**
+ * Utility: Fetch repository dependencies (package.json or requirements.txt)
+ */
+export async function fetchRepositoryDependencies(
+  ctx: GithubContext,
+  env: Env
+): Promise<string> {
+  const tryFetch = async (filePath: string): Promise<string | null> => {
+    const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}?ref=${ctx.baseBranch || 'main'}`;
+    const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      return null;
+    }
+    const data: any = await response.json();
+    return decodeBase64Unicode(data.content);
+  };
+
+  try {
+    let content = await tryFetch('package.json');
+    if (content !== null) {
+      return content;
+    }
+
+    content = await tryFetch('requirements.txt');
+    if (content !== null) {
+      return content;
+    }
+  } catch (err) {
+    // ignore
+  }
+
+  return 'No explicit dependency graph located.';
+}
+
+
+export async function fetchOpenPullRequests(ctx: GithubContext, env: Env): Promise<any[]> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls?state=open`;
+  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
+  if (!response.ok) return [];
+  return await response.json();
+}
+
+export async function fetchPullRequestDiff(ctx: GithubContext, prNumber: number, env: Env): Promise<string> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}`;
+  const headers = getGithubHeaders(env.GITHUB_TOKEN);
+  (headers as Record<string, string>)["Accept"] = "application/vnd.github.v3.diff";
+
+  const response = await fetchWithRetry(url, { headers });
+  if (!response.ok) return '';
+  return await response.text();
+}
+
+export async function postPullRequestReview(ctx: GithubContext, prNumber: number, reviewText: string, env: Env): Promise<void> {
+  const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/reviews`;
+  const response = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
+    body: JSON.stringify({
+      body: reviewText,
+      event: 'COMMENT'
+    })
+  });
+  if (!response.ok) {
+    console.error(`[VCS_ERROR] Failed to post PR review on ${ctx.repo}#${prNumber}: ${response.statusText}`);
   }
 }

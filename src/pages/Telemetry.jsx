@@ -7,47 +7,85 @@ import { labService } from '../services/labService';
 
 const Telemetry = () => {
   const [data, setData] = useState(null);
-  const [error, setError] = useState(false);
-
-  const fetchTelemetryData = useCallback(async () => {
-    let retries = 0;
-    const maxRetries = 3;
-
-    while (retries <= maxRetries) {
-      try {
-        const telemetryData = await labService.getTelemetryData();
-        setData(telemetryData);
-        setError(false);
-        return;
-      } catch (err) {
-        console.error('Error fetching telemetry:', err);
-        retries++;
-        if (retries > maxRetries) {
-          setError(true);
-          setData({
-             dateLabels: [],
-             tokenUsage: [],
-             nodeHealth: [
-               { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
-               { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
-               { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
-               { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
-             ],
-             roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
-             logs: []
-          });
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
-    }
-  }, []);
+  const [activeAgentCount, setActiveAgentCount] = useState(4);
 
   useEffect(() => {
-    fetchTelemetryData();
-  }, [fetchTelemetryData]);
+    labService.getAgents().then(agents => {
+      const active = agents.filter(a => a.status === 'Active').length;
+      setActiveAgentCount(active);
+    });
+  }, []);
 
-  if (!data) {
+  const [error, setError] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('LOCAL CACHE');
+  const [liveLogs, setLiveLogs] = useState([]);
+  const [timeWindow, setTimeWindow] = useState('7d');
+  const [edgeStats, setEdgeStats] = useState(null);
+  const [edgeMetrics, setEdgeMetrics] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const fetchMetrics = async () => {
+       const metrics = await labService.fetchEdgeTelemetry();
+       if (metrics && active) {
+          setEdgeMetrics(metrics);
+       }
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 5000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+
+
+  useEffect(() => {
+    let unsubscribePipeline;
+    let unsubscribeTelemetry;
+    try {
+      unsubscribePipeline = labService.subscribeToPipelineMetrics((metrics, status) => {
+        setData(metrics);
+        setConnectionStatus(status);
+        if (status && (status.includes('FALLBACK') || status.includes('CACHED') || status.includes('DEGRADED'))) {
+          setError(true);
+        } else {
+          setError(false);
+        }
+      }, 3000);
+
+
+      unsubscribeTelemetry = labService.subscribeToTelemetry(async (status) => {
+         setConnectionStatus(status);
+         if (status === 'ONLINE / REALTIME' || status === 'CACHED') {
+            try {
+              // Poll real stats API, labService.getTelemetryData now includes it
+              const metrics = await labService.getTelemetryData();
+              if (metrics) {
+                 setData(metrics);
+                 if (metrics.edgeTelemetry) {
+                    setEdgeStats(metrics.edgeTelemetry);
+                 }
+              }
+            } catch (err) {
+               console.warn("Failed to update telemetry via subscription", err);
+            }
+         }
+      });
+
+    } catch (e) {
+      console.error(e);
+      setError(true);
+    }
+
+    return () => {
+      if (unsubscribePipeline) unsubscribePipeline();
+      if (unsubscribeTelemetry) unsubscribeTelemetry();
+    };
+  }, []);
+
+if (!data) {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex items-center justify-between mb-8">
@@ -55,15 +93,20 @@ const Telemetry = () => {
             <h1 className="text-2xl font-bold text-white">The Green Machine</h1>
             <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
           </div>
+          <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
             <SafeIcon name="Zap" className="text-sm" />
             OPTIMIZED
           </div>
+          <div className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border ${connectionStatus === 'ONLINE / REALTIME' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+            {connectionStatus}
+          </div>
+        </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           {[1,2,3,4].map(i => (
-            <div key={i} className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5 animate-pulse h-[104px]">
+            <div key={i} className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 animate-pulse h-[104px]">
                <div className="h-6 bg-slate-800/50 rounded w-24 mb-4"></div>
                <div className="h-8 bg-slate-800/50 rounded w-16"></div>
             </div>
@@ -71,11 +114,11 @@ const Telemetry = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 h-[406px] animate-pulse">
+          <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-6 h-[406px] animate-pulse">
              <div className="h-6 bg-slate-800/50 rounded w-48 mb-6"></div>
              <div className="h-[300px] bg-slate-800/50 rounded w-full"></div>
           </div>
-          <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6 h-[406px] animate-pulse">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6 h-[406px] animate-pulse">
              <div className="h-6 bg-slate-800/50 rounded w-32 mb-6"></div>
              <div className="space-y-4">
                 {[1,2,3,4].map(i => (
@@ -91,6 +134,7 @@ const Telemetry = () => {
 
 
 
+  const isZeroData = data.tokenUsage.length > 0 && data.tokenUsage.every(v => v === 0);
   const chartOption = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
@@ -110,7 +154,7 @@ const Telemetry = () => {
     series: [{
       data: data.tokenUsage,
       type: 'line',
-      smooth: true,
+      smooth: 0.4,
       color: '#3b82f6',
       areaStyle: {
         color: {
@@ -124,16 +168,47 @@ const Telemetry = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white">The Green Machine</h1>
           <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
-          <SafeIcon name="Zap" className="text-sm" />
-          OPTIMIZED
+        <div className="flex flex-col items-end gap-2">
+          {edgeMetrics && (
+             <div className="flex items-center gap-3 bg-gray-800/50 p-1.5 rounded-lg border border-slate-700">
+               <span className="text-[10px] font-mono font-bold text-gray-300">
+                 Edge: {edgeMetrics.upstreamHealth === 'ONLINE' ? <span className="text-emerald-400">OK</span> : <span className="text-amber-400">DEGRADED</span>}
+               </span>
+               <span className="text-[10px] font-mono font-bold text-gray-300">
+                 P99 Latency: <span className="text-blue-400">&lt;{Math.max(85, Math.ceil(edgeMetrics.roundTripLatencyMs))}ms</span>
+               </span>
+             </div>
+          )}
+          <div className="flex items-center gap-1 bg-gray-800/50 p-1 rounded-lg border border-slate-700">
+            {['1h', '6h', '24h', '7d'].map(tw => (
+              <button
+                key={tw}
+                onClick={() => setTimeWindow(tw)}
+                className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors ${timeWindow === tw ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                {tw.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+             <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
+               <SafeIcon name="Zap" className="text-sm" />
+               OPTIMIZED
+             </div>
+             <div className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest ${connectionStatus.includes('ONLINE') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : connectionStatus.includes('DEGRADED') ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+               <div className={`w-1.5 h-1.5 rounded-full ${connectionStatus.includes('ONLINE') ? 'bg-emerald-400 animate-pulse' : connectionStatus.includes('DEGRADED') ? 'bg-rose-400 animate-pulse' : 'bg-amber-400'}`}></div>
+               {connectionStatus}
+             </div>
+          </div>
         </div>
       </div>
+
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3 text-red-400 font-mono text-sm">
@@ -142,22 +217,90 @@ const Telemetry = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
+
+        <MetricCard label="ACTIVE AGENTS" value={activeAgentCount} icon="Users" color="green" />
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between relative overflow-hidden">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded ${(data.edgeTelemetry?.dlq_pending_count || edgeStats?.dlq_pending_count) > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                <SafeIcon name="Database" className="text-lg" />
+              </div>
+              <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">DLQ HEALTH</span>
+            </div>
+            {localStorage.getItem('axim_user_role') === 'super_user' && (
+              <button
+                onClick={async () => {
+                   const res = await labService.triggerDlqSweep();
+                   if (res.success) {
+                     alert('DLQ Sweep Triggered Successfully: ' + res.processedCount + ' items processed');
+                   } else {
+                     alert('DLQ Sweep failed');
+                   }
+                }}
+                className="text-[9px] px-2 py-1 bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 rounded border border-amber-500/30 uppercase font-bold transition-colors"
+              >
+                Sweep DLQ Queue
+              </button>
+            )}
+          </div>
+          <div className="flex items-end justify-between">
+            <div className="text-2xl font-bold text-white tracking-tight">
+              {edgeStats ? (edgeStats.dlq_pending_count || 0) : 'N/A'}
+            </div>
+            <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${(edgeStats?.dlq_pending_count || 0) > 0 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+              {(edgeStats?.dlq_pending_count || 0) > 0 ? 'PENDING RETRIES' : 'NOMINAL'}
+            </span>
+          </div>
+        </div>
         <MetricCard label="DEV HOURS SAVED" value={data.roiMetrics.hoursSaved} icon="Clock" color="blue" />
-        <MetricCard label="EFFICIENCY GAIN" value={data.roiMetrics.efficiencyGain} icon="TrendingUp" color="green" />
-        <MetricCard label="COMPUTE COST" value={data.roiMetrics.totalCost} icon="DollarSign" color="purple" />
-        <MetricCard label="EST. SAVINGS" value={data.roiMetrics.estimatedSavings} icon="Shield" color="blue" />
+        <MetricCard label="EDGE MEMORY" value={data.edgeTelemetry ? data.edgeTelemetry.memory_execution_markers.heap_used : 'N/A'} icon="Cpu" color="purple" />
+        <MetricCard label="EDGE LATENCY" value={edgeStats ? `${edgeStats.average_latency.toFixed(0)}ms` : (data.edgeTelemetry ? '12ms' : 'N/A')} icon="Zap" color="blue" />
+        <MetricCard label="EST. SAVINGS" value={data.roiMetrics.estimatedSavings} icon="Shield" color="green" />
       </div>
 
+      {edgeStats && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6 mb-6">
+          <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+            <SafeIcon name="Activity" className="text-blue-400" />
+            Live Edge Telemetry Events ({edgeStats.total_events})
+          </h3>
+          <div className="space-y-2 max-h-[300px] overflow-y-auto terminal-scroll">
+            {edgeStats.events.map((event, i) => (
+              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-slate-800">
+                <div className="flex flex-col">
+                  <span className="text-xs font-medium text-gray-300">{event.agentId}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">{new Date(event.timestamp).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                   <span className="text-xs text-gray-400 font-mono">{event.latencyMs}ms</span>
+                   <span className="text-xs text-blue-400 font-mono">{event.tokensUsed} tokens</span>
+                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${event.status === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                      {event.status}
+                   </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-[#0a0f1c] border border-gray-800 rounded-xl p-6">
+        <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-6 relative">
           <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
             <SafeIcon name="Activity" className="text-blue-400" />
             Token Expenditure Swarm (7D)
           </h3>
-          <ReactECharts option={chartOption} style={{ height: '300px' }} />
+          <div className="relative">
+            {(isZeroData || data.tokenUsage.length === 0) && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center text-gray-500 font-mono text-xs bg-slate-900/90/80 backdrop-blur-sm">
+                [STANDBY] No LLM Proxy consumption recorded for selected range.
+              </div>
+            )}
+            <ReactECharts option={chartOption} style={{ height: '300px' }} />
+          </div>
         </div>
-        <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-6">
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6">
           <h3 className="text-sm font-medium text-white mb-4">Node Health Status</h3>
           <div className="space-y-4">
             {data.nodeHealth.map((node, i) => (
@@ -171,7 +314,7 @@ const Telemetry = () => {
 };
 
 const MetricCard = ({ label, value, icon, color }) => (
-  <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl p-5">
+  <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
     <div className="flex items-center gap-3 mb-3">
       <div className={`p-2 rounded bg-${color}-500/10 text-${color}-400`}>
         <SafeIcon name={icon} className="text-lg" />
@@ -182,18 +325,39 @@ const MetricCard = ({ label, value, icon, color }) => (
   </div>
 );
 
-const HealthItem = ({ label, status, latency, color }) => (
-  <div className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-gray-800">
-    <div className="flex flex-col">
-      <span className="text-xs font-medium text-gray-300">{label}</span>
-      <span className="text-[10px] text-gray-500 font-mono">{latency}</span>
+const HealthItem = ({ label, status, latency, color }) => {
+  let colorClass = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+  let glowClass = '';
+
+  if (color === 'green') {
+    colorClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    glowClass = 'shadow-[0_0_12px_rgba(16,185,129,0.3)]';
+  }
+  if (color === 'yellow') {
+    colorClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    glowClass = 'shadow-[0_0_12px_rgba(245,158,11,0.3)]';
+  }
+  if (color === 'red') {
+    colorClass = 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse';
+    glowClass = 'shadow-[0_0_12px_rgba(239,68,68,0.5)]';
+  }
+
+  return (
+    <div className={`flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-slate-800 transition-all ${glowClass}`}>
+      <div className="flex flex-col">
+        <span className="text-xs font-medium text-gray-300">{label}</span>
+        <span className="text-[10px] text-gray-500 font-mono">{latency}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        {status === 'Nominal' && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>}
+        {status === 'Degraded' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>}
+        {status === 'Critical' && <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>}
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${colorClass}`}>
+          {status}
+        </span>
+      </div>
     </div>
-    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-      color === 'green' ? 'bg-green-500/10 text-green-400' : 'bg-blue-500/10 text-blue-400'
-    }`}>
-      {status}
-    </span>
-  </div>
-);
+  );
+};
 
 export default Telemetry;

@@ -4,16 +4,115 @@ import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
 import { dispatchSupportTask } from '../services/supportGateway';
 
-const DiffViewer = ({ diff, filePath, taskId, task }) => {
-  const [issubmitting, setIsSubmitting] = useState(false);
+const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorToast, setErrorToast] = useState(null);
+  const [acceptedHunks, setAcceptedHunks] = useState(new Set());
 
-  const lines = (diff || '').split('\n');
 
+  let processedDiff = diff || '';
+  if (task && (task.b64_content || task.encoded)) {
+    try {
+      processedDiff = atob(task.b64_content || diff);
+    } catch (e) {
+      // Don't set state directly in the render loop to avoid warnings
+      processedDiff = 'Unable to parse Base64 encoded payload'; // Fallback to avoid breaking render
+    }
+  }
+
+  // Set error toast if decoding fails but we do it outside render via effect hook
+  React.useEffect(() => {
+    if (processedDiff === 'Unable to parse Base64 encoded payload' && !errorToast) {
+      setErrorToast("Unable to parse Base64 encoded payload");
+    } else {
+      const lines = processedDiff.split('\n');
+      const hunks = new Set();
+      let currentHunkId = 0;
+
+      lines.forEach((line, i) => {
+        if (line.startsWith('@@')) {
+          currentHunkId = i;
+          hunks.add(currentHunkId);
+        } else if (i === 0 && !line.startsWith('@@')) { // Handle diffs without explicit hunk headers at start
+          currentHunkId = 0;
+          hunks.add(currentHunkId);
+        }
+      });
+      setAcceptedHunks(hunks);
+    }
+  }, [processedDiff]);
+
+  const lines = processedDiff.split('\n');
+
+
+
+  const toggleHunk = (hunkIdx) => {
+    setAcceptedHunks(prev => {
+      const next = new Set(prev);
+      if (next.has(hunkIdx)) {
+        next.delete(hunkIdx);
+      } else {
+        next.add(hunkIdx);
+      }
+      return next;
+    });
+  };
+
+  const handleCreateFilteredPR = async () => {
+     if (!taskId || isSubmitting) return;
+     if (acceptedHunks.size === 0) {
+        setErrorToast("Please accept at least one hunk before creating a filtered PR.");
+        return;
+     }
+
+     setIsSubmitting(true);
+     setErrorToast(null);
+
+     try {
+       // Mock or implement logic via labService to dispatch filtered PR
+       // Using the existing action handler pattern
+
+        const repoParts = (task?.repository || 'axim-organization/axim-core-api').split('/');
+        const owner = repoParts.length > 1 ? repoParts[0] : 'axim-organization';
+        const repoName = repoParts.length > 1 ? repoParts[1] : repoParts[0];
+
+        const prNumber = task?.pr_number || parseInt(taskId.replace(/\D/g, '')) || 1;
+
+        const payload = {
+          operation: 'DEPLOY_ACTION',
+          task_id: taskId,
+          pr_number: prNumber,
+          repository_owner: owner,
+          repository_name: repoName,
+          action: 'FILTERED_PR',
+          hunks: Array.from(acceptedHunks)
+        };
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+        try {
+          await Promise.race([
+            dispatchSupportTask(payload),
+            new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error('Network timeout. Please try again.')))),
+          ]);
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          throw new Error(fetchError.name === 'AbortError' ? 'Network timeout. Please try again.' : (fetchError.message || 'Transaction failed. Please try again.'));
+        }
+
+       setIsSuccess(true);
+       if (onActionSuccess) onActionSuccess('FILTERED_PR');
+     } catch (err) {
+       setErrorToast(err.message || 'Transaction failed. Please try again.');
+       setIsSubmitting(false);
+     }
+  };
 
   const handleAction = async (status) => {
-    if (!taskId) return;
+    if (!taskId || isSubmitting) return; // Prevent double dispatch via lock
     setIsSubmitting(true);
     setErrorToast(null);
 
@@ -64,6 +163,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
       }
 
       setIsSuccess(true);
+      if (onActionSuccess) onActionSuccess(status);
     } catch (err) {
       setErrorToast(err.message || 'Transaction failed. Please try again.');
       setIsSubmitting(false);
@@ -80,7 +180,7 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
           exit={{ opacity: 0, filter: 'blur(10px)', transition: { duration: 0.5 } }}
           className="bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden flex flex-col h-full relative"
         >
-          {issubmitting && (
+          {isSubmitting && (
             <div className="absolute inset-0 z-50 bg-[#0a0f1c]/50 backdrop-blur-sm flex items-center justify-center">
               <motion.div
                 animate={{ rotate: 360 }}
@@ -109,14 +209,22 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleAction('REJECTED')}
-                disabled={issubmitting}
+                disabled={isSubmitting}
                 className="px-3 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-400 rounded border border-red-600/20 text-[10px] font-bold uppercase transition-colors disabled:opacity-50"
               >
                 Reject Patch
               </button>
               <button
+                onClick={handleCreateFilteredPR}
+                disabled={isSubmitting || acceptedHunks.size === 0}
+                className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(37,99,235,0.2)] disabled:opacity-50"
+              >
+                <SafeIcon name="GitPullRequest" className="text-[10px]" />
+                Create Filtered PR
+              </button>
+              <button
                 onClick={() => handleAction('APPROVED')}
-                disabled={issubmitting}
+                disabled={isSubmitting}
                 className="flex items-center gap-1.5 px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(22,163,74,0.2)] disabled:opacity-50"
               >
                 <SafeIcon name="GitMerge" className="text-[10px]" />
@@ -125,9 +233,38 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
             </div>
           </div>
           <div className="flex-1 p-4 overflow-y-auto terminal-scroll bg-[#030712] text-[12px] font-mono leading-relaxed">
-            {lines.map((line, idx) => {
+            {(() => {
+              const hunks = [];
+              let currentHunk = null;
+              lines.forEach((line, i) => {
+                if (line.startsWith('@@')) {
+                  if (currentHunk) hunks.push(currentHunk);
+                  currentHunk = { id: i, lines: [line] };
+                } else if (currentHunk) {
+                  currentHunk.lines.push(line);
+                } else {
+                  currentHunk = { id: i, lines: [line] };
+                }
+              });
+              if (currentHunk) hunks.push(currentHunk);
+
+              return hunks.map((hunk, hIdx) => {
+                 const isAccepted = acceptedHunks.has(hunk.id);
+                 return (
+                   <div key={hunk.id} className={`mb-4 border border-gray-800 rounded overflow-hidden ${isAccepted ? 'border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : ''}`}>
+                     <div className="bg-[#111827] px-4 py-2 border-b border-gray-800 flex justify-between items-center sticky top-0 z-10">
+                       <span className="text-xs text-blue-400 font-bold font-mono">Hunk #{hIdx + 1}</span>
+                       <div className="flex gap-2">
+                         <button onClick={() => toggleHunk(hunk.id)} className={`px-2 py-1 text-[10px] uppercase font-bold rounded transition-colors ${isAccepted ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'}`}>
+                           {isAccepted ? 'Reject Hunk' : 'Accept Hunk'}
+                         </button>
+                       </div>
+                     </div>
+                     <div className="flex flex-col">
+                     {hunk.lines.map((line, lIdx) => {
               let lineClass = "text-gray-400";
               let bgClass = "hover:bg-gray-800/30";
+
 
               if (line.startsWith('+')) {
                 lineClass = "text-green-400";
@@ -141,14 +278,21 @@ const DiffViewer = ({ diff, filePath, taskId, task }) => {
               }
 
               return (
-                <div key={idx} className={`flex px-2 py-0.5 group ${bgClass}`}>
+                <div key={lIdx} className={`flex px-2 py-0.5 group ${bgClass}`}>
                   <span className="w-8 flex-shrink-0 text-gray-700 select-none text-right pr-4 border-r border-gray-800/30 mr-4">
-                    {idx + 1}
+                    {hunk.id + lIdx + 1}
                   </span>
                   <span className={`whitespace-pre ${lineClass}`}>{line}</span>
                 </div>
               );
-            })}
+                     })}
+                     </div>
+                   </div>
+                 );
+              });
+            })()}
+
+
           </div>
         </motion.div>
       ) : (

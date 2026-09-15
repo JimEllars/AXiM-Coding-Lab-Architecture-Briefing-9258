@@ -41,18 +41,26 @@ const SecOps = () => {
         <SeverityCard label="TOTAL_RESOLVED" count={142} color="green" />
       </div>
 
-      <div className="bg-[#0a0f1c] border border-gray-800 rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-gray-800 bg-[#0d1323] flex items-center justify-between">
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-slate-800 bg-[#0d1323] flex items-center justify-between">
           <h3 className="text-xs font-bold text-white font-mono uppercase tracking-widest">Active_Threat_Feed</h3>
         </div>
         <div className="divide-y divide-gray-800">
-          {incidents.map((inc, idx) => (
+          {incidents.length === 0 ? (
+            <div className="p-12 flex flex-col items-center justify-center text-center">
+              <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center mb-4">
+                <SafeIcon name="ShieldCheck" className="text-2xl text-green-400" />
+              </div>
+              <h3 className="text-sm font-bold text-white mb-2">Secure</h3>
+              <p className="text-xs text-gray-500 font-mono">No active security threat vectors detected</p>
+            </div>
+          ) : incidents.map((inc, idx) => (
             <motion.div 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.1 }}
               key={inc.id} 
-              className="p-6 flex items-center justify-between hover:bg-gray-800/10 transition-all"
+              className="p-6 flex items-center justify-between hover:bg-slate-800/10 transition-all"
             >
               <div className="flex items-center gap-6">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${
@@ -94,7 +102,7 @@ const SecOps = () => {
 };
 
 const SeverityCard = ({ label, count, color }) => (
-  <div className={`bg-[#0a0f1c] border border-gray-800 rounded-xl p-5 relative overflow-hidden`}>
+  <div className={`bg-slate-900/90 border border-slate-800 rounded-xl p-5 relative overflow-hidden`}>
     <div className={`absolute top-0 right-0 w-24 h-24 bg-${color}-500/5 blur-3xl rounded-full`}></div>
     <p className="text-[10px] text-gray-500 font-mono mb-2 uppercase tracking-widest">{label}</p>
     <p className={`text-3xl font-bold text-${color}-400`}>{count}</p>

@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
+import ErrorBoundary from '@/common/ErrorBoundary';
 import SafeIcon from '@/common/SafeIcon';
 import CommandPalette from '../CommandPalette';
 import CognitiveReasoning from '../CognitiveReasoning';
+import { labService } from '../../services/labService';
+import { supabase } from '../../services/supabaseClient';
 
-const Sidebar = () => {
+const Sidebar = ({ activeTaskCount }) => {
   const location = useLocation();
   return (
-    <div className="w-64 bg-[#0a0f1c] border-r border-gray-800 h-screen flex flex-col z-20">
-      <div className="h-16 flex items-center px-6 border-b border-gray-800">
+    <div className="w-64 bg-slate-900 border-r border-slate-800 h-screen flex flex-col z-20">
+      <div className="h-16 flex items-center px-6 border-b border-slate-800">
         <Link to="/" className="flex items-center gap-3">
           <div className="w-8 h-8 rounded bg-blue-600/20 flex items-center justify-center border border-blue-500/50">
             <SafeIcon name="Cpu" className="text-blue-400 text-lg" />
@@ -19,7 +22,7 @@ const Sidebar = () => {
 
       <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto terminal-scroll">
         <NavItem to="/" icon="Terminal" label="Dev Cockpit" active={location.pathname === '/'} />
-        <NavItem to="/prs" icon="GitPullRequest" label="Active PRs" badge="3" active={location.pathname === '/prs'} />
+        <NavItem to="/prs" icon="GitPullRequest" label="Active PRs" badge={activeTaskCount > 0 ? activeTaskCount : null} active={location.pathname === '/prs'} />
         <NavItem to="/repositories" icon="Database" label="Repositories" active={location.pathname.startsWith('/repositories')} />
         <NavItem to="/knowledge" icon="Book" label="Knowledge Base" active={location.pathname === '/knowledge'} />
         <NavItem to="/agents" icon="Users" label="Agent Registry" active={location.pathname === '/agents'} />
@@ -32,7 +35,7 @@ const Sidebar = () => {
         <NavItem to="/audit" icon="List" label="Audit Logs" active={location.pathname === '/audit'} />
       </div>
 
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-slate-800">
         <NavItem to="/settings" icon="Settings" label="Settings" active={location.pathname === '/settings'} />
       </div>
     </div>
@@ -56,33 +59,135 @@ const NavItem = ({ to, icon, label, active, badge }) => (
 const DashboardLayout = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
+  const [activeLocks, setActiveLocks] = useState(0);
+  const [gracePeriodTimer, setGracePeriodTimer] = useState(null);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+
+
+
+  useEffect(() => {
+    let authListener = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT' || !session) {
+          // Optimistic session evaluator logic
+          const cachedSession = localStorage.getItem('sb-fallback-anon-key-auth-token') || localStorage.getItem('axim_internal_key');
+          const hasActiveGracePeriod = localStorage.getItem('axim_auth_grace_period');
+
+          if (cachedSession && !hasActiveGracePeriod) {
+             console.warn('[AUTH] Session heartbeat failed. Retaining read-only access to cached dashboard data instead of immediately kicking user.');
+             localStorage.setItem('axim_auth_grace_period', Date.now().toString());
+             // Grace period will allow continued read-only browsing
+             // without immediate kickout if refresh hiccups.
+          } else if (!cachedSession && !hasActiveGracePeriod) {
+             window.location.href = '/login';
+          }
+        } else if (event === 'TOKEN_REFRESHED') {
+           // Silently refreshed
+           localStorage.removeItem('axim_auth_grace_period');
+           if (gracePeriodTimer) {
+              clearTimeout(gracePeriodTimer);
+              setGracePeriodTimer(null);
+           }
+        }
+      });
+      authListener = data;
+    } catch (authInitErr) {
+       console.error("Auth listener init failed, falling back to basic localStorage check", authInitErr);
+       const cachedSession = localStorage.getItem('axim_internal_key');
+       if (!cachedSession) {
+          window.location.href = '/login';
+       }
+    }
+
+    return () => {
+      if (authListener && authListener.subscription) {
+          authListener.subscription.unsubscribe();
+      }
+      if (gracePeriodTimer) clearTimeout(gracePeriodTimer);
+    };
+  }, [gracePeriodTimer]);
+
+
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const tasks = await labService.getTasks();
+      updateLockCount(tasks);
+    };
+
+    const updateLockCount = (tasks) => {
+      const lockCount = tasks.filter(t => ['Generating', 'Committing', 'Review Gate'].includes(t.status)).length;
+      setActiveLocks(lockCount);
+    };
+
+    fetchTasks();
+
+    const handleEvent = (event) => {
+      if (event.type === 'TASKS_UPDATED') {
+        updateLockCount(event.tasks || []);
+      }
+    };
+
+    const unsubscribe = labService.subscribe(handleEvent);
+    return () => unsubscribe();
+  }, []);
+
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#030712] text-gray-100 font-sans">
       <CommandPalette isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
       <CognitiveReasoning />
-      <Sidebar />
+      <Sidebar activeTaskCount={activeLocks} />
       <div className="flex-1 flex flex-col relative overflow-hidden">
-        <header className="h-16 bg-[#030712]/50 backdrop-blur-xl border-b border-gray-800 flex items-center justify-between px-8 sticky top-0 z-40">
+        <header className="h-16 backdrop-blur-md bg-slate-900/85 border-b border-slate-800 flex items-center justify-between px-8 sticky top-0 z-40">
           <button 
             onClick={() => setIsSearchOpen(true)}
-            className="flex items-center gap-3 px-4 py-1.5 bg-gray-900 border border-gray-800 rounded-lg text-gray-500 hover:border-gray-700 transition-all"
+            className="flex items-center gap-3 px-4 py-1.5 bg-gray-900 border border-slate-800 rounded-lg text-gray-500 hover:border-gray-700 transition-all"
           >
             <SafeIcon name="Search" className="text-sm" />
             <span className="text-xs font-mono">Quick Search...</span>
             <span className="text-[10px] bg-gray-800 px-1.5 py-0.5 rounded ml-4">⌘K</span>
           </button>
           <div className="flex items-center gap-4">
+            <div className="flex items-center">
+              {activeLocks > 0 ? (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                  <SafeIcon name="Lock" className="text-sm" />
+                  <span className="text-[10px] font-bold font-mono tracking-widest">{activeLocks} ACTIVE LOCKS</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-800/50 border border-slate-800 text-gray-500">
+                  <SafeIcon name="Lock" className="text-sm" />
+                  <span className="text-[10px] font-bold font-mono tracking-widest">0 LOCKS</span>
+                </div>
+              )}
+            </div>
             <div className="text-right hidden sm:block">
-              <p className="text-[10px] text-white font-bold leading-none">Admin Ellars</p>
-              <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">Superuser</p>
+              <p className="text-[10px] text-white font-bold leading-none">{localStorage.getItem('axim_user_profile') ? JSON.parse(localStorage.getItem('axim_user_profile')).name : 'Admin Ellars'}</p>
+              <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">{localStorage.getItem('axim_user_role') || 'Superuser'}</p>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center">
-              <SafeIcon name="User" className="text-gray-500" />
-            </div>
+            <button
+              onClick={async () => {
+                localStorage.removeItem('axim_internal_key');
+                localStorage.removeItem('axim_user_role');
+                localStorage.removeItem('axim_user_profile');
+                await handleLogout();
+                window.location.href = 'https://passport.axim.us.com/login?redirect=https://lab.axim.us.com/auth/callback';
+              }}
+              className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center hover:bg-gray-700 hover:border-gray-600 transition-colors"
+              title="Logout"
+            >
+              <SafeIcon name="LogOut" className="text-gray-400" />
+            </button>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-8 relative z-0 terminal-scroll">
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </main>
       </div>
     </div>

@@ -6,6 +6,7 @@ import SafeIcon from '@/common/SafeIcon';
 const Topology = () => {
   const [repos, setRepos] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [filterActive, setFilterActive] = useState(false);
 
   useEffect(() => {
     labService.getRepositories().then(setRepos);
@@ -13,12 +14,28 @@ const Topology = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 h-[calc(100vh-140px)] flex flex-col">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Ecosystem Topology</h1>
-        <p className="text-sm text-gray-400 mt-1">Real-time dependency mapping and swarm distribution</p>
+      <div className="mb-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Ecosystem Topology</h1>
+          <p className="text-sm text-gray-400 mt-1">Real-time dependency mapping and swarm distribution</p>
+        </div>
+        <div className="flex bg-slate-900/90 border border-slate-800 rounded-lg p-1">
+          <button
+            onClick={() => setFilterActive(false)}
+            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${!filterActive ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            All Nodes
+          </button>
+          <button
+            onClick={() => setFilterActive(true)}
+            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${filterActive ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Active Swarms Only
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 bg-[#0a0f1c] border border-gray-800 rounded-2xl relative overflow-hidden flex">
+      <div className="flex-1 bg-slate-900/90 border border-slate-800 rounded-2xl relative overflow-hidden flex">
         {/* Grid Background */}
         <div className="absolute inset-0 opacity-10 pointer-events-none" 
              style={{ backgroundImage: 'radial-gradient(#3b82f6 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
@@ -26,19 +43,20 @@ const Topology = () => {
         {/* Topology View (Simplified SVG Map) */}
         <div className="flex-1 relative flex items-center justify-center">
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
-            {repos.map(repo => 
+            {(filterActive ? repos.filter(r => r.activeSwarm) : repos).map(repo =>
               repo.dependencies.map(depId => {
                 const dep = repos.find(r => r.id === depId);
-                if (!dep) return null;
+                if (!dep || (filterActive && !dep.activeSwarm)) return null;
+                const isActive = repo.activeSwarm && dep.activeSwarm;
                 return (
-                  <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} />
+                  <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} isActive={isActive} />
                 );
               })
             )}
           </svg>
 
           <div className="relative z-10 grid grid-cols-2 gap-32">
-            {repos.map((repo, idx) => (
+            {(filterActive ? repos.filter(r => r.activeSwarm) : repos).map((repo, idx) => (
               <Node 
                 key={repo.id} 
                 repo={repo} 
@@ -50,7 +68,7 @@ const Topology = () => {
         </div>
 
         {/* Info Panel */}
-        <div className="w-80 border-l border-gray-800 bg-[#0d1323]/50 backdrop-blur-md p-6 overflow-y-auto z-20">
+        <div className="w-80 border-l border-slate-800 bg-[#0d1323]/50 backdrop-blur-md p-6 overflow-y-auto z-20">
           {selectedNode ? (
             <div className="space-y-6">
               <div className="flex items-center gap-3">
@@ -67,7 +85,7 @@ const Topology = () => {
                 <Stat label="HEALTH" value={`${selectedNode.health}%`} color="green" />
                 <Stat label="SWARM_STATUS" value={selectedNode.activeSwarm ? 'ACTIVE' : 'STANDBY'} color={selectedNode.activeSwarm ? 'blue' : 'gray'} />
                 
-                <div className="pt-4 border-t border-gray-800">
+                <div className="pt-4 border-t border-slate-800">
                   <p className="text-[10px] text-gray-400 font-mono uppercase mb-2">Dependencies</p>
                   <div className="flex flex-wrap gap-2">
                     {selectedNode.dependencies.length > 0 ? selectedNode.dependencies.map(d => (
@@ -96,7 +114,7 @@ const Node = ({ repo, isSelected, onClick }) => (
     whileHover={{ scale: 1.05 }}
     onClick={onClick}
     className={`w-48 p-4 rounded-xl border transition-all flex flex-col items-center gap-3 relative z-20 ${
-      isSelected ? 'bg-blue-600/10 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.2)]' : 'bg-[#111827] border-gray-800'
+      isSelected ? 'bg-blue-600/10 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.2)]' : 'bg-[#111827] border-slate-800'
     }`}
   >
     <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${
@@ -111,15 +129,21 @@ const Node = ({ repo, isSelected, onClick }) => (
   </motion.button>
 );
 
-const Connection = ({ from, to }) => {
+const Connection = ({ from, to, isActive }) => {
   // Mock SVG lines - in a real app these would use ref coordinates
   return (
-    <line x1="20%" y1="30%" x2="80%" y2="70%" stroke="#1e293b" strokeWidth="1" strokeDasharray="4" />
+    <line
+      x1="20%" y1="30%" x2="80%" y2="70%"
+      stroke={isActive ? "#3b82f6" : "#1e293b"}
+      strokeWidth={isActive ? "2" : "1"}
+      strokeDasharray={isActive ? "none" : "4"}
+      opacity={isActive ? "0.8" : "1"}
+    />
   );
 };
 
 const Stat = ({ label, value, color }) => (
-  <div className="bg-[#111827] p-3 rounded-lg border border-gray-800">
+  <div className="bg-[#111827] p-3 rounded-lg border border-slate-800">
     <p className="text-[9px] text-gray-500 font-mono mb-1 uppercase tracking-widest">{label}</p>
     <p className={`text-sm font-bold text-${color}-400`}>{value}</p>
   </div>

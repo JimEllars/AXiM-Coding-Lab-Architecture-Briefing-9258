@@ -5,6 +5,21 @@ import SafeIcon from '@/common/SafeIcon';
 import DiffViewer from '../components/DiffViewer';
 
 
+
+const RuntimeBadge = ({ runtime_env }) => {
+  const isPython = runtime_env === 'Python Sandbox';
+  return (
+    <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold font-mono border ${
+      isPython
+        ? 'text-yellow-400 bg-blue-900/20 border-yellow-500/30'
+        : 'text-green-400 bg-green-500/10 border-green-500/20'
+    }`}>
+      {isPython ? <SafeIcon name="Box" className="text-[10px]" /> : <SafeIcon name="Zap" className="text-[10px]" />}
+      {isPython ? 'PYTHON SANDBOX' : 'NODE.JS EDGE'}
+    </span>
+  );
+};
+
 const OriginBadge = ({ origin_source }) => {
   const source = origin_source || 'Manual_Dev_Cockpit';
   if (source === 'Asguard_WAF') {
@@ -37,6 +52,7 @@ const PullRequests = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [view, setView] = useState('diff'); // 'diff' | 'discussion'
   const [commentText, setCommentText] = useState('');
+  const [mergeToast, setMergeToast] = useState(null);
 
   useEffect(() => {
     const fetchTasks = () => labService.getTasks().then(data => {
@@ -79,6 +95,20 @@ const PullRequests = () => {
           <span>{tasks.length} PENDING REVIEW</span>
         </div>
       </div>
+
+      <AnimatePresence>
+        {mergeToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-24 right-8 z-50 px-4 py-3 bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg shadow-lg flex items-center gap-3 font-mono text-xs font-bold"
+          >
+            <SafeIcon name="CheckCircle" className="text-lg" />
+            {mergeToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-250px)]">
         {/* Sidebar List */}
@@ -130,7 +160,7 @@ const PullRequests = () => {
                     <SafeIcon name="Cpu" className="text-blue-400" />
                   </div>
                   <div>
-                    <h3 className="text-white font-medium text-sm flex items-center gap-2">{selectedTask.id} <OriginBadge origin_source={selectedTask.origin_source || selectedTask.origin} /></h3>
+                    <h3 className="text-white font-medium text-sm flex items-center gap-2">{selectedTask.id} <OriginBadge origin_source={selectedTask.origin_source || selectedTask.origin} /> <RuntimeBadge runtime_env={selectedTask.context?.runtime_env || selectedTask.runtime_env} /></h3>
                     <p className="text-[11px] text-gray-500 font-mono tracking-tighter uppercase">BRANCH: {selectedTask.branch}</p>
                   </div>
                 </div>
@@ -150,9 +180,9 @@ const PullRequests = () => {
                   className={`px-4 py-1.5 rounded text-xs font-medium transition-all flex items-center gap-2 ${view === 'discussion' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                   Discussion
-                  {selectedTask.comments?.length > 0 && (
+                  {selectedTask.context?.comments?.length > 0 && (
                     <span className="w-4 h-4 rounded-full bg-blue-600 text-[10px] flex items-center justify-center text-white">
-                      {selectedTask.comments.length}
+                      {selectedTask.context?.comments.length}
                     </span>
                   )}
                 </button>
@@ -168,7 +198,12 @@ const PullRequests = () => {
                       exit={{ opacity: 0, x: 10 }}
                       className="absolute inset-0"
                     >
-                      <DiffViewer diff={selectedTask.diff} filePath={selectedTask.file} taskId={selectedTask.id} task={selectedTask} />
+                      <DiffViewer diff={selectedTask.diff} filePath={selectedTask.file} taskId={selectedTask.id} task={selectedTask} onActionSuccess={(status) => {
+                        if (status === 'APPROVED') {
+                          setMergeToast('PULL REQUEST MERGED SUCCESSFULLY');
+                          setTimeout(() => setMergeToast(null), 3000);
+                        }
+                      }} />
                     </motion.div>
                   ) : (
                     <motion.div 
@@ -179,7 +214,7 @@ const PullRequests = () => {
                       className="absolute inset-0 bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden flex flex-col"
                     >
                       <div className="flex-1 overflow-y-auto p-6 space-y-6 terminal-scroll">
-                        {selectedTask.comments?.map(comment => (
+                        {selectedTask.context?.comments?.map(comment => (
                           <div key={comment.id} className="flex gap-4">
                             <div className="w-8 h-8 rounded bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
                               <SafeIcon name="User" className="text-gray-500 text-xs" />
@@ -195,10 +230,10 @@ const PullRequests = () => {
                             </div>
                           </div>
                         ))}
-                        {selectedTask.comments?.length === 0 && (
+                        {selectedTask.context?.comments?.length === 0 && (
                           <div className="h-full flex flex-col items-center justify-center text-gray-600 space-y-2">
                             <SafeIcon name="MessageSquare" className="text-3xl opacity-20" />
-                            <p className="text-xs font-mono uppercase tracking-widest">No cognitive feedback recorded</p>
+                            <p className="text-xs font-mono uppercase tracking-widest">No human review comments on this task</p>
                           </div>
                         )}
                       </div>

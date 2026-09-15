@@ -13,7 +13,7 @@
   }
 
   body {
-    @apply bg-[#030712] text-gray-100 font-sans antialiased overflow-x-hidden;
+    @apply bg-[#0A0D14] text-gray-100 font-sans antialiased overflow-x-hidden;
   }
 }
 
@@ -48,5 +48,5 @@
 
 /* Glassmorphism utility */
 .glass-panel {
-  @apply bg-[#0a0f1c]/80 backdrop-blur-md border border-gray-800;
+  @apply bg-[#111726] backdrop-blur-md border border-slate-800/80;
 }
