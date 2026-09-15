@@ -149,10 +149,9 @@ export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
   return { valid: missing.length === 0, missing };
 }
 
-export default {
-  async scheduled(event: any, env: any, ctx: any) {
-    if (event.cron === "0 14 * * *") {
-      const dateStr = new Date().toISOString().split('T')[0];
+
+async function handleDailyExecutiveBriefing(env: any) {
+const dateStr = new Date().toISOString().split('T')[0];
       const metrics = {
         prsOpened: 12, prsReviewed: 10, prsMerged: 8,
         hotfixesIngested: 2, tokenCost: '$12.50', computeDebt: 'Low'
@@ -190,8 +189,10 @@ export default {
          };
          await sendEmailItMessage(emailPayload, env);
       }
-    } else if (event.cron === "0 3 * * *") {
-      if (env.CODER_DLQ_KV) {
+}
+
+async function handleDlqSweeper(env: any) {
+if (env.CODER_DLQ_KV) {
           console.log("[CRON] Starting DLQ Sweeper");
           try {
               const listResult = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
@@ -227,8 +228,10 @@ export default {
               }
           } catch (e) { console.error("[CRON] DLQ Sweep error:", e); }
       }
-    } else if (event.cron === "0 */6 * * *") {
-      console.log("[CRON] Running PR Review & Static Analysis Sweeper");
+}
+
+async function handleStalePrSweeper(env: any) {
+console.log("[CRON] Running PR Review & Static Analysis Sweeper");
       try {
           const repos = ['axim-core-api', 'frontend-dashboard', 'shared-styles'];
           for (const repo of repos) {
@@ -259,6 +262,16 @@ ${diff}`,
       } catch (e) {
           console.error("[CRON] PR Sweeper error:", e);
       }
+}
+
+export default {
+  async scheduled(event: any, env: any, ctx: any) {
+    if (event.cron === "0 14 * * *") {
+      await handleDailyExecutiveBriefing(env);
+    } else if (event.cron === "0 3 * * *") {
+      await handleDlqSweeper(env);
+    } else if (event.cron === "0 */6 * * *") {
+      await handleStalePrSweeper(env);
     }
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
