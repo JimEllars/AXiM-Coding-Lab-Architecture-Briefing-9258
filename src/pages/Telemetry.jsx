@@ -21,6 +21,23 @@ const Telemetry = () => {
   const [liveLogs, setLiveLogs] = useState([]);
   const [timeWindow, setTimeWindow] = useState('7d');
   const [edgeStats, setEdgeStats] = useState(null);
+  const [edgeMetrics, setEdgeMetrics] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const fetchMetrics = async () => {
+       const metrics = await labService.fetchEdgeTelemetry();
+       if (metrics && active) {
+          setEdgeMetrics(metrics);
+       }
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 5000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
 
 
@@ -158,6 +175,16 @@ if (!data) {
           <p className="text-sm text-gray-400 mt-1">Autonomous Ecosystem ROI & Compute Telemetry</p>
         </div>
         <div className="flex flex-col items-end gap-2">
+          {edgeMetrics && (
+             <div className="flex items-center gap-3 bg-gray-800/50 p-1.5 rounded-lg border border-slate-700">
+               <span className="text-[10px] font-mono font-bold text-gray-300">
+                 Edge: {edgeMetrics.upstreamHealth === 'ONLINE' ? <span className="text-emerald-400">OK</span> : <span className="text-amber-400">DEGRADED</span>}
+               </span>
+               <span className="text-[10px] font-mono font-bold text-gray-300">
+                 P99 Latency: <span className="text-blue-400">&lt;{Math.max(85, Math.ceil(edgeMetrics.roundTripLatencyMs))}ms</span>
+               </span>
+             </div>
+          )}
           <div className="flex items-center gap-1 bg-gray-800/50 p-1 rounded-lg border border-slate-700">
             {['1h', '6h', '24h', '7d'].map(tw => (
               <button

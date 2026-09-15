@@ -7,7 +7,33 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
 
   const endpoint = 'https://jules.googleapis.com/v1alpha/sessions';
 
-  const response = await fetch(endpoint, {
+    const fetchWithRetry = async (url: string, options: any, maxRetries = 3) => {
+    let retries = 0;
+    while (retries < maxRetries) {
+      try {
+        const response = await fetch(url, options);
+        if (response.ok) return response;
+        if (response.status === 429 || response.status >= 500) {
+          const delay = Math.pow(2, retries) * 1000;
+          await new Promise(res => setTimeout(res, delay));
+          retries++;
+          continue;
+        }
+        return response;
+      } catch (err) {
+        if (retries === maxRetries - 1) throw err;
+        const delay = Math.pow(2, retries) * 1000;
+        await new Promise(res => setTimeout(res, delay));
+        retries++;
+      }
+    }
+    throw new Error('Max retries reached');
+  };
+
+  const defaultPrompt = "Review full app. We need to move this web app towards full functionality. Review app and make a plan for continued development.";
+  const activePrompt = payload.prompt || defaultPrompt;
+
+  const response = await fetchWithRetry(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -15,7 +41,7 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
     },
     body: JSON.stringify({
       source: `sources/github/${payload.repoOwner}/${payload.repoName}`,
-      prompt: payload.prompt,
+      prompt: activePrompt,
       automationMode: 'AUTO_CREATE_PR'
     })
   });
@@ -26,7 +52,7 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
       errorData = await response.json();
     } catch(e) {}
     console.error('Jules API Error:', response.status, JSON.stringify(errorData));
-    throw new Error(`Jules API Error [HTTP ${response.status}]: Failed to delegate to Jules agent`);
+    throw new Error(JSON.stringify({ error: `Jules API Error [HTTP ${response.status}]: Failed to delegate to Jules agent`, details: errorData }));
   }
 
   const data = await response.json() as any;
