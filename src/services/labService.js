@@ -408,14 +408,20 @@ export const labService = {
 
   triggerTask: async (payload) => {
     const taskId = payload.task_id || `TASK-${Math.random().toString(36).substring(7).toUpperCase()}`;
-
     if (!payload.assigned_model) {
-      const prefsStr = localStorage.getItem("axim_lab_preferences");
+      const prefsStr = typeof window !== 'undefined' ? window.localStorage.getItem('axim_lab_preferences') : null;
       if (prefsStr) {
         try {
           const prefs = JSON.parse(prefsStr);
-          if (prefs.model) payload.assigned_model = prefs.model;
-        } catch (e) { console.error(e); }
+          if (prefs.model) {
+            payload.assigned_model = prefs.model;
+          }
+        } catch (e) {
+          console.error('Failed to parse lab preferences:', e);
+        }
+      }
+      if (!payload.assigned_model) {
+        payload.assigned_model = 'deepseek-coder';
       }
     }
     broadcast({ type: 'REASONING_START', taskId, prompt: payload.instruction_prompt });
