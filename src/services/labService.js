@@ -377,29 +377,35 @@ export const labService = {
   },
 
   scaffoldProject: async ({ name, type, requirements }) => {
-    const taskId = "scaffold-" + Date.now();
     const payloadBody = JSON.stringify({
-      taskId,
-      repository_name: name,
-      deployment_type: type,
-      instructions: requirements
+      name,
+      type,
+      requirements,
+      origin_source: 'Manual_Dev_Cockpit'
     });
     const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || "development-key";
     const signature = await generateHmacSignature(payloadBody, internalKey);
-    const ingressUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace("/ingress", "/projects/scaffold") : "http://localhost:8787/api/v1/projects/scaffold";
+    const ingressUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace("/api/v1/ingress", "/api/v1/projects/scaffold") : "http://localhost:8787/api/v1/projects/scaffold";
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token || '';
 
     try {
       const response = await fetch(ingressUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${internalKey}`,
+          "Authorization": `Bearer ${token}`,
           "X-Axim-Signature": signature
         },
         body: payloadBody
       });
-      if (!response.ok) throw new Error("Scaffolding failed");
-      return { success: true, taskId };
+      if (response.status !== 202 && response.status !== 200) {
+          const text = await response.text();
+          throw new Error(`Scaffolding failed: ${text}`);
+      }
+      const data = await response.json().catch(() => ({ taskId: 'unknown' }));
+      return { success: true, taskId: data.taskId };
     } catch (e) {
       console.error(e);
       return { success: false, error: e.message };
@@ -421,7 +427,7 @@ export const labService = {
         }
       }
       if (!payload.assigned_model) {
-        payload.assigned_model = 'deepseek-coder';
+        payload.assigned_model = typeof window !== 'undefined' ? window.localStorage.getItem('axim_model') || 'deepseek-coder' : 'deepseek-coder';
       }
     }
     broadcast({ type: 'REASONING_START', taskId, prompt: payload.instruction_prompt });

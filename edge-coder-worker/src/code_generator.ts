@@ -68,6 +68,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     try {
     step_count++;
       const telemetryPayload = {
+        assigned_model: assigned_model || "deepseek-coder",
         task_id,
         edge_latency_ms: latency,
         tokens_consumed: tokens,

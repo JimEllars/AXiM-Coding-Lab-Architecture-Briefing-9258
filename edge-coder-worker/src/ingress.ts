@@ -204,14 +204,18 @@ export default {
                           const cryptoKey = await crypto.subtle.importKey("raw", encoder.encode(env.AXIM_INTERNAL_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
                           const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(payloadStr));
                           const signatureHex = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+                          const controller = new AbortController();
+                          const timeout = setTimeout(() => controller.abort(), 5000);
                           const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${ticketId}/resolve-from-coder`, {
-                              method: "POST", headers: { "Content-Type": "application/json", "X-Axim-Signature": signatureHex }, body: payloadStr
-                          });
-                          if (cbResp.ok) await env.CODER_DLQ_KV.delete(key.name);
+                              method: "POST", headers: { "Content-Type": "application/json", "X-Axim-Signature": signatureHex }, body: payloadStr, signal: controller.signal
+                          }).finally(() => clearTimeout(timeout));
+                          if (cbResp.status === 200 || cbResp.status === 202) await env.CODER_DLQ_KV.delete(key.name);
                       } else if (key.name.startsWith("dlq_email_") || key.name.startsWith("dlq:email:")) {
                            try {
                                const emailPayload = JSON.parse(payloadStr);
-                               const emailRes = await sendEmailItMessage(emailPayload, env);
+                               const controller = new AbortController();
+                               const timeout = setTimeout(() => controller.abort(), 5000);
+                               const emailRes = await sendEmailItMessage(emailPayload, env, controller.signal).finally(() => clearTimeout(timeout));
                                if (emailRes) await env.CODER_DLQ_KV.delete(key.name);
                            } catch (e) {
                                console.error("[CRON] DLQ email replay failed:", e);

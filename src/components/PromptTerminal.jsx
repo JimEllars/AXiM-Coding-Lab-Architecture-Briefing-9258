@@ -75,7 +75,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     try {
       const taskId = `MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;
       const prefsStr = localStorage.getItem("axim_lab_preferences");
-      let selectedModel = "deepseek-coder";
+      const fallbackModel = localStorage.getItem('axim_model');
+      let selectedModel = fallbackModel || "deepseek-coder";
       if (prefsStr) {
         try {
           const prefs = JSON.parse(prefsStr);
