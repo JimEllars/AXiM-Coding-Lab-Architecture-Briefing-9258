@@ -5,6 +5,30 @@ import { labService } from '../services/labService';
 
 const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Cmd/Ctrl + L to clear console
+      if ((e.metaKey || e.ctrlKey) && e.key === 'l') {
+        e.preventDefault();
+        // Since PromptTerminal doesn't own logs, we rely on a custom event or let SwarmLogConsole handle it.
+        // We'll dispatch a custom event that SwarmLogConsole can listen to.
+        window.dispatchEvent(new CustomEvent('axim-clear-logs'));
+      }
+      // Cmd/Ctrl + K to focus search - Layout already handles this or we can dispatch
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+         // Should be handled globally, but we can prevent default here if needed
+         // e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+
+  useEffect(() => {
+    sessionStorage.setItem('axim_terminal_prompt', prompt);
+  }, [prompt]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [targetRepo, setTargetRepo] = useState(initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-core-api');
   const [targetFile, setTargetFile] = useState(initialFile || sessionStorage.getItem('axim_terminal_file') || '');

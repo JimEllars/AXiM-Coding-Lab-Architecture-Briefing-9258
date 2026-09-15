@@ -622,6 +622,23 @@ export const labService = {
   },
 
 
+
+  fetchEdgeTelemetry: async () => {
+    try {
+      const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';
+      if (!workerUrl) return null;
+
+      const res = await fetch(`${workerUrl}/api/telemetry/edge-metrics`);
+      if (res.ok) {
+        return await res.json();
+      }
+      return null;
+    } catch (e) {
+      console.warn('Failed to fetch edge telemetry:', e);
+      return null;
+    }
+  },
+
   getTelemetryData: async () => {
     try {
       const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';

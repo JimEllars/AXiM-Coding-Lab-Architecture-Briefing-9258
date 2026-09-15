@@ -1,5 +1,9 @@
 # Sprint v1.2 Build Prompt - Production Hardening & Telemetry Authenticity Pass
 ## [Unreleased]
+- Added Edge Telemetry & Diagnostics Integration (/api/telemetry/edge-metrics).
+- Enhanced Resilient Session Continuity & Auth Guarding.
+- Implemented Streaming Log Console & Terminal Hardening (SSE, auto-scroll, log filters, clear shortcut).
+- Improved Jules Bridge & GitHub Bridge Reliability (exponential backoff, webhook verification).
 ### Security
 - Enforced strict HMAC-SHA256 signature verification and isolated uniform error payloads in ingress.ts.
 

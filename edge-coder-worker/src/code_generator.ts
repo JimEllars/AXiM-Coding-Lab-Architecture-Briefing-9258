@@ -29,6 +29,12 @@ function prepareContextWindow(content: string, threshold: number = 32000): { con
 }
 
 export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env, writer?: WritableStreamDefaultWriter, ctx?: any): Promise<void> {
+  const writeSse = (type: string, message: string) => {
+     if (writer) {
+        writer.write(new TextEncoder().encode(`data: {"type":"${type}","message":"${message.replace(/"/g, '\\"')}"}\n\n`)).catch(() => {});
+     }
+  };
+
   const envValidation = validateEnv(env);
   if (!envValidation.valid) {
     if (writer) {

@@ -6,8 +6,8 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'fallback-anon-key
 // Enhanced client with automatic token refresh settings
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
-    persistSession: true,
     autoRefreshToken: true,
+    persistSession: true,
     detectSessionInUrl: true,
     storage: window.localStorage
   }

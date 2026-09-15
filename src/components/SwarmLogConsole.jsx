@@ -5,7 +5,15 @@ import { labService } from '../services/labService';
 const SwarmLogConsole = () => {
   const [logs, setLogs] = useState([]);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [filter, setFilter] = useState('ALL'); // ALL, INFO, WARN, ERROR, AI_AGENT
   const scrollRef = useRef(null);
+
+  useEffect(() => {
+    const handleClear = () => setLogs([]);
+    window.addEventListener('axim-clear-logs', handleClear);
+    return () => window.removeEventListener('axim-clear-logs', handleClear);
+  }, []);
+
 
   const scrollToBottom = useCallback(() => {
     if (autoScroll && scrollRef.current) {
@@ -112,6 +120,24 @@ const SwarmLogConsole = () => {
           SYSTEM_KERNEL_LOGS
         </span>
         <div className="flex gap-3 items-center">
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className="bg-transparent text-[9px] uppercase font-bold tracking-widest text-gray-500 border border-gray-800 rounded px-1 outline-none"
+          >
+            <option value="ALL">ALL</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+            <option value="AI_AGENT">AI_AGENT</option>
+          </select>
+          <button onClick={() => {
+              const logText = logs.map(l => `[${l.time}] ${l.text}`).join('\n');
+              navigator.clipboard.writeText(logText);
+          }} className="text-[9px] uppercase text-gray-500 hover:text-gray-300 font-bold tracking-widest transition-colors flex items-center gap-1">
+             <SafeIcon name="Copy" className="text-[10px]" />
+             Copy
+          </button>
           <button onClick={() => setAutoScroll(!autoScroll)} className={`text-[9px] uppercase font-bold tracking-widest transition-colors flex items-center gap-1 ${autoScroll ? 'text-blue-400' : 'text-gray-500'}`}>
              <SafeIcon name={autoScroll ? "Lock" : "Unlock"} className="text-[10px]" />
              Scroll: {autoScroll ? 'ON' : 'OFF'}
@@ -124,7 +150,14 @@ const SwarmLogConsole = () => {
         </div>
       </div>
       <div ref={scrollRef} className="flex-1 p-3 overflow-y-auto terminal-scroll space-y-1">
-        {logs.map(log => (
+        {logs.filter(log => {
+          if (filter === 'ALL') return true;
+          if (filter === 'INFO' && log.text.includes('[INFO]')) return true;
+          if (filter === 'WARN' && log.text.includes('[WARN]')) return true;
+          if (filter === 'ERROR' && (log.text.includes('[CRITICAL]') || log.text.includes('Error'))) return true;
+          if (filter === 'AI_AGENT' && (log.text.includes('[Synthesizer]') || log.text.includes('[Validator]'))) return true;
+          return false;
+        }).map(log => (
           <div key={log.id} className="flex gap-2">
             <span className="text-gray-600 select-none">[{log.time}]</span>
             <span className={`
