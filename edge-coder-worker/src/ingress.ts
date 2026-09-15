@@ -24,13 +24,13 @@ export interface Env {
   CODER_DLQ_KV: KVNamespace;
   axim_coder_metrics: AnalyticsEngineDataset;
   AXIM_INTERNAL_KEY: string;
-  GITHUB_PAT: string;
+  GITHUB_TOKEN: string;
   GITHUB_WEBHOOK_SECRET?: string;
   EMAILIT_API_KEY?: string;
   JULES_API_KEY?: string;
   SUPABASE_URL: string;
   SUPABASE_LLM_PROXY_URL: string;
-  SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_SECRET_KEY: string;
 }
 
 
@@ -107,8 +107,8 @@ async function verifySupabaseToken(authHeader: string | null, env: Env): Promise
          method: 'POST',
          headers: {
            'Content-Type': 'application/json',
-           'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-           'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+           'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+           'apikey': env.SUPABASE_SECRET_KEY
          },
          body: JSON.stringify({
            component: 'auth',
@@ -130,7 +130,7 @@ async function verifySupabaseToken(authHeader: string | null, env: Env): Promise
 
 
 export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
-  const required = ['AXIM_INTERNAL_KEY', 'GITHUB_PAT', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+  const required = ['AXIM_INTERNAL_KEY', 'GITHUB_TOKEN', 'SUPABASE_URL', 'SUPABASE_SECRET_KEY'];
   const missing: string[] = [];
   for (const key of required) {
     if (!env[key as keyof Env]) {
@@ -248,7 +248,7 @@ ${diff}`,
                  };
                  const res = await fetch(env.SUPABASE_LLM_PROXY_URL, {
                      method: 'POST',
-                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` },
+                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
                      body: JSON.stringify(proxyPayload)
                  });
                  if (res.ok) {
@@ -302,7 +302,7 @@ export default {
     if (request.method === 'GET' && (url.pathname === '/healthz' || url.pathname === '/livez')) {
       const activeBindings = {
         SUPABASE_URL: !!env.SUPABASE_URL,
-        GITHUB_TOKEN: !!env.GITHUB_PAT,
+        GITHUB_TOKEN: !!env.GITHUB_TOKEN,
         EMAILIT_API_KEY: !!env.EMAILIT_API_KEY
       };
 
@@ -465,10 +465,10 @@ export default {
                 CODER_DLQ_KV: !!env.CODER_DLQ_KV,
                 axim_coder_metrics: !!env.axim_coder_metrics,
                 AXIM_INTERNAL_KEY: !!env.AXIM_INTERNAL_KEY,
-                GITHUB_PAT: !!env.GITHUB_PAT,
+                GITHUB_TOKEN: !!env.GITHUB_TOKEN,
                 GITHUB_WEBHOOK_SECRET: !!env.GITHUB_WEBHOOK_SECRET,
                 EMAILIT_API_KEY: !!env.EMAILIT_API_KEY,
-                SUPABASE_SERVICE_ROLE_KEY: !!env.SUPABASE_SERVICE_ROLE_KEY
+                SUPABASE_SECRET_KEY: !!env.SUPABASE_SECRET_KEY
               }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
@@ -505,8 +505,8 @@ export default {
                        method: 'POST',
                        headers: {
                          'Content-Type': 'application/json',
-                         'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-                         'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                         'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                         'apikey': env.SUPABASE_SECRET_KEY
                        },
                        body: JSON.stringify(telemetryBody)
                      });
@@ -608,13 +608,13 @@ export default {
                   if (prNumber > 0) {
                     await mergePullRequest(githubCtx, prNumber, env);
 
-                    if (taskId && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+                    if (taskId && env.SUPABASE_URL && env.SUPABASE_SECRET_KEY) {
                        await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
                          method: 'PATCH',
                          headers: {
                            'Content-Type': 'application/json',
-                           'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-                           'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                           'apikey': env.SUPABASE_SECRET_KEY,
+                           'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
                          },
                          body: JSON.stringify({ status: 'MERGED' })
                        });
@@ -692,7 +692,7 @@ export default {
 
                 const payloadText = await request.clone().text();
                 const cleanSignature = signature.replace(/^sha256=/, '');
-                const isVerified = await verifyHmacSignature(payloadText, cleanSignature, env.GITHUB_PAT || env.AXIM_INTERNAL_KEY);
+                const isVerified = await verifyHmacSignature(payloadText, cleanSignature, env.GITHUB_TOKEN || env.AXIM_INTERNAL_KEY);
 
                 if (!isVerified) {
                   return new Response(JSON.stringify({ error: 'Unauthorized: Invalid GitHub Signature' }), {
@@ -712,8 +712,8 @@ export default {
                   const encodedPrUrl = encodeURIComponent(prUrl);
                   const selectResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?pull_request_url=eq.${encodedPrUrl}&select=task_id`, {
                     headers: {
-                      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-                      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                      'apikey': env.SUPABASE_SECRET_KEY,
+                      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
                     }
                   });
 
@@ -727,8 +727,8 @@ export default {
                         method: 'PATCH',
                         headers: {
                           'Content-Type': 'application/json',
-                          'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-                          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                          'apikey': env.SUPABASE_SECRET_KEY,
+                          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
                         },
                         body: JSON.stringify({ status: newStatus })
                       });
@@ -810,7 +810,7 @@ export default {
 
             const payloadText = await request.clone().text();
             const isVerified = await verifyHmacSignature(payloadText, signature, env.AXIM_INTERNAL_KEY);
-    
+
             if (!isVerified) {
               return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), {
                 status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
@@ -846,8 +846,8 @@ export default {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-                      'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                      'apikey': env.SUPABASE_SECRET_KEY
                     },
                     body: JSON.stringify(errorBody)
                   });
@@ -1049,8 +1049,8 @@ export default {
                      method: 'POST',
                      headers: {
                        'Content-Type': 'application/json',
-                       'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-                       'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                       'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                       'apikey': env.SUPABASE_SECRET_KEY
                      },
                      body: JSON.stringify(telemetryBody)
                    });
@@ -1083,8 +1083,8 @@ export default {
                          method: 'POST',
                          headers: {
                            'Content-Type': 'application/json',
-                           'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-                           'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                           'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                           'apikey': env.SUPABASE_SECRET_KEY
                          },
                          body: JSON.stringify(errorBody)
                        });
@@ -1094,8 +1094,8 @@ export default {
                         method: 'PATCH',
                         headers: {
                           'Content-Type': 'application/json',
-                          'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-                          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                          'apikey': env.SUPABASE_SECRET_KEY,
+                          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
                         },
                         body: JSON.stringify({ status: 'FAILED' })
                       });
@@ -1156,7 +1156,7 @@ export default {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
-                          'x-axim-token': env.SUPABASE_SERVICE_ROLE_KEY
+                          'x-axim-token': env.SUPABASE_SECRET_KEY
                         },
                         body: JSON.stringify(payload)
                       });

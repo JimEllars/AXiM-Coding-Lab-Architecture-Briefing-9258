@@ -90,7 +90,7 @@ export async function fetchCurrentFileState(
 ): Promise<FileState> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}?ref=${ctx.baseBranch || 'main'}`;
   
-  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   
   if (!response.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch file state: ${response.statusText}`);
@@ -116,7 +116,7 @@ export async function createTaskBranch(
   const base = ctx.baseBranch || 'main';
   
   const refUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/ref/heads/${base}`;
-  const refResponse = await fetchWithRetry(refUrl, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const refResponse = await fetchWithRetry(refUrl, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   
   if (!refResponse.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch base branch reference: ${refResponse.statusText}`);
@@ -128,7 +128,7 @@ export async function createTaskBranch(
   const createUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/refs`;
   const createResponse = await fetchWithRetry(createUrl, {
     method: 'POST',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       ref: `refs/heads/${newBranchName}`,
       sha: baseSha
@@ -156,7 +156,7 @@ export async function commitGeneratedCode(
 
   const response = await fetchWithRetry(url, {
     method: 'PUT',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       message: commitMessage,
       content: encodedContent,
@@ -185,7 +185,7 @@ export async function openPullRequest(
 
   const response = await fetchWithRetry(url, {
     method: 'POST',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       title: prTitle,
       body: prBody,
@@ -213,7 +213,7 @@ export async function mergePullRequest(
 
   const response = await fetchWithRetry(url, {
     method: 'PUT',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       commit_title: `Merge PR #${prNumber}`,
       merge_method: 'squash'
@@ -243,7 +243,7 @@ export async function fetchRepositoryDependencies(
 ): Promise<string> {
   const tryFetch = async (filePath: string): Promise<string | null> => {
     const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}?ref=${ctx.baseBranch || 'main'}`;
-    const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+    const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
     if (!response.ok) {
       if (response.status === 404) {
         return null;
@@ -274,14 +274,14 @@ export async function fetchRepositoryDependencies(
 
 export async function fetchOpenPullRequests(ctx: GithubContext, env: Env): Promise<any[]> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls?state=open`;
-  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const response = await fetchWithRetry(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   if (!response.ok) return [];
   return await response.json();
 }
 
 export async function fetchPullRequestDiff(ctx: GithubContext, prNumber: number, env: Env): Promise<string> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}`;
-  const headers = getGithubHeaders(env.GITHUB_PAT);
+  const headers = getGithubHeaders(env.GITHUB_TOKEN);
   (headers as Record<string, string>)["Accept"] = "application/vnd.github.v3.diff";
 
   const response = await fetchWithRetry(url, { headers });
@@ -293,7 +293,7 @@ export async function postPullRequestReview(ctx: GithubContext, prNumber: number
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/reviews`;
   const response = await fetchWithRetry(url, {
     method: 'POST',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       body: reviewText,
       event: 'COMMENT'

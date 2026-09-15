@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "lint:error": "eslint . --quiet",
     "preview": "vite preview",
-    "deploy:worker": "npx wrangler deploy --config edge-coder-worker/wrangler.toml",
+    "deploy:worker": "npx wrangler deploy --keep-vars --config edge-coder-worker/wrangler.toml",
     "deploy:pages": "npx wrangler pages deploy ./dist --project-name axim-coding-lab-dashboard --branch main"
   },
   "dependencies": {

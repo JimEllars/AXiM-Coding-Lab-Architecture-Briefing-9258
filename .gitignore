@@ -22,7 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.envb64.txt
+.env
+.wrangler
 *.py
 scripts/archive/
 patch_*.sh

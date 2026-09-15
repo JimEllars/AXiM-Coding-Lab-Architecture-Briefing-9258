@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
-import { generateHmacSignature } from '../utils/crypto';
+import { dispatchSupportTask } from '../services/supportGateway';
 
 const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,42 +73,31 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
        // Mock or implement logic via labService to dispatch filtered PR
        // Using the existing action handler pattern
 
-        const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
-        const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/deploy-action');
-
         const repoParts = (task?.repository || 'axim-organization/axim-core-api').split('/');
         const owner = repoParts.length > 1 ? repoParts[0] : 'axim-organization';
         const repoName = repoParts.length > 1 ? repoParts[1] : repoParts[0];
 
         const prNumber = task?.pr_number || parseInt(taskId.replace(/\D/g, '')) || 1;
 
-        const payloadBody = JSON.stringify({
+        const payload = {
+          operation: 'DEPLOY_ACTION',
           task_id: taskId,
           pr_number: prNumber,
           repository_owner: owner,
           repository_name: repoName,
           action: 'FILTERED_PR',
           hunks: Array.from(acceptedHunks)
-        });
-
-        const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
-        const signature = await generateHmacSignature(payloadBody, internalKey);
+        };
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         try {
-          const response = await fetch(actionUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Axim-Signature': signature
-            },
-            body: payloadBody,
-            signal: controller.signal
-          });
+          await Promise.race([
+            dispatchSupportTask(payload),
+            new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error('Network timeout. Please try again.')))),
+          ]);
           clearTimeout(timeoutId);
-          if (!response.ok) throw new Error(`Failed to trigger deployment action: ${response.statusText}`);
         } catch (fetchError) {
           clearTimeout(timeoutId);
           throw new Error(fetchError.name === 'AbortError' ? 'Network timeout. Please try again.' : (fetchError.message || 'Transaction failed. Please try again.'));
@@ -140,45 +129,31 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
       if (error) throw error;
 
       if (status === 'APPROVED' || status === 'REJECTED') {
-        const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
-        const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/deploy-action');
-
         const repoParts = (task?.repository || 'axim-organization/axim-core-api').split('/');
         const owner = repoParts.length > 1 ? repoParts[0] : 'axim-organization';
         const repoName = repoParts.length > 1 ? repoParts[1] : repoParts[0];
 
         const prNumber = task?.pr_number || parseInt(taskId.replace(/\D/g, '')) || 1;
 
-        const payloadBody = JSON.stringify({
+        const payload = {
+          operation: 'DEPLOY_ACTION',
           task_id: taskId,
           pr_number: prNumber,
           repository_owner: owner,
           repository_name: repoName,
           action: status
-        });
-
-        const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
-        const signature = await generateHmacSignature(payloadBody, internalKey);
+        };
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         try {
-          const response = await fetch(actionUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Axim-Signature': signature
-            },
-            body: payloadBody,
-            signal: controller.signal
-          });
+          const response = await Promise.race([
+            dispatchSupportTask(payload),
+            new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error('Network timeout. Please try again.')))),
+          ]);
 
           clearTimeout(timeoutId);
-
-          if (!response.ok) {
-             throw new Error(`Failed to trigger deployment action: ${response.statusText}`);
-          }
         } catch (fetchError) {
           clearTimeout(timeoutId);
           // Rollback the optimistic UI state

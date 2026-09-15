@@ -2,12 +2,12 @@ name = "axim-coding-lab-worker"
 main = "src/ingress.ts"
 compatibility_date = "2026-07-11"
 workers_dev = true
+triggers = { crons = ["0 9 * * *"] }
 
 [vars]
 ENVIRONMENT = "production"
-# Supabase AXiM Core API routing
-SUPABASE_URL = "https://[YOUR_SUPABASE_PROJECT].supabase.co"
-SUPABASE_LLM_PROXY_URL = "https://[YOUR_SUPABASE_PROJECT].supabase.co/functions/v1/llm-proxy"
+SUPABASE_URL = "https://pvbcdndqjguzqeafhwhw.supabase.co"
+SUPABASE_LLM_PROXY_URL = "https://pvbcdndqjguzqeafhwhw.supabase.co/functions/v1/llm-proxy"
 
 # Idempotency & State Caching
 [[kv_namespaces]]
@@ -18,26 +18,10 @@ id = "afc3219e3592439b8d3ae6fcb2f40004"
 binding = "TASK_LOCKS"
 id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 
-[[kv_namespaces]]
-binding = "TELEMETRY_KV"
-id = "b5a93d8b132f41c38d6fcb2f40004901"
-
-[[kv_namespaces]]
-binding = "CODER_DLQ_KV"
-id = "c7d83f2a419e42218d6fcb2f40005012"
-
-
-[[analytics_engine_datasets]]
-binding = "axim_coder_metrics"
-
 # -----------------------------------------------------------------------------
 # SECRET VAULTING INSTRUCTIONS (Execute via Cloudflare CLI, do not hardcode):
 # -----------------------------------------------------------------------------
 # 1. wrangler secret put AXIM_INTERNAL_KEY
-# 2. wrangler secret put GITHUB_PAT (Requires repo, workflow, and PR scopes)
-# 3. wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# 2. wrangler secret put GITHUB_TOKEN (Requires repo, workflow, and PR scopes)
+# 3. wrangler secret put SUPABASE_SECRET_KEY
 # 4. wrangler secret put EMAILIT_API_KEY
-# 5. wrangler secret put GITHUB_WEBHOOK_SECRET
-# 6. wrangler secret put JULES_API_KEY
-[triggers]
-crons = ["0 14 * * *", "0 3 * * *", "0 */6 * * *"]
