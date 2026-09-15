@@ -13,15 +13,16 @@ export interface Env {
   LAB_STATE: KVNamespace;
   TASK_LOCKS: KVNamespace;
   AXIM_INTERNAL_KEY: string;
-  GITHUB_PAT: string;
+  GITHUB_TOKEN: string;
   SUPABASE_URL: string;
   SUPABASE_LLM_PROXY_URL: string;
-  SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_SECRET_KEY: string;
+  EMAILIT_API_KEY: string;
 }
 
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://axim-coding-lab-dashboard.pages.dev',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature',
 };
@@ -43,7 +44,11 @@ export default {
         LAB_STATE: !!env.LAB_STATE,
         TASK_LOCKS: !!env.TASK_LOCKS,
         AXIM_INTERNAL_KEY: !!env.AXIM_INTERNAL_KEY,
-        GITHUB_PAT: !!env.GITHUB_PAT
+        GITHUB_TOKEN: !!env.GITHUB_TOKEN,
+        SUPABASE_URL: !!env.SUPABASE_URL,
+        SUPABASE_LLM_PROXY_URL: !!env.SUPABASE_LLM_PROXY_URL,
+        SUPABASE_SECRET_KEY: !!env.SUPABASE_SECRET_KEY,
+        EMAILIT_API_KEY: !!env.EMAILIT_API_KEY
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -89,8 +94,8 @@ export default {
           const encodedPrUrl = encodeURIComponent(prUrl);
           const selectResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?pull_request_url=eq.${encodedPrUrl}&select=task_id`, {
             headers: {
-              'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-              'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+              'apikey': env.SUPABASE_SECRET_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
             }
           });
 
@@ -104,8 +109,8 @@ export default {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json',
-                  'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-                  'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                  'apikey': env.SUPABASE_SECRET_KEY,
+                  'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
                 },
                 body: JSON.stringify({ status: newStatus })
               });
@@ -172,8 +177,8 @@ export default {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-              'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+              'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+              'apikey': env.SUPABASE_SECRET_KEY
             },
             body: JSON.stringify(errorBody)
           });
@@ -250,8 +255,8 @@ export default {
              method: 'POST',
              headers: {
                'Content-Type': 'application/json',
-               'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-               'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+               'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+               'apikey': env.SUPABASE_SECRET_KEY
              },
              body: JSON.stringify(telemetryBody)
            });
@@ -284,8 +289,8 @@ export default {
                  method: 'POST',
                  headers: {
                    'Content-Type': 'application/json',
-                   'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-                   'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+                   'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                   'apikey': env.SUPABASE_SECRET_KEY
                  },
                  body: JSON.stringify(errorBody)
                });
@@ -295,8 +300,8 @@ export default {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json',
-                  'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-                  'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+                  'apikey': env.SUPABASE_SECRET_KEY,
+                  'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
                 },
                 body: JSON.stringify({ status: 'FAILED' })
               });
@@ -352,6 +357,10 @@ export default {
         status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
+  },
+
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(sendDailyExecutiveSummary(env));
   }
 };
 
@@ -359,6 +368,10 @@ export default {
  * Executes sub-millisecond HMAC verification at the Cloudflare Edge.
  */
 async function verifyHmacSignature(payload: string, signature: string, secret: string): Promise<boolean> {
+  if (!secret || !/^[\da-f]{64}$/i.test(signature)) {
+    return false;
+  }
+
   const encoder = new TextEncoder();
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
@@ -379,4 +392,69 @@ function hexStringToBuffer(hexString: string): ArrayBuffer {
   const matchedPairs = hexString.match(/[\da-f]{2}/gi) || [];
   const typedArray = new Uint8Array(matchedPairs.map((h) => parseInt(h, 16)));
   return typedArray.buffer;
+}
+
+async function sendDailyExecutiveSummary(env: Env): Promise<void> {
+  if (!env.EMAILIT_API_KEY) {
+    throw new Error('EMAILIT_API_KEY is required for the daily executive summary.');
+  }
+
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(9, 0, 0, 0);
+  startOfDay.setUTCDate(startOfDay.getUTCDate() - 1);
+  const since = encodeURIComponent(startOfDay.toISOString());
+  const headers = {
+    apikey: env.SUPABASE_SECRET_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
+  };
+
+  const [tasksResponse, telemetryResponse] = await Promise.all([
+    fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?created_at=gte.${since}&select=status`, { headers }),
+    fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs?created_at=gte.${since}&select=metadata`, { headers }),
+  ]);
+
+  if (!tasksResponse.ok || !telemetryResponse.ok) {
+    throw new Error(`Unable to create daily summary: tasks=${tasksResponse.status}, telemetry=${telemetryResponse.status}.`);
+  }
+
+  const tasks: Array<{ status: string | null }> = await tasksResponse.json();
+  const telemetry: Array<{ metadata: { tokens?: number } | null }> = await telemetryResponse.json();
+  const statusCounts = tasks.reduce<Record<string, number>>((counts, task) => {
+    const status = task.status || 'UNKNOWN';
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+  const tokenCount = telemetry.reduce((total, record) => total + (record.metadata?.tokens || 0), 0);
+  const period = `${startOfDay.toISOString().slice(0, 10)} 04:00 EST through ${new Date().toISOString().slice(0, 10)} 04:00 EST`;
+  const statusSummary = Object.entries(statusCounts)
+    .map(([status, count]) => `${status}: ${count}`)
+    .join(', ') || 'No tasks';
+  const text = [
+    'AXiM Coding Lab daily executive summary',
+    `Period: ${period}`,
+    `Tasks received: ${tasks.length}`,
+    `Task statuses: ${statusSummary}`,
+    `Recorded token usage: ${tokenCount.toLocaleString()}`,
+    'Human review is required before merging any autonomous remediation pull request.',
+  ].join('\n');
+
+  const response = await fetch('https://api.emailit.com/v2/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.EMAILIT_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'AXiM Coding Lab <coding-lab@axim.us.com>',
+      to: ['james.ellars@axim.us.com'],
+      bcc: ['jrellars@gmail.com'],
+      subject: `AXiM Coding Lab executive summary - ${new Date().toISOString().slice(0, 10)}`,
+      text,
+      html: `<h1>AXiM Coding Lab daily executive summary</h1><p><strong>Period:</strong> ${period}</p><ul><li>Tasks received: ${tasks.length}</li><li>Task statuses: ${statusSummary}</li><li>Recorded token usage: ${tokenCount.toLocaleString()}</li></ul><p>Human review is required before merging any autonomous remediation pull request.</p>`,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`EmailIt rejected daily summary delivery: ${response.status}.`);
+  }
 }

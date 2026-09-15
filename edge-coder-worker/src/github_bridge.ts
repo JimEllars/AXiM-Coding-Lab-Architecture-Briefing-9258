@@ -32,7 +32,7 @@ export async function fetchCurrentFileState(
 ): Promise<FileState> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}?ref=${ctx.baseBranch || 'main'}`;
   
-  const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const response = await fetch(url, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   
   if (!response.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch file state: ${response.statusText}`);
@@ -58,7 +58,7 @@ export async function createTaskBranch(
   const base = ctx.baseBranch || 'main';
   
   const refUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/ref/heads/${base}`;
-  const refResponse = await fetch(refUrl, { headers: getGithubHeaders(env.GITHUB_PAT) });
+  const refResponse = await fetch(refUrl, { headers: getGithubHeaders(env.GITHUB_TOKEN) });
   
   if (!refResponse.ok) {
     throw new Error(`[VCS_ERROR] Failed to fetch base branch reference: ${refResponse.statusText}`);
@@ -70,7 +70,7 @@ export async function createTaskBranch(
   const createUrl = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/git/refs`;
   const createResponse = await fetch(createUrl, {
     method: 'POST',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       ref: `refs/heads/${newBranchName}`,
       sha: baseSha
@@ -98,7 +98,7 @@ export async function commitGeneratedCode(
 
   const response = await fetch(url, {
     method: 'PUT',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       message: commitMessage,
       content: encodedContent,
@@ -127,7 +127,7 @@ export async function openPullRequest(
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       title: prTitle,
       body: prBody,
@@ -155,7 +155,7 @@ export async function mergePullRequest(
 
   const response = await fetch(url, {
     method: 'PUT',
-    headers: getGithubHeaders(env.GITHUB_PAT),
+    headers: getGithubHeaders(env.GITHUB_TOKEN),
     body: JSON.stringify({
       commit_title: `Merge PR #${prNumber}`,
       merge_method: 'squash'

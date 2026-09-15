@@ -42,7 +42,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
 
     console.log(`[CODING_LAB] [${task_id}] Opening Pull Request for engineering review`);
-    const prTitle = `🤖 [ONYX BOT HOTFIX] Autonomous Remediation for Task #${task_id}`;
+    const prTitle = `ðŸ¤– [ONYX BOT HOTFIX] Autonomous Remediation for Task #${task_id}`;
     const prBody = `## Autonomous Engineering Report\n\n**Origin Source:** ${origin_source}\n**Target File Asset:** \`${path}\`\n\n### Modifications Applied\n- Compiled structural patch based on ecosystem telemetry vectors.\n- Executed edge sanitization validation pass.\n\n*Review the diff maps in the tab above and press Merge to deploy.*`;
     
     const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
@@ -76,7 +76,7 @@ async function requestCognitiveCodeGeneration(currentCode: string, instructions:
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
     },
     body: JSON.stringify(proxyPayload)
   });
@@ -119,8 +119,8 @@ async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+      'apikey': env.SUPABASE_SECRET_KEY
     },
     body: JSON.stringify(telemetryBody)
   });
@@ -141,8 +141,8 @@ async function logLabFaultToCore(taskId: string, error: any, env: Env): Promise<
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'apikey': env.SUPABASE_SERVICE_ROLE_KEY
+        'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        'apikey': env.SUPABASE_SECRET_KEY
       },
       body: JSON.stringify(errorBody)
     });

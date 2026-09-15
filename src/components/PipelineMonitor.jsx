@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
-import { generateHmacSignature } from '../utils/crypto';
+import { dispatchSupportTask } from '../services/supportGateway';
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -77,26 +77,8 @@ const PipelineMonitor = () => {
     });
 
     try {
-      const payloadBody = JSON.stringify({ task_id: taskId });
-      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
-      const signature = await generateHmacSignature(payloadBody, internalKey);
-
-      const ingressUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/ingress', '/force-unlock') : '/api/v1/force-unlock';
-
-      const response = await fetch(ingressUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Axim-Signature': signature
-        },
-        body: payloadBody
-      });
-
-      if (response.ok) {
-        setTasks((prevTasks) => prevTasks.filter((t) => t.id !== taskId));
-      } else {
-        console.error('Failed to evict lock');
-      }
+      await dispatchSupportTask({ operation: 'FORCE_UNLOCK', task_id: taskId });
+      setTasks((prevTasks) => prevTasks.filter((t) => t.id !== taskId));
     } catch (err) {
       console.error('Error evicting lock:', err);
     }

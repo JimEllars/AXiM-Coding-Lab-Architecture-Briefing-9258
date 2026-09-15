@@ -3,7 +3,7 @@
  * Orchestrates the "Organizational Brain", Multi-Agent Swarms, and Knowledge Injection.
  */
 import { supabase } from './supabaseClient';
-import { generateHmacSignature } from '../utils/crypto';
+import { dispatchSupportTask } from './supportGateway';
 
 const listeners = new Set();
 const broadcast = (event) => listeners.forEach(l => l(event));
@@ -159,10 +159,8 @@ export const labService = {
     });
 
     try {
-      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
-
-      // We wrap the fetch request to our Worker Router
-      const payloadBody = JSON.stringify({
+      const responseData = await dispatchSupportTask({
+          operation: 'TASK_DISPATCH',
           task_id: taskId,
           repository_owner: 'axim-organization',
           repository_name: payload.repository_name,
@@ -171,24 +169,6 @@ export const labService = {
           origin_source: payload.origin_source || 'Manual_Dev_Cockpit',
           contextIds: payload.contextIds
         });
-
-      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
-      const signature = await generateHmacSignature(payloadBody, internalKey);
-
-      const response = await fetch(ingressUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Axim-Signature': signature
-        },
-        body: payloadBody
-      });
-
-      if (!response.ok) {
-         throw new Error(`Ingress Error: ${response.statusText}`);
-      }
-
-      const responseData = await response.json();
 
       setTimeout(() => {
         const log = { id: Date.now() + Math.random(), text: `[SYSTEM] Edge Swarm Task accepted: ${responseData.status}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) };
