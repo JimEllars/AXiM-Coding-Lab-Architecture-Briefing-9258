@@ -99,7 +99,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
       const { generateHmacSignature } = await import('../utils/crypto');
       const signature = await generateHmacSignature(payloadBody, internalKey);
 
-      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+
+      let primaryUrl = import.meta.env.VITE_SUPPORT_API_URL ? `${import.meta.env.VITE_SUPPORT_API_URL.replace(/\/$/, '')}/api/v1/ingress` : null;
+      let fallbackUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+      let targetUrl = primaryUrl || fallbackUrl;
+
 
 
       let response;
@@ -109,7 +113,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
 
       while (attempt < maxAttempts) {
          try {
-            response = await fetch(ingressUrl, {
+            response = await fetch(targetUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -124,6 +128,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
             }
             throw new Error(`Edge endpoint redeploying or unavailable (HTTP ${response.status})`);
          } catch (e) {
+            const isNetworkError = e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('Could not resolve host');
+            if (isNetworkError && targetUrl === primaryUrl) {
+              console.warn('[SUPPORT_GATEWAY_FALLBACK] support.axim.us.com unreachable. Failing over to direct Worker Ingress.');
+              targetUrl = fallbackUrl;
+              continue;
+            }
             attempt++;
             if (attempt >= maxAttempts) {
                setWarningMessage(`Task dispatch failed after retries: ${e.message}`);

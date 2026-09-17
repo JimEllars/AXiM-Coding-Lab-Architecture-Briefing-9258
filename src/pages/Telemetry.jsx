@@ -7,6 +7,7 @@ import { labService } from '../services/labService';
 
 const Telemetry = () => {
   const [data, setData] = useState(null);
+  const [supportProxyHealth, setSupportProxyHealth] = useState(null);
   const [activeAgentCount, setActiveAgentCount] = useState(4);
 
   useEffect(() => {
@@ -303,6 +304,7 @@ if (!data) {
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6">
           <h3 className="text-sm font-medium text-white mb-4">Node Health Status</h3>
           <div className="space-y-4">
+            <ProxyHealthBadge health={supportProxyHealth} />
             {data.nodeHealth.map((node, i) => (
               <HealthItem key={i} label={node.name} status={node.status} latency={node.latency} color={node.color} />
             ))}
@@ -324,6 +326,14 @@ const MetricCard = ({ label, value, icon, color }) => (
     <div className="text-2xl font-bold text-white tracking-tight">{value}</div>
   </div>
 );
+
+const ProxyHealthBadge = ({ health }) => {
+  if (!health) return <HealthItem label="Passport Support Proxy" status="Unknown" latency="-" color="blue" />;
+  if (health.alive) {
+    return <HealthItem label="[Nominal - Passport Proxy]" status="Nominal" latency={`${health.latencyMs}ms`} color="green" />;
+  }
+  return <HealthItem label="[Fallback Active - Direct Worker Ingress]" status="Degraded" latency="-" color="yellow" />;
+};
 
 const HealthItem = ({ label, status, latency, color }) => {
   let colorClass = 'bg-blue-500/10 text-blue-400 border-blue-500/20';

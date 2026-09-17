@@ -36,12 +36,14 @@ const Cockpit = () => {
     };
     fetchNodes();
     fetchTickets();
+    labService.checkSupportProxyHealth().then(setSupportProxyHealth);
   }, []);
 
   const location = useLocation();
   const state = location.state;
 
   const [isPatching, setIsPatching] = useState(false);
+  const [supportProxyHealth, setSupportProxyHealth] = useState(null);
   const [patchStatus, setPatchStatus] = useState('UNRESOLVED');
 
   const handleAutoPatch = async () => {
@@ -206,6 +208,30 @@ const Cockpit = () => {
                 {isPatching ? 'Deploying Remediation Swarm...' : 'Auto-Patch Incident'}
               </button>
             </div>
+          </div>
+
+
+          <div className="bg-[#111726] border border-slate-800 rounded-xl p-5 mb-6">
+            <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+              <SafeIcon name="Activity" className="text-emerald-400" />
+              Passport Proxy Health
+            </h3>
+            {!supportProxyHealth ? (
+              <div className="text-[11px] text-gray-500 font-mono">Checking proxy health...</div>
+            ) : supportProxyHealth.alive ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                [Nominal - Passport Proxy]
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-mono font-bold leading-tight">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></div>
+                  [Fallback Active - Direct Worker Ingress]
+                </div>
+                <div className="text-[9px] text-gray-500 font-mono">Tasks dispatching via edge fallback.</div>
+              </div>
+            )}
           </div>
 
           <div className="bg-[#111726] border border-slate-800 rounded-xl p-5">
