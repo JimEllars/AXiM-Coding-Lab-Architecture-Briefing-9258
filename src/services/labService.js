@@ -449,7 +449,7 @@ export const labService = {
     });
 
     try {
-      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+
 
       // We wrap the fetch request to our Worker Router
       const payloadBody = JSON.stringify({
@@ -471,9 +471,14 @@ export const labService = {
       const session = sessionData?.session;
       const token = session?.access_token || '';
 
-      const fetchWithRetry = async (url, options, maxAttempts = 3) => {
+
+      let primaryUrl = import.meta.env.VITE_SUPPORT_API_URL ? `${import.meta.env.VITE_SUPPORT_API_URL.replace(/\/$/, '')}/api/v1/ingress` : null;
+      let fallbackUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+
+      const fetchWithRetry = async (primary, fallback, options, maxAttempts = 3) => {
         let attempt = 0;
         let delay = 1000;
+        let url = primary || fallback;
         while (attempt < maxAttempts) {
           try {
             const controller = new AbortController();
@@ -483,16 +488,22 @@ export const labService = {
             if (res.ok) return res;
             if (res.status >= 400 && res.status < 500) return res;
             throw new Error(`HTTP ${res.status}`);
-          } catch (err) {
+          } catch (e) {
+            const isNetworkError = e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('Could not resolve host');
+            if (isNetworkError && url === primary) {
+              console.warn('[SUPPORT_GATEWAY_FALLBACK] support.axim.us.com unreachable. Failing over to direct Worker Ingress.');
+              url = fallback;
+              continue; // try immediately with fallback
+            }
             attempt++;
-            if (attempt >= maxAttempts) throw err;
-            await new Promise(resolve => setTimeout(resolve, delay));
+            if (attempt >= maxAttempts) throw e;
+            await new Promise(r => setTimeout(r, delay));
             delay *= 2;
           }
         }
       };
 
-      const response = await fetchWithRetry(ingressUrl, {
+      const response = await fetchWithRetry(primaryUrl, fallbackUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -901,5 +912,33 @@ export const labService = {
     } catch (err) {
       console.error('Exception adding comment:', err);
     }
+  },
+
+
+  checkSupportProxyHealth: async () => {
+    const startTime = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    try {
+      const supportApiUrl = import.meta.env.VITE_SUPPORT_API_URL || 'https://support.axim.us.com';
+      const healthUrl = `${supportApiUrl.replace(/\/$/, '')}/api/v1/health`;
+
+      const response = await fetch(healthUrl, {
+        method: 'HEAD',
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        return { alive: true, latencyMs: Date.now() - startTime };
+      }
+      return { alive: false, latencyMs: Date.now() - startTime };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      return { alive: false, latencyMs: Date.now() - startTime };
+    }
   }
+
 };
