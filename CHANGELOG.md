@@ -1,5 +1,15 @@
 # Sprint v1.2 Build Prompt - Production Hardening & Telemetry Authenticity Pass
 ## [Unreleased]
+
+### Added
+- Comprehensive `ErrorBoundary` wrapping for dynamic async components (`Cockpit.jsx`, `SwarmLogConsole.jsx`, `PromptTerminal.jsx`, `PipelineMonitor.jsx`).
+- Explicit telemetry fallback states across `Telemetry.jsx` ("OPERATING NORMALLY / CACHED").
+
+### Changed
+- **Edge Resilience:** Wrapped `executeCodingPipeline` and `dispatchToJulesAgent` inside `edge-coder-worker/src/ingress.ts` with strict try/catch/finally handlers that log failures to `coding_tasks_errors` in Supabase.
+- **Jules Bridge:** Updated `jules_bridge.ts` to intercept delegation API failures and forward them as telemetry logs rather than throwing blind exceptions.
+- **Auth Continuity:** Updated `Login.jsx` to intercept valid existing `axim_internal_key` sessions and redirect to Dashboard, avoiding flashing SSO redirect loops.
+
 - Added Edge Telemetry & Diagnostics Integration (/api/telemetry/edge-metrics).
 - Enhanced Resilient Session Continuity & Auth Guarding.
 - Implemented Streaming Log Console & Terminal Hardening (SSE, auto-scroll, log filters, clear shortcut).

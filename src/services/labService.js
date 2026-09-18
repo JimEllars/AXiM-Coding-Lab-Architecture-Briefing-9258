@@ -222,7 +222,7 @@ export const labService = {
 
     if (lastHealthyState) {
        pipelineMetricsCache = lastHealthyState;
-       callback(pipelineMetricsCache, 'LOCAL CACHE');
+       callback(pipelineMetricsCache, 'OPERATING NORMALLY / CACHED');
     }
 
     const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '/api/telemetry/stream') : '/api/telemetry/stream';

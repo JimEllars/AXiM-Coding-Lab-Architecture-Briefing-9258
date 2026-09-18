@@ -1310,9 +1310,31 @@ export default {
                     }
                   } catch (e: any) {
                     writer.write(new TextEncoder().encode(`data: {"type":"error","message":"${e.message}"}\n\n`)).catch(() => {});
+                    // Log error to telemetry
+                    try {
+                      await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                          'apikey': env.SUPABASE_SECRET_KEY
+                        },
+                        body: JSON.stringify({
+                          task_id: taskIdentifier,
+                          component: 'axim-coding-lab-worker',
+                          error_message: e.message,
+                          stack_trace: e.stack || '',
+                          status: 'FAILED',
+                          created_at: new Date().toISOString()
+                        })
+                      });
+                    } catch (telemetryErr) {
+                       console.error("Failed to push to telemetry:", telemetryErr);
+                    }
                   } finally {
                     clearInterval(heartbeatInterval);
                     writer.close().catch(() => {});
+                    env.TASK_LOCKS.delete(`lock:${taskIdentifier}`).catch(() => {});
                   }
                 })());
 
@@ -1329,9 +1351,37 @@ export default {
 
               // 4. Asynchronous Cognitive Handoff
               if (payload.delegate_to_jules) {
-                ctx.waitUntil(dispatchToJulesAgent({ repoOwner: payload.repository_owner || 'axim-dev', repoName: payload.repository_name, prompt: payload.instruction_prompt, taskId: taskIdentifier }, env));
+                ctx.waitUntil((async () => {
+                  try {
+                    await dispatchToJulesAgent({ repoOwner: payload.repository_owner || 'axim-dev', repoName: payload.repository_name, prompt: payload.instruction_prompt, taskId: taskIdentifier }, env);
+                  } catch(e: any) {
+                    try {
+                      await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`, 'apikey': env.SUPABASE_SECRET_KEY },
+                        body: JSON.stringify({ task_id: taskIdentifier, component: 'axim-coding-lab-worker', error_message: e.message, stack_trace: e.stack || '', status: 'FAILED', created_at: new Date().toISOString() })
+                      });
+                    } catch(err) {}
+                  } finally {
+                    env.TASK_LOCKS.delete(`lock:${taskIdentifier}`).catch(() => {});
+                  }
+                })());
               } else {
-                ctx.waitUntil(executeCodingPipeline(payload, env, undefined, ctx));
+                ctx.waitUntil((async () => {
+                  try {
+                    await executeCodingPipeline(payload, env, undefined, ctx);
+                  } catch(e: any) {
+                    try {
+                      await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`, 'apikey': env.SUPABASE_SECRET_KEY },
+                        body: JSON.stringify({ task_id: taskIdentifier, component: 'axim-coding-lab-worker', error_message: e.message, stack_trace: e.stack || '', status: 'FAILED', created_at: new Date().toISOString() })
+                      });
+                    } catch(err) {}
+                  } finally {
+                    env.TASK_LOCKS.delete(`lock:${taskIdentifier}`).catch(() => {});
+                  }
+                })());
               }
 
               return new Response(JSON.stringify({

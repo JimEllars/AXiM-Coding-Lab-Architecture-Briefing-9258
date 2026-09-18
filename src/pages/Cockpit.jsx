@@ -6,6 +6,7 @@ import PipelineMonitor from '../components/PipelineMonitor';
 import SwarmLogConsole from '../components/SwarmLogConsole';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const Cockpit = () => {
   const [activeNodes, setActiveNodes] = useState(0);
@@ -96,11 +97,11 @@ const Cockpit = () => {
             initialFile={state?.filePath}
           />
           <div className="h-[350px]">
-            <SwarmLogConsole />
+            <ErrorBoundary><SwarmLogConsole /></ErrorBoundary>
           </div>
         </div>
         <div className="lg:col-span-4 space-y-6">
-          <PipelineMonitor />
+          <ErrorBoundary><PipelineMonitor /></ErrorBoundary>
           
           <div className="bg-[#111726] border border-slate-800 rounded-xl p-5 mb-6 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 blur-3xl rounded-full group-hover:bg-violet-600/10 transition-all"></div>

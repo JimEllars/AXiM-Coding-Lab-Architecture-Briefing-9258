@@ -2,6 +2,14 @@ import React, { useEffect } from 'react';
 
 const Login = () => {
   useEffect(() => {
+    const existingKey = localStorage.getItem('axim_internal_key');
+    const existingEmail = localStorage.getItem('axim_user_email');
+
+    if (existingKey && existingEmail) {
+      window.location.href = '/';
+      return;
+    }
+
     // Redirect directly to AXiM Passport SSO
     window.location.href = 'https://passport.axim.us.com/login?redirect_uri=https://coder.axim.us.com/auth/callback&app_id=codinglab';
   }, []);
