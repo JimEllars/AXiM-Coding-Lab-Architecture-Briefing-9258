@@ -18,7 +18,7 @@ const Telemetry = () => {
   }, []);
 
   const [error, setError] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('LOCAL CACHE');
+  const [connectionStatus, setConnectionStatus] = useState('OPERATING NORMALLY / CACHED');
   const [liveLogs, setLiveLogs] = useState([]);
   const [timeWindow, setTimeWindow] = useState('7d');
   const [edgeStats, setEdgeStats] = useState(null);

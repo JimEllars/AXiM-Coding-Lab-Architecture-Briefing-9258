@@ -52,6 +52,29 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
       errorData = await response.json();
     } catch(e) {}
     console.error('Jules API Error:', response.status, JSON.stringify(errorData));
+
+    // Log error to telemetry
+    try {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          'apikey': env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          task_id: payload.taskId,
+          component: 'jules-bridge',
+          error_message: `Jules API Error [HTTP ${response.status}]: Failed to delegate to Jules agent`,
+          stack_trace: JSON.stringify(errorData),
+          status: 'FAILED',
+          created_at: new Date().toISOString()
+        })
+      });
+    } catch (telemetryErr) {
+       console.error("Failed to push to telemetry:", telemetryErr);
+    }
+
     throw new Error(JSON.stringify({ error: `Jules API Error [HTTP ${response.status}]: Failed to delegate to Jules agent`, details: errorData }));
   }
 
