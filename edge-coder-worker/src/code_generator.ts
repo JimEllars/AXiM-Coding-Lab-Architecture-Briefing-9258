@@ -87,7 +87,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
           'apikey': env.SUPABASE_SECRET_KEY
         },
         body: JSON.stringify([telemetryPayload])
-      }).catch(e => console.error('Failed to emit telemetry:', e));
+      }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
 
       if (ctx && ctx.waitUntil) {
         ctx.waitUntil(doFetch);
@@ -661,4 +661,8 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
           tokens_used: tokens_consumed || 0
         }
       }])
-    }).catch(e => console.error('
+    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
+  } catch (error: any) {
+    throw error;
+  }
+}
