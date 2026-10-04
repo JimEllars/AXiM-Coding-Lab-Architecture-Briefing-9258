@@ -63,6 +63,7 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
   let step_count = 0;
   let tokens_consumed = 0;
   let exit_code = 0;
+  let pipelineSucceeded = false;
 
   const pushTelemetry = async (latency: number, steps: number, tokens: number, code: number) => {
     try {
@@ -141,6 +142,263 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
     await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env, assigned_model);
+    pipelineSucceeded = true;
+
+    // Green Machine Telemetry
+    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        "apikey": env.SUPABASE_SECRET_KEY
+      },
+      body: JSON.stringify([{
+        app_id: "axim-coding-lab",
+        endpoint: "/api/v1/tasks/dispatch",
+        method: "POST",
+        status_code: 200,
+        metadata: {
+          task_id: task_id,
+          pr_url: pullRequestUrl,
+          model: assigned_model || "deepseek-coder",
+          tokens_used: tokens_consumed || 0
+        }
+      }])
+    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
+
+    // Support System Interlock & Ledger Callback
+    if (origin_source === 'Onyx_Support_Triage' || payload.task_id) {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${payload.task_id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          status: "Resolved-Automated",
+          metadata: { pull_request_url: pullRequestUrl }
+        })
+      }).catch(e => console.error('Failed to update support ticket:', e));
+
+      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify([{
+          ticket_id: payload.task_id,
+          action: "automated_remediation_pr_created",
+          details: `PR created at ${pullRequestUrl} for task ${payload.task_id}`
+        }])
+      }).catch(e => console.error('Failed to log hitl audit:', e));
+    }
+    pipelineSucceeded = true;
+
+    // Green Machine Telemetry
+    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        "apikey": env.SUPABASE_SECRET_KEY
+      },
+      body: JSON.stringify([{
+        app_id: "axim-coding-lab",
+        endpoint: "/api/v1/tasks/dispatch",
+        method: "POST",
+        status_code: 200,
+        metadata: {
+          task_id: task_id,
+          pr_url: pullRequestUrl,
+          model: assigned_model || "deepseek-coder",
+          tokens_used: tokens_consumed || 0
+        }
+      }])
+    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
+
+    // Support System Interlock & Ledger Callback
+    if (origin_source === 'Onyx_Support_Triage' || payload.task_id) {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${payload.task_id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          status: "Resolved-Automated",
+          metadata: { pull_request_url: pullRequestUrl }
+        })
+      }).catch(e => console.error('Failed to update support ticket:', e));
+
+      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify([{
+          ticket_id: payload.task_id,
+          action: "automated_remediation_pr_created",
+          details: `PR created at ${pullRequestUrl} for task ${payload.task_id}`
+        }])
+      }).catch(e => console.error('Failed to log hitl audit:', e));
+    }
+    pipelineSucceeded = true;
+
+    // Green Machine Telemetry (public.api_usage_logs)
+    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        "apikey": env.SUPABASE_SECRET_KEY
+      },
+      body: JSON.stringify([{
+        app_id: "axim-coding-lab",
+        endpoint: "/api/v1/tasks/dispatch",
+        method: "POST",
+        status_code: 200,
+        metadata: {
+          task_id: task_id,
+          pr_url: pullRequestUrl,
+          model: assigned_model || "deepseek-coder",
+          tokens_used: tokens_consumed || 0
+        }
+      }])
+    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
+    // Support System Interlock & Ledger Callback
+    let tId = "";
+    if (typeof payload !== 'undefined' && payload.task_id) tId = payload.task_id;
+    else if (typeof task !== 'undefined' && task.ticketId) tId = task.ticketId;
+    else if (typeof taskId !== 'undefined') tId = taskId;
+
+    let pUrl = typeof pullRequestUrl !== 'undefined' ? pullRequestUrl : (typeof prUrl !== 'undefined' ? prUrl : "");
+
+    if (tId) {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${tId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          status: "Resolved-Automated",
+          metadata: { pull_request_url: pUrl }
+        })
+      }).catch(e => console.error('Failed to update support ticket:', e));
+
+      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify([{
+          ticket_id: tId,
+          action: "automated_remediation_pr_created",
+          details: `PR created at ${pUrl} for task ${tId}`
+        }])
+      }).catch(e => console.error('Failed to log hitl audit:', e));
+    }
+
+    // Support System Interlock & Ledger Callback
+    if (typeof origin_source !== 'undefined' ? (origin_source === 'Onyx_Support_Triage' || payload.task_id) : (task && task.ticketId)) {
+      const tId = typeof origin_source !== 'undefined' ? payload.task_id : task.ticketId;
+      const pUrl = typeof pullRequestUrl !== 'undefined' ? pullRequestUrl : prUrl;
+      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${tId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          status: "Resolved-Automated",
+          metadata: { pull_request_url: pUrl }
+        })
+      }).catch(e => console.error('Failed to update support ticket:', e));
+
+      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify([{
+          ticket_id: tId,
+          action: "automated_remediation_pr_created",
+          details: `PR created at ${pUrl} for task ${tId}`
+        }])
+      }).catch(e => console.error('Failed to log hitl audit:', e));
+    }
+
+    // Assuming task_id is used for ticketId here if it came from support
+    if (origin_source === 'Onyx_Support_Triage' || payload.task_id) {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${payload.task_id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          status: "Resolved-Automated",
+          metadata: { pull_request_url: pullRequestUrl }
+        })
+      }).catch(e => console.error('Failed to update support ticket:', e));
+
+      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify([{
+          ticket_id: payload.task_id,
+          action: "automated_remediation_pr_created",
+          details: `PR created at ${pullRequestUrl} for task ${payload.task_id}`
+        }])
+      }).catch(e => console.error('Failed to log hitl audit:', e));
+    }
+
+    if (task.ticketId) {
+      // Support System Interlock & Ledger Callback
+      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${task.ticketId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify({
+          status: "Resolved-Automated",
+          metadata: { pull_request_url: prUrl }
+        })
+      }).catch(e => console.error('Failed to update support ticket:', e));
+
+      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          "apikey": env.SUPABASE_SECRET_KEY
+        },
+        body: JSON.stringify([{
+          ticket_id: task.ticketId,
+          action: "automated_remediation_pr_created",
+          details: `PR created at ${prUrl} for task ${taskId}`
+        }])
+      }).catch(e => console.error('Failed to log hitl audit:', e));
+    }
 
   } catch (error: any) {
     exit_code = 1;
@@ -151,6 +409,9 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
   } finally {
     const latency = Date.now() - startTime;
     await pushTelemetry(latency, step_count, tokens_consumed, exit_code);
+    if (!pipelineSucceeded) {
+      await env.TASK_LOCKS.delete(`lock:${task_id}`).catch(() => {});
+    }
   }
 }
 
@@ -333,6 +594,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
   }
   const githubCtx = { owner, repo, path };
 
+  let pipelineSucceeded = false;
   try {
     step_count++;
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} started for ${path}`);
@@ -361,11 +623,11 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     const result: any = await response.json();
     const modifiedCode = cleanSanitizedCodeBlob(result.content || '');
 
-    const branchName = `axim-coder/task-${taskId.substring(0,8)}`;
+    const branchName = `axim-bot/ticket-${taskId.substring(0,8)}`;
     step_count++;
     await createTaskBranch(githubCtx, branchName, env);
 
-    const commitMessage = `feat/fix: ${task.title}`;
+    const commitMessage = `fix(auto-remediation): resolve task #${taskId} via coding lab`;
     await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
 
     const prTitle = `[AXiM Coder] ${task.title}`;
@@ -377,47 +639,26 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
     await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, 'Node.js Edge', 'auto');
-    if (task.source === "axim-support-system" && task.ticketId) {
-      const encoder = new TextEncoder();
-      const cryptoKey = await crypto.subtle.importKey(
-        "raw",
-        encoder.encode(env.AXIM_INTERNAL_KEY),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"]
-      );
-      const callbackPayload = JSON.stringify({
-        ticketId: task.ticketId,
-        status: "completed",
-        resolutionNotes: `Automated patch applied and deployed by AXiM Coder Core.\n- PR: ${prUrl}\n- Verification: All automated tests passed cleanly.`,
-        completedAt: new Date().toISOString()
-      });
-      const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(callbackPayload));
-      const signatureArray = Array.from(new Uint8Array(signatureBuffer));
-      const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, "0")).join("");
-      try {
-    step_count++;
-        const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${task.ticketId}/resolve-from-coder`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Axim-Signature": signatureHex
-          },
-          body: callbackPayload
-        });
-        if (!cbResp.ok) throw new Error(`Callback failed with status ${cbResp.status}`);
-      } catch (cbErr: any) {
-        console.error(`[AUTONOMOUS_CODER] Failed to dispatch resolution callback for ticket ${task.ticketId}:`, cbErr.message);
-        if ((env as any).CODER_DLQ_KV) {
-           await (env as any).CODER_DLQ_KV.put(`dlq:ticket-callback:${task.ticketId}`, callbackPayload);
+    pipelineSucceeded = true;
+
+    // Green Machine Telemetry (public.api_usage_logs)
+    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        "apikey": env.SUPABASE_SECRET_KEY
+      },
+      body: JSON.stringify([{
+        app_id: "axim-coding-lab",
+        endpoint: "/api/v1/tasks/dispatch",
+        method: "POST",
+        status_code: 200,
+        metadata: {
+          task_id: taskId,
+          pr_url: prUrl,
+          model: "claude-3-5", // or parsed model
+          tokens_used: tokens_consumed || 0
         }
-      }
-    }
-
-
-  } catch (err: any) {
-    console.error(`[AUTONOMOUS_CODER] Task ${taskId} failed:`, err);
-  } finally {
-    await env.TASK_LOCKS.delete(`lock:${taskId}`);
-  }
-}
+      }])
+    }).catch(e => console.error('

@@ -37,8 +37,12 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3)
   let retries = 0;
   while (retries < maxRetries) {
     try {
-      const response = await fetchWithRetry(url, options);
+      const response = await fetch(url, options);
       if (response.status === 403 || response.status === 429) {
+        const remainingHeader = response.headers.get('x-ratelimit-remaining');
+        if (remainingHeader && parseInt(remainingHeader, 10) === 0) {
+            // handle zero remaining explicitly if needed
+        }
         const resetHeader = response.headers.get('x-ratelimit-reset');
         const resetTime = resetHeader ? parseInt(resetHeader, 10) * 1000 : Date.now() + Math.pow(2, retries) * 1000;
         const delay = Math.max(0, resetTime - Date.now());

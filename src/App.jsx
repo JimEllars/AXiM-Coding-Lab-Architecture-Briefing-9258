@@ -22,6 +22,22 @@ function App() {
   const [session, setSession] = useState(undefined);
 
   useEffect(() => {
+    const cookies = document.cookie.split(';');
+    let cookieToken = null;
+    for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.startsWith('axim_session=')) {
+            cookieToken = cookie.substring('axim_session='.length);
+            break;
+        }
+    }
+    if (cookieToken && !localStorage.getItem('axim_internal_key')) {
+        localStorage.setItem('axim_internal_key', cookieToken);
+    }
+  }, []);
+
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
     });

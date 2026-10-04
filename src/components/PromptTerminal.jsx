@@ -199,9 +199,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     <motion.div 
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-[#111726] border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[500px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+      className="bg-[#111827] border border-[#1F2937] rounded-2xl overflow-hidden flex flex-col h-[500px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
     >
-      <div className="h-12 border-b border-slate-800 bg-[#0A0D14] flex items-center justify-between px-6 shrink-0">
+      <div className="h-12 border-b border-[#1F2937] bg-[#0B0F19] flex items-center justify-between px-6 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-red-500/20 border border-red-500/40"></div>
@@ -212,7 +212,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
           <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Cognitive_Ingress_v3.2</span>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono">
+          <div className="flex items-center gap-2 text-[10px] text-[#FDD023] font-mono">
             <SafeIcon name="Cpu" className="animate-pulse" />
             ONYX_ORCHESTRATOR_ONLINE
           </div>
@@ -224,7 +224,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 relative">
             <div className="absolute top-4 left-4 pointer-events-none opacity-20">
-              <SafeIcon name="Terminal" className="text-6xl text-blue-500" />
+              <SafeIcon name="Terminal" className="text-6xl text-[#FDD023]" />
             </div>
             {warningMessage && (
               <div className="absolute top-2 right-2 left-2 bg-red-500/10 border border-red-500/50 text-red-400 px-3 py-2 rounded text-xs z-20 font-mono shadow-sm flex items-center gap-2">
@@ -248,14 +248,14 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
             />
           </div>
 
-          <div className="p-4 border-t border-slate-800 bg-[#0A0D14]/30 flex items-center justify-between shrink-0">
+          <div className="p-4 border-t border-[#1F2937] bg-[#0B0F19]/30 flex items-center justify-between shrink-0">
             <div className="flex gap-4">
               <div className="space-y-1">
                 <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Repository</span>
                 <select 
                   value={targetRepo}
                   onChange={(e) => setTargetRepo(e.target.value)}
-                  className="block w-40 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-40 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   <option value="axim-core-api">axim-core-api</option>
                   <option value="frontend-dashboard">frontend-dashboard</option>
@@ -267,7 +267,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 <select
                   value={executionEngine}
                   onChange={(e) => setExecutionEngine(e.target.value)}
-                  className="block w-40 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-40 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   <option value="AXiM Swarm (In-House)">AXiM Swarm (In-House)</option>
                   <option value="Jules Agent (External Google Cloud)">Jules Agent (External)</option>
@@ -278,7 +278,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 <select
                   value={targetRuntime}
                   onChange={(e) => setTargetRuntime(e.target.value)}
-                  className="block w-36 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-36 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   <option value="Node.js Edge">Node.js Edge</option>
                   <option value="Python Sandbox">Python Sandbox</option>
@@ -290,7 +290,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                   value={targetFile}
                   onChange={(e) => setTargetFile(e.target.value)}
                   placeholder="src/routes/auth.ts" 
-                  className="block w-48 bg-[#111726] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 />
               </div>
             </div>
@@ -299,8 +299,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
               disabled={isGenerating || !prompt.trim() || !isSuperUser}
               className={`px-8 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-3 ${
                 isGenerating 
-                  ? 'bg-blue-600/10 text-blue-400 border border-blue-500/30' 
-                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_30px_rgba(37,99,235,0.3)]'
+                  ? 'bg-[#FDD023]/10 text-[#FDD023] border border-[#FDD023]/30'
+                  : 'bg-[#FDD023] hover:bg-[#FDD023] text-white shadow-[0_0_30px_rgba(37,99,235,0.3)]'
               }`}
             >
               {isGenerating ? <SafeIcon name="Loader" className="animate-spin text-sm" /> : <SafeIcon name="Zap" className="text-sm" />}
@@ -310,10 +310,10 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         </div>
 
         {/* Brain Context Sidebar */}
-        <div className="w-72 bg-[#0A0D14]/50 border-l border-slate-800 flex flex-col shrink-0">
-          <div className="p-4 border-b border-slate-800 bg-[#111726]/50">
+        <div className="w-72 bg-[#0B0F19]/50 border-l border-[#1F2937] flex flex-col shrink-0">
+          <div className="p-4 border-b border-[#1F2937] bg-[#111827]/50">
             <h4 className="text-[10px] text-gray-400 font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
-              <SafeIcon name="Book" className="text-blue-500" /> Organizational Brain
+              <SafeIcon name="Book" className="text-[#FDD023]" /> Organizational Brain
             </h4>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2 terminal-scroll">
@@ -323,19 +323,19 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
                 onClick={() => toggleContext(item.id)}
                 className={`w-full text-left p-3 rounded-xl border transition-all group ${
                   selectedContext.includes(item.id) 
-                    ? 'bg-blue-600/10 border-blue-500/40 text-blue-400 shadow-[inset_0_0_15px_rgba(37,99,235,0.05)]' 
-                    : 'bg-[#111726]/50 border-slate-800 text-gray-500 hover:border-gray-700 hover:bg-[#111726]'
+                    ? 'bg-[#FDD023]/10 border-[#FDD023]/40 text-[#FDD023] shadow-[inset_0_0_15px_rgba(37,99,235,0.05)]'
+                    : 'bg-[#111827]/50 border-[#1F2937] text-gray-500 hover:border-gray-700 hover:bg-[#111827]'
                 }`}
               >
                 <div className="flex justify-between items-start mb-1">
-                  <p className={`text-[11px] font-bold truncate ${selectedContext.includes(item.id) ? 'text-blue-400' : 'text-gray-400'}`}>
+                  <p className={`text-[11px] font-bold truncate ${selectedContext.includes(item.id) ? 'text-[#FDD023]' : 'text-gray-400'}`}>
                     {item.title}
                   </p>
                   {selectedContext.includes(item.id) && <SafeIcon name="Check" className="text-[10px]" />}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`text-[8px] font-mono px-1 rounded ${
-                    selectedContext.includes(item.id) ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-600'
+                    selectedContext.includes(item.id) ? 'bg-[#FDD023]/20 text-[#FDD023]' : 'bg-gray-800 text-gray-600'
                   }`}>
                     {item.category.toUpperCase()}
                   </span>
@@ -343,7 +343,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
               </button>
             ))}
           </div>
-          <div className="p-3 border-t border-slate-800 bg-[#111726]/80">
+          <div className="p-3 border-t border-[#1F2937] bg-[#111827]/80">
             <p className="text-[9px] text-gray-600 font-mono text-center">
               {selectedContext.length} Context Nodes Selected
             </p>
