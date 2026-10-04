@@ -178,14 +178,14 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
           key="viewer"
           initial={{ opacity: 1, filter: 'blur(0px)' }}
           exit={{ opacity: 0, filter: 'blur(10px)', transition: { duration: 0.5 } }}
-          className="bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden flex flex-col h-full relative"
+          className="bg-[#0B0F19] border border-[#1F2937] rounded-xl overflow-hidden flex flex-col h-full relative"
         >
           {isSubmitting && (
-            <div className="absolute inset-0 z-50 bg-[#0a0f1c]/50 backdrop-blur-sm flex items-center justify-center">
+            <div className="absolute inset-0 z-50 bg-[#0B0F19]/50 backdrop-blur-sm flex items-center justify-center">
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                className="w-12 h-12 rounded-full border-2 border-blue-500/20 border-t-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]"
+                className="w-12 h-12 rounded-full border-2 border-[#FDD023]/20 border-t-blue-500 shadow-[0_0_15px_rgba(253,208,35,0.5)]"
               />
             </div>
           )}
@@ -200,7 +200,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
             </div>
           )}
 
-          <div className="h-10 border-b border-gray-800 bg-[#0d1323] flex items-center justify-between px-4 shrink-0">
+          <div className="h-10 border-b border-[#1F2937] bg-[#0B0F19] flex items-center justify-between px-4 shrink-0">
             <div className="flex items-center gap-3">
               <SafeIcon name="FileText" className="text-gray-400 text-xs" />
               <span className="text-[11px] font-mono text-gray-400">{filePath}</span>
@@ -217,7 +217,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
               <button
                 onClick={handleCreateFilteredPR}
                 disabled={isSubmitting || acceptedHunks.size === 0}
-                className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(37,99,235,0.2)] disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#FDD023] hover:bg-[#FDD023] text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(253,208,35,0.2)] disabled:opacity-50"
               >
                 <SafeIcon name="GitPullRequest" className="text-[10px]" />
                 Create Filtered PR
@@ -232,7 +232,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
               </button>
             </div>
           </div>
-          <div className="flex-1 p-4 overflow-y-auto terminal-scroll bg-[#030712] text-[12px] font-mono leading-relaxed">
+          <div className="flex-1 p-4 overflow-y-auto terminal-scroll bg-[#0B0F19] text-[12px] font-mono leading-relaxed">
             {(() => {
               const hunks = [];
               let currentHunk = null;
@@ -251,9 +251,9 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
               return hunks.map((hunk, hIdx) => {
                  const isAccepted = acceptedHunks.has(hunk.id);
                  return (
-                   <div key={hunk.id} className={`mb-4 border border-gray-800 rounded overflow-hidden ${isAccepted ? 'border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : ''}`}>
-                     <div className="bg-[#111827] px-4 py-2 border-b border-gray-800 flex justify-between items-center sticky top-0 z-10">
-                       <span className="text-xs text-blue-400 font-bold font-mono">Hunk #{hIdx + 1}</span>
+                   <div key={hunk.id} className={`mb-4 border border-[#1F2937] rounded overflow-hidden ${isAccepted ? 'border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : ''}`}>
+                     <div className="bg-[#111827] px-4 py-2 border-b border-[#1F2937] flex justify-between items-center sticky top-0 z-10">
+                       <span className="text-xs text-[#FDD023] font-bold font-mono">Hunk #{hIdx + 1}</span>
                        <div className="flex gap-2">
                          <button onClick={() => toggleHunk(hunk.id)} className={`px-2 py-1 text-[10px] uppercase font-bold rounded transition-colors ${isAccepted ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'}`}>
                            {isAccepted ? 'Reject Hunk' : 'Accept Hunk'}
@@ -273,13 +273,13 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
                 lineClass = "text-red-400";
                 bgClass = "bg-red-500/5 border-l-2 border-red-500/50";
               } else if (line.startsWith('@@')) {
-                lineClass = "text-blue-400/70 bg-blue-500/5";
+                lineClass = "text-[#FDD023]/70 bg-[#FDD023]/5";
                 bgClass = "";
               }
 
               return (
                 <div key={lIdx} className={`flex px-2 py-0.5 group ${bgClass}`}>
-                  <span className="w-8 flex-shrink-0 text-gray-700 select-none text-right pr-4 border-r border-gray-800/30 mr-4">
+                  <span className="w-8 flex-shrink-0 text-gray-700 select-none text-right pr-4 border-r border-[#1F2937]/30 mr-4">
                     {hunk.id + lIdx + 1}
                   </span>
                   <span className={`whitespace-pre ${lineClass}`}>{line}</span>
@@ -300,7 +300,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
           key="success"
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="flex-1 flex flex-col items-center justify-center bg-[#0a0f1c] border border-gray-800 rounded-xl"
+          className="flex-1 flex flex-col items-center justify-center bg-[#0B0F19] border border-[#1F2937] rounded-xl"
         >
           <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center mb-4">
             <SafeIcon name="Check" className="text-3xl text-green-500" />

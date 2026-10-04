@@ -913,6 +913,12 @@ export default {
                    return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
                 }
 
+                const existingLock = await env.TASK_LOCKS.get(`lock:${taskId}`);
+                if (existingLock === 'in_progress') {
+                  return new Response(JSON.stringify({ status: 'ignored', message: 'Task actively processing' }), { status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+                }
+
+
                 await env.TASK_LOCKS.put(`lock:${taskId}`, 'in_progress', { expirationTtl: 3600 });
 
                 ctx.waitUntil(executeAutonomousCodingTask(payload, env));

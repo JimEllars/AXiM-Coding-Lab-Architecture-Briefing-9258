@@ -6,14 +6,14 @@ import { dispatchSupportTask } from '../services/supportGateway';
 
 const StatusBadge = ({ status }) => {
   const styles = {
-    'Generating': 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-    'Committing': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-    'Review Gate': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+    'Generating': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    'Committing': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    'Review Gate': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
     'Queued': 'text-gray-400 bg-gray-500/10 border-gray-500/20',
     'Validating': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     'Completed': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    'Failed': 'text-red-400 bg-red-500/10 border-red-500/20',
-    'IN_PROGRESS': 'text-purple-400 bg-purple-500/10 border-purple-500/20'
+    'Failed': 'text-red-600 bg-red-500/10 border-red-500/20',
+    'IN_PROGRESS': 'text-amber-400 bg-amber-500/10 border-amber-500/20'
   };
   const icon = {
     'Generating': 'Cpu',
@@ -125,9 +125,9 @@ const PipelineMonitor = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.5 }}
-      className="bg-[#111726] border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col"
+      className="bg-[#111827] border border-[#1F2937] rounded-xl overflow-hidden h-full flex flex-col"
     >
-      <div className="h-12 border-b border-slate-800 px-4 flex items-center justify-between bg-[#0A0D14]">
+      <div className="h-12 border-b border-[#1F2937] px-4 flex items-center justify-between bg-[#0B0F19]">
         <h3 className="text-xs font-bold text-white flex items-center gap-2 uppercase tracking-widest">
           <SafeIcon name="Activity" className="text-green-500" />
           Task Pipeline
@@ -139,7 +139,7 @@ const PipelineMonitor = () => {
         {loading ? (
           <div className="space-y-3">
              {[1,2,3].map(i => (
-                <div key={i} className="bg-[#111726] border border-slate-800 rounded-lg p-3 h-[90px] animate-pulse">
+                <div key={i} className="bg-[#111827] border border-[#1F2937] rounded-lg p-3 h-[90px] animate-pulse">
                    <div className="flex justify-between items-start mb-2">
                      <div className="h-4 bg-slate-800/50 rounded w-20"></div>
                      <div className="h-5 bg-slate-800/50 rounded w-24"></div>
@@ -164,13 +164,13 @@ const PipelineMonitor = () => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
               key={task.id}
-              className="bg-[#111726] border border-slate-800 rounded-lg p-3 hover:border-blue-500/30 transition-all group relative overflow-hidden"
+              className="bg-[#111827] border border-[#1F2937] rounded-lg p-3 hover:border-[#FDD023]/30 transition-all group relative overflow-hidden"
             >
               {task.status === 'Generating' && (
                 <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-shimmer"></div>
               )}
               <div className="flex justify-between items-start mb-2">
-                <span className="text-[11px] font-mono text-blue-400 group-hover:text-blue-300 transition-colors">{task.id}</span>
+                <span className="text-[11px] font-mono text-[#FDD023] group-hover:text-blue-300 transition-colors">{task.id}</span>
                 <StatusBadge status={task.status} />
               </div>
               <div className="text-[12px] text-gray-300 font-medium truncate mb-1">
