@@ -51,9 +51,10 @@ export async function sendEmailItMessage(payload: EmailPayload, env: any): Promi
   } catch (error: any) {
     console.error('EmailIt Dispatch Failed, queueing to DLQ:', error.message);
 
-    if (env.CODER_DLQ_KV) {
+    const dlqNamespace = env.CODER_DLQ_KV || env.LAB_STATE;
+    if (dlqNamespace) {
       const dlqId = `dlq_email_${Date.now()}`;
-      await env.CODER_DLQ_KV.put(dlqId, JSON.stringify(emailData));
+      await dlqNamespace.put(dlqId, JSON.stringify(emailData), { expirationTtl: 604800 });
     }
     return false;
   }

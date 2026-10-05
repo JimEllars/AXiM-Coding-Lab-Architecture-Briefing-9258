@@ -1,7 +1,31 @@
-import { Env, validateEnv } from './ingress';
+const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
+      body: JSON.stringify(proxyPayload)
+    });
+
+    if (!response.ok) throw new Error(`LLM Error: ${response.statusText}`);
+    const result: any = await response.json();
+    let modifiedCode = cleanSanitizedCodeBlob(result.content || '');
+
+    const syntaxCheck = validateCodeSyntax(modifiedCode, path);
+    if (!syntaxCheck.valid) {
+      console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
+      const retryPrompt = `${promptBody}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
+      const retryPayload = { ...proxyPayload, prompt: retryPrompt };
+
+      const retryResponse = await fetch(env.SUPABASE_LLM_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
+        body: JSON.stringify(retryPayload)
+      });
+      if (!retryResponse.ok) throw new Error(`LLM Retry Error: ${retryResponse.statusText}`);
+      const retryResult: any = await retryResponse.json();
+      modifiedCode = cleanSanitizedCodeBlob(retryResult.content || '');
+    }import { Env, validateEnv } from './ingress';
 import { fetchCurrentFileState, createTaskBranch, commitGeneratedCode, openPullRequest, fetchRepositoryDependencies } from './github_bridge';
 import { reportGreenMachineTelemetry } from './telemetry';
-import { dispatchCallbacks } from './callback_dispatcher';
+import { dispatchCallbackWebhook } from './callback_dispatcher';
 
 export interface CodingTaskPayload {
   task_id: string;
@@ -471,11 +495,14 @@ async function requestCognitiveCodeGeneration(currentCode: string, instructions:
 function cleanSanitizedCodeBlob(rawText: string): string {
   let clean = rawText.trim();
 
-  // Extract content if it's wrapped in a code block, ignoring surrounding conversational text.
-  const codeBlockRegex = /```[a-z]*\n([\s\S]*?)\n```/i;
+  // Strip leading/trailing code fences strictly
+  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/g, '');
+  clean = clean.replace(/\n\s*```\s*$/g, '');
+
+  const codeBlockRegex = /^```[a-z]*\n([\s\S]*?)\n```$/i;
   const match = clean.match(codeBlockRegex);
   if (match) {
-    return match[1].trim();
+    clean = match[1].trim();
   }
 
   if (clean.startsWith('```')) {
@@ -485,7 +512,11 @@ function cleanSanitizedCodeBlob(rawText: string): string {
     clean = lines.join('\n').trim();
   }
 
-  return clean;
+  // Remove any remaining code fences at the start or end
+  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/m, '');
+  clean = clean.replace(/\n\s*```\s*$/m, '');
+
+  return clean.trim();
 }
 
 async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false, runtimeEnv: string = 'Node.js Edge', assigned_model?: string): Promise<void> {
@@ -573,7 +604,7 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     // Check for orphaned template literals (odd number of backticks, naive check)
     const backticks = (code.match(/`/g) || []).length;
     if (backticks % 2 !== 0) {
-      return { valid: false, error: `Unclosed template literal (``` backticks).` };
+      return { valid: false, error: `Unclosed template literal (backticks).` };
     }
 
     // Broken import statements check (e.g. "import from 'xxx'" missing variable)
@@ -642,7 +673,23 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
 
     if (!response.ok) throw new Error(`LLM Error: ${response.statusText}`);
     const result: any = await response.json();
-    const modifiedCode = cleanSanitizedCodeBlob(result.content || '');
+    let modifiedCode = cleanSanitizedCodeBlob(result.content || '');
+
+    const syntaxCheck = validateCodeSyntax(modifiedCode, path);
+    if (!syntaxCheck.valid) {
+      console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
+      const retryPrompt = `${promptBody}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
+      const retryPayload = { ...proxyPayload, prompt: retryPrompt };
+
+      const retryResponse = await fetch(env.SUPABASE_LLM_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
+        body: JSON.stringify(retryPayload)
+      });
+      if (!retryResponse.ok) throw new Error(`LLM Retry Error: ${retryResponse.statusText}`);
+      const retryResult: any = await retryResponse.json();
+      modifiedCode = cleanSanitizedCodeBlob(retryResult.content || '');
+    }
 
     const branchName = `axim-bot/ticket-${taskId.substring(0,8)}`;
     step_count++;
@@ -654,6 +701,10 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     const prTitle = `[AXiM Coder] ${task.title}`;
     const prBody = `## Autonomous Engineering Task: ${taskId}\n\n**Requested By:** ${task.requestedBy || 'System'}\n**Priority:** ${task.priority || 'Normal'}\n\n### Instructions\n${task.instructions}\n\n*Review diff and merge.*`;
     const prUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
+
+    // Webhook Callbacks
+    await dispatchCallbackWebhook('support', { ticket_id: taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: branchName, commit_sha: 'pending' }, env);
+    await dispatchCallbackWebhook('asguard', { incident_hash: taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: branchName }, env);
 
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} PR opened at ${prUrl}`);
     step_count++;

@@ -2,7 +2,7 @@ name = "axim-coding-lab-worker"
 main = "src/ingress.ts"
 compatibility_date = "2026-07-11"
 workers_dev = true
-triggers = { crons = ["0 9 * * *"] }
+triggers = { crons = ["0 14 * * *", "0 3 * * *", "0 */6 * * *"] }
 
 [vars]
 ENVIRONMENT = "production"
