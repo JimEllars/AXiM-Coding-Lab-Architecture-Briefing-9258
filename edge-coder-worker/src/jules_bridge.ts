@@ -87,8 +87,8 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+        'apikey': env.SUPABASE_SECRET_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
       },
       body: JSON.stringify({
         id: payload.taskId,

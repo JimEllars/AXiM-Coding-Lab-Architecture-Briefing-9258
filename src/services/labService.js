@@ -472,38 +472,9 @@ export const labService = {
       const token = session?.access_token || '';
 
 
-      let primaryUrl = import.meta.env.VITE_SUPPORT_API_URL ? `${import.meta.env.VITE_SUPPORT_API_URL.replace(/\/$/, '')}/api/v1/ingress` : null;
-      let fallbackUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+      const targetUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
 
-      const fetchWithRetry = async (primary, fallback, options, maxAttempts = 3) => {
-        let attempt = 0;
-        let delay = 1000;
-        let url = primary || fallback;
-        while (attempt < maxAttempts) {
-          try {
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), 8000);
-            const res = await fetch(url, { ...options, signal: controller.signal });
-            clearTimeout(id);
-            if (res.ok) return res;
-            if (res.status >= 400 && res.status < 500) return res;
-            throw new Error(`HTTP ${res.status}`);
-          } catch (e) {
-            const isNetworkError = e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('Could not resolve host');
-            if (isNetworkError && url === primary) {
-              console.warn('[SUPPORT_GATEWAY_FALLBACK] support.axim.us.com unreachable. Failing over to direct Worker Ingress.');
-              url = fallback;
-              continue; // try immediately with fallback
-            }
-            attempt++;
-            if (attempt >= maxAttempts) throw e;
-            await new Promise(r => setTimeout(r, delay));
-            delay *= 2;
-          }
-        }
-      };
-
-      const response = await fetchWithRetry(primaryUrl, fallbackUrl, {
+      const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

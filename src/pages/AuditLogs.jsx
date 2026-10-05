@@ -30,6 +30,23 @@ const AuditLogs = () => {
   }, []);
 
 
+
+  const [filterSeverity, setFilterSeverity] = useState('ALL');
+  const [filterTime, setFilterTime] = useState('ALL');
+
+  const filteredLogs = logs.filter(log => {
+    if (filterSeverity !== 'ALL' && log.status !== filterSeverity) return false;
+
+    if (filterTime !== 'ALL') {
+      const logDate = new Date(log.timestamp);
+      const now = new Date();
+      if (filterTime === '1H' && now - logDate > 3600000) return false;
+      if (filterTime === '24H' && now - logDate > 86400000) return false;
+      if (filterTime === '7D' && now - logDate > 604800000) return false;
+    }
+    return true;
+  });
+
   const exportCsv = () => {
     const headers = ['Timestamp', 'Component', 'Action', 'Target', 'Status'];
     const rows = logs.map(log => [
@@ -72,6 +89,29 @@ const AuditLogs = () => {
         </button>
       </div>
 
+
+      <div className="mb-4 flex gap-4">
+        <select
+          value={filterSeverity}
+          onChange={(e) => setFilterSeverity(e.target.value)}
+          className="bg-[#0a0f1c] border border-gray-800 text-gray-300 text-xs rounded px-3 py-1.5 focus:outline-none"
+        >
+          <option value="ALL">All Severities</option>
+          <option value="SUCCESS">Success</option>
+          <option value="FAILED">Failed</option>
+        </select>
+        <select
+          value={filterTime}
+          onChange={(e) => setFilterTime(e.target.value)}
+          className="bg-[#0a0f1c] border border-gray-800 text-gray-300 text-xs rounded px-3 py-1.5 focus:outline-none"
+        >
+          <option value="ALL">All Time</option>
+          <option value="1H">Last Hour</option>
+          <option value="24H">Last 24 Hours</option>
+          <option value="7D">Last 7 Days</option>
+        </select>
+      </div>
+
       <div className="bg-[#0a0f1c] border border-gray-800 rounded-xl overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -84,7 +124,7 @@ const AuditLogs = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800 text-sm">
-            {logs.length === 0 ? (
+            {filteredLogs.length === 0 ? (
               <tr>
                 <td colSpan="5" className="px-6 py-12 text-center text-gray-500 font-mono text-xs">
                   <div className="flex flex-col items-center gap-3">
@@ -93,7 +133,7 @@ const AuditLogs = () => {
                   </div>
                 </td>
               </tr>
-            ) : logs.map((log, idx) => (
+            ) : filteredLogs.map((log, idx) => (
               <motion.tr 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

@@ -83,7 +83,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
           if (prefs.model) selectedModel = prefs.model;
         } catch (e) { console.error(e); }
       }
-      const payloadBody = JSON.stringify({
+const payloadBody = JSON.stringify({
         instruction_prompt: prompt,
         repository_name: targetRepo,
         target_file_path: targetFile,
@@ -95,92 +95,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         delegate_to_jules: executionEngine === 'Jules Agent (External Google Cloud)'
       });
 
-      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
-      const { generateHmacSignature } = await import('../utils/crypto');
-      const signature = await generateHmacSignature(payloadBody, internalKey);
+      await labService.triggerTask(JSON.parse(payloadBody));
+      setPrompt('');
 
-
-      let primaryUrl = import.meta.env.VITE_SUPPORT_API_URL ? `${import.meta.env.VITE_SUPPORT_API_URL.replace(/\/$/, '')}/api/v1/ingress` : null;
-      let fallbackUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
-      let targetUrl = primaryUrl || fallbackUrl;
-
-
-
-      let response;
-      let attempt = 0;
-      const maxAttempts = 3;
-      const backoffs = [1000, 2000, 4000];
-
-      while (attempt < maxAttempts) {
-         try {
-            response = await fetch(targetUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'text/event-stream',
-                'X-Axim-Signature': signature
-              },
-              body: payloadBody
-            });
-
-            if (response.ok || (response.status !== 502 && response.status !== 503)) {
-               break;
-            }
-            throw new Error(`Edge endpoint redeploying or unavailable (HTTP ${response.status})`);
-         } catch (e) {
-            const isNetworkError = e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('Could not resolve host');
-            if (isNetworkError && targetUrl === primaryUrl) {
-              console.warn('[SUPPORT_GATEWAY_FALLBACK] support.axim.us.com unreachable. Failing over to direct Worker Ingress.');
-              targetUrl = fallbackUrl;
-              continue;
-            }
-            attempt++;
-            if (attempt >= maxAttempts) {
-               setWarningMessage(`Task dispatch failed after retries: ${e.message}`);
-               labService.logToConsole({ id: Date.now() + Math.random(), text: `[CRITICAL] Edge Swarm Task Failed: ${e.message}`, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) });
-               setIsGenerating(false);
-               return; // Exit preserving state
-            }
-            setWarningMessage(`Edge endpoint temporarily unavailable. Retrying in ${backoffs[attempt-1]/1000}s...`);
-            await new Promise(r => setTimeout(r, backoffs[attempt-1]));
-         }
-      }
-
-      setWarningMessage(null);
-
-      if (response && response.ok && response.body) {
-         setPrompt('');
-         setTargetFile('');
-         setSelectedContext([]);
-
-         const reader = response.body.getReader();
-         const decoder = new TextDecoder();
-         let done = false;
-
-         while (!done) {
-            const { value, done: readerDone } = await reader.read();
-            done = readerDone;
-            if (value) {
-               const chunk = decoder.decode(value, { stream: true });
-               const lines = chunk.split('\n\n');
-               lines.forEach(line => {
-                  if (line.startsWith('data: ')) {
-                     try {
-                        const data = JSON.parse(line.substring(6));
-                        if (data.type === 'log') {
-                           labService.logToConsole({ id: Date.now() + Math.random(), text: data.message, time: new Date().toLocaleTimeString([], { hour12: false }) });
-                        } else if (data.type === 'reasoning_step') {
-                           const stepData = JSON.parse(data.message);
-                           labService.broadcast({ type: 'REASONING_STEP', taskId, step: stepData });
-                        }
-                     } catch (e) { /* ignore */ }
-                  }
-               });
-            }
-         }
-      } else {
-         labService.logToConsole({ id: Date.now() + Math.random(), text: '[CRITICAL] Edge Swarm Task Failed: ' + (await response.text()), type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) });
-      }
     } catch (error) {
       console.error('Failed to trigger task:', error);
       labService.logToConsole({ id: Date.now() + Math.random(), text: '[CRITICAL] Edge Swarm Task Failed: ' + error.message, type: 'system', time: new Date().toLocaleTimeString([], { hour12: false }) });

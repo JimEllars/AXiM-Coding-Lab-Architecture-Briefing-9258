@@ -1,6 +1,12 @@
 # Sprint v1.2 Build Prompt - Production Hardening & Telemetry Authenticity Pass
 ## [Unreleased]
 
+### Added (Production Alignment)
+- **Live Streaming Architecture:** Refactored `PromptTerminal.jsx` to centrally stream events directly via `labService.triggerTask`, enabling real-time terminal output and cognitive reasoning trace propagation while maintaining isolation of `supportGateway` RPC commands.
+- **Edge Security Hardening:** Stripped hard-coded string comparison bypasses in the edge router (`ingress.ts`). Strictly enforced uniform HMAC validation (`verifyHmacSignature`) for fallback and internal proxy traffic.
+- **Resilient Swarm Dispatch:** Updated `jules_bridge.ts` and `callback_dispatcher.ts` to utilize `sendEmailItMessage` fallback pipelines. Intercepted execution failures deterministically, routing terminal failures and Asguard alerts directly to SecOps channels.
+- **Audit Filtering:** Connected `AuditLogs.jsx` to live Supabase `coding_tasks_errors` feed, implementing client-side filtering by severity level and relative chronological window.
+
 ### Added
 - Comprehensive `ErrorBoundary` wrapping for dynamic async components (`Cockpit.jsx`, `SwarmLogConsole.jsx`, `PromptTerminal.jsx`, `PipelineMonitor.jsx`).
 - Explicit telemetry fallback states across `Telemetry.jsx` ("OPERATING NORMALLY / CACHED").
