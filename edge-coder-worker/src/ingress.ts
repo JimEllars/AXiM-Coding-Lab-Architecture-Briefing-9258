@@ -1,4 +1,5 @@
 import { sendEmailItMessage } from './emailService';
+import { dispatchCallbackWebhook } from './callback_dispatcher';
 import { executeCodingPipeline, executeAutonomousCodingTask } from './code_generator';
 import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
 import { dispatchToJulesAgent } from './jules_bridge';
@@ -601,12 +602,19 @@ export default {
 
               if (decision === 'merge') {
                 try {
-                  const githubCtx = { owner: 'axim-oss', repo: 'axim-core-api' };
+                  const targetOwner = url.searchParams.get('owner') || 'JimEllars';
+                  const targetRepo = url.searchParams.get('repo') || 'axim-core-v1.2';
+                  const githubCtx = { owner: targetOwner, repo: targetRepo };
                   const prNumber = parseInt(url.searchParams.get('pr') || '0', 10);
                   const taskId = url.searchParams.get('task_id');
 
                   if (prNumber > 0) {
                     await mergePullRequest(githubCtx, prNumber, env);
+
+                    // Webhook Callbacks
+                    const prUrl = `https://github.com/${targetOwner}/${targetRepo}/pull/${prNumber}`;
+                    await dispatchCallbackWebhook('support', { ticket_id: taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: 'main', commit_sha: 'merged' }, env);
+                    await dispatchCallbackWebhook('asguard', { incident_hash: taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: 'main' }, env);
 
                     if (taskId && env.SUPABASE_URL && env.SUPABASE_SECRET_KEY) {
                        await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
@@ -926,30 +934,6 @@ export default {
                 return new Response(JSON.stringify({ success: true, taskId, status: 'dispatched' }), { status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
               } catch (error) {
                 return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-              }
-            }
-
-                        if (url.pathname === '/api/v1/pr/action') {
-              try {
-                 const token = url.searchParams.get('token');
-                 if (!token) {
-                   return new Response(JSON.stringify({ error: 'Missing token' }), { status: 400 });
-                 }
-
-                 const lockStatus = await env.TASK_LOCKS.get(`token:${token}`);
-                 if (lockStatus === 'consumed' || !lockStatus) {
-                   return new Response(JSON.stringify({ error: 'Token already consumed or expired' }), { status: 409, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-                 }
-
-                 // Process HITL action here (e.g. redirect to success page or trigger merge)
-
-                 await env.TASK_LOCKS.put(`token:${token}`, "consumed", { expirationTtl: 86400 });
-
-                 return new Response(JSON.stringify({ status: 'success', message: 'Action recorded' }), {
-                   status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-                 });
-              } catch (e) {
-                 return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
               }
             }
 

@@ -1,75 +1,51 @@
-export interface Env {
-  AXIM_INTERNAL_KEY: string;
-}
+import { Env } from './ingress';
 
-export async function dispatchCallbacks(
-  task: any,
-  prUrl: string,
-  branch: string,
-  commitSha: string,
-  tokensConsumed: number,
-  env: Env,
-  ctx: ExecutionContext
-): Promise<void> {
-  const supportPayload = {
-    ticket_id: task.ticketId || task.taskId,
-    status: 'PATCH_READY',
-    pr_url: prUrl,
-    branch: branch,
-    commit_sha: commitSha,
-    tokens_consumed: tokensConsumed
-  };
-
-  const asguardPayload = {
-    incident_hash: task.incident_hash || task.taskId,
-    status: 'RULE_PR_OPENED',
-    pr_url: prUrl,
-    branch: branch
-  };
-
-  const encoder = new TextEncoder();
+async function generateHmacSignature(payload: string, secret: string): Promise<string> {
+  const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(env.AXIM_INTERNAL_KEY || 'development-key'),
+    enc.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
-  const signPayload = async (payload: any) => {
-    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(JSON.stringify(payload)));
-    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-  };
+export async function dispatchCallbackWebhook(
+  system: 'support' | 'asguard',
+  payload: any,
+  env: Env
+): Promise<void> {
+  if (!env.AXIM_INTERNAL_KEY) {
+    console.error('[CALLBACK] Failed: Missing AXIM_INTERNAL_KEY');
+    return;
+  }
 
-  ctx.waitUntil((async () => {
-    try {
-      const supportSig = await signPayload(supportPayload);
-      await fetch(`https://support.axim.us.com/api/v1/tickets/${supportPayload.ticket_id}/patch-status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Axim-Signature': supportSig
-        },
-        body: JSON.stringify(supportPayload)
-      });
-    } catch (e) {
-      console.error('Support callback failed:', e);
+  const endpoint = system === 'support'
+    ? `https://support.axim.us.com/api/v1/tickets/${payload.ticket_id}/patch-status`
+    : `https://asguard.axim.us.com/api/v1/triage/resolution`;
+
+  const bodyString = JSON.stringify(payload);
+  const signature = await generateHmacSignature(bodyString, env.AXIM_INTERNAL_KEY);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Axim-Signature': signature
+      },
+      body: bodyString
+    });
+
+    if (!response.ok) {
+      console.error(`[CALLBACK] Failed to dispatch ${system} webhook: ${response.status} ${response.statusText}`);
     }
-  })());
-
-  ctx.waitUntil((async () => {
-    try {
-      const asguardSig = await signPayload(asguardPayload);
-      await fetch(`https://asguard.axim.us.com/api/v1/triage/resolution`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Axim-Signature': asguardSig
-        },
-        body: JSON.stringify(asguardPayload)
-      });
-    } catch (e) {
-      console.error('Asguard callback failed:', e);
-    }
-  })());
+  } catch (err: any) {
+    console.error(`[CALLBACK] Error dispatching ${system} webhook: ${err.message}`);
+  }
 }
