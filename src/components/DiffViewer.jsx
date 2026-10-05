@@ -1,10 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { supabase } from '../services/supabaseClient';
+import { verifyAximSession, isSuperUser } from '../lib/auth';
 import { dispatchSupportTask } from '../services/supportGateway';
 
 const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
+  const [sessionInfo, setSessionInfo] = useState(null);
+
+  useEffect(() => {
+    verifyAximSession().then(data => {
+      if (!data) {
+        window.location.href = 'https://passport.axim.us.com/login?redirect_url=https://coding-lab.axim.us.com';
+      } else {
+        setSessionInfo(data);
+      }
+    });
+  }, []);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorToast, setErrorToast] = useState(null);
@@ -208,11 +221,11 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleAction('REJECTED')}
+                onClick={() => handleAction('REVISION_REQUESTED')}
                 disabled={isSubmitting}
                 className="px-3 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-400 rounded border border-red-600/20 text-[10px] font-bold uppercase transition-colors disabled:opacity-50"
               >
-                Reject Patch
+                Request Revision
               </button>
               <button
                 onClick={handleCreateFilteredPR}
@@ -224,7 +237,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
               </button>
               <button
                 onClick={() => handleAction('APPROVED')}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !sessionInfo || !isSuperUser(sessionInfo?.user?.email)}
                 className="flex items-center gap-1.5 px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-[10px] font-bold uppercase transition-all shadow-[0_0_10px_rgba(22,163,74,0.2)] disabled:opacity-50"
               >
                 <SafeIcon name="GitMerge" className="text-[10px]" />
