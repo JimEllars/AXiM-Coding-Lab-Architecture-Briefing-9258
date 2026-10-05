@@ -6,24 +6,22 @@ import { dispatchSupportTask } from '../services/supportGateway';
 
 const StatusBadge = ({ status }) => {
   const styles = {
-    'Generating': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-    'Committing': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-    'Review Gate': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-    'Queued': 'text-gray-400 bg-gray-500/10 border-gray-500/20',
-    'Validating': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    'Completed': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    'Failed': 'text-red-600 bg-red-500/10 border-red-500/20',
-    'IN_PROGRESS': 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+    'INGESTED': 'text-gray-400 bg-gray-500/10 border-gray-500/20',
+    'ANALYZING': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+    'BRANCH_CREATED': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    'PATCHING': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    'SYNTAX_VALIDATING': 'text-[#FDD023] bg-[#FDD023]/10 border-[#FDD023]/20',
+    'PR_OPENED': 'text-green-400 bg-green-500/10 border-green-500/20',
+    'MERGED': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
   };
   const icon = {
-    'Generating': 'Cpu',
-    'Committing': 'GitCommit',
-    'Review Gate': 'Eye',
-    'Queued': 'Clock',
-    'Validating': 'Shield',
-    'Completed': 'CheckCircle',
-    'Failed': 'AlertTriangle',
-    'IN_PROGRESS': 'Activity'
+    'INGESTED': 'Download',
+    'ANALYZING': 'Search',
+    'BRANCH_CREATED': 'GitBranch',
+    'PATCHING': 'Edit',
+    'SYNTAX_VALIDATING': 'Shield',
+    'PR_OPENED': 'GitPullRequest',
+    'MERGED': 'GitMerge'
   };
   return (
     <span className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-bold font-mono border ${styles[status]}`}>
@@ -99,7 +97,7 @@ const PipelineMonitor = () => {
     const processTasks = (newTasks) => {
       setTasks(newTasks);
       const active = newTasks
-        .filter(t => ['Generating', 'Committing', 'Review Gate', 'IN_PROGRESS'].includes(t.status))
+        .filter(t => ['INGESTED', 'ANALYZING', 'BRANCH_CREATED', 'PATCHING', 'SYNTAX_VALIDATING', 'PR_OPENED'].includes(t.status))
         .slice(0, 4);
       setActivePipeline(active);
       setLoading(false);
@@ -166,7 +164,7 @@ const PipelineMonitor = () => {
               key={task.id}
               className="bg-[#111827] border border-[#1F2937] rounded-lg p-3 hover:border-[#FDD023]/30 transition-all group relative overflow-hidden"
             >
-              {task.status === 'Generating' && (
+              {['PATCHING', 'ANALYZING', 'SYNTAX_VALIDATING'].includes(task.status) && (
                 <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-shimmer"></div>
               )}
               <div className="flex justify-between items-start mb-2">

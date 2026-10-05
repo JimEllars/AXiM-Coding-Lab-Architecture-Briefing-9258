@@ -1,5 +1,7 @@
 import { Env, validateEnv } from './ingress';
 import { fetchCurrentFileState, createTaskBranch, commitGeneratedCode, openPullRequest, fetchRepositoryDependencies } from './github_bridge';
+import { reportGreenMachineTelemetry } from './telemetry';
+import { dispatchCallbacks } from './callback_dispatcher';
 
 export interface CodingTaskPayload {
   task_id: string;
@@ -113,13 +115,19 @@ export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env
 
     console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Analyzing payload and reasoning through patch generation via LLM gateway...', status: 'thinking' }));
     step_count++;
-    const modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env, assigned_model);
+    let modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env, assigned_model);
 
     console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`); await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Analyzing payload and reasoning through patch generation via LLM gateway...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'thinking' }));
     step_count++;
-    const isValid = await validateSyntax(modifiedCode, runtime_env);
-    if (!isValid) {
-      throw new Error('[AST_FAULT] The generated code failed structural syntax validation. Aborting commit.');
+    let validation = validateCodeSyntax(modifiedCode, path);
+    if (!validation.valid) {
+      console.log(`[CODING_LAB] [${task_id}] Syntax failed (${validation.error}). Executing one-shot retry...`);
+      const retryPrompt = instruction_prompt + `\n\nCRITICAL: Your previous generation produced a syntax error: ${validation.error}. Fix all syntax issues and return only valid source code.`;
+      modifiedCode = await requestCognitiveCodeGeneration(safeContent, retryPrompt, runtime_env, dependenciesContext, env, assigned_model);
+      validation = validateCodeSyntax(modifiedCode, path);
+      if (!validation.valid) {
+        throw new Error(`[AST_FAULT] The generated code failed structural syntax validation even after retry: ${validation.error}. Aborting commit.`);
+      }
     }
 
     console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('log', `[SYSTEM] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 5, title: '[PATCH_GEN]', content: 'Provisioning branch and committing generated patch...', status: 'thinking' }));
@@ -545,40 +553,53 @@ async function logLabFaultToCore(taskId: string, error: any, env: Env): Promise<
   }
 }
 
-export async function validateSyntax(code: string, runtimeEnv: string): Promise<boolean> {
-  if (runtimeEnv === 'Node.js Edge') {
-    // Structural regex to check for mismatched curly braces {} and parentheses ()
+export function validateCodeSyntax(code: string, filePath: string): { valid: boolean; error?: string } {
+  const isPython = filePath.endsWith('.py');
+  const isJS = filePath.endsWith('.js') || filePath.endsWith('.ts') || filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
+
+  if (isJS) {
     const openBraces = (code.match(/\{/g) || []).length;
     const closeBraces = (code.match(/\}/g) || []).length;
     const openParens = (code.match(/\(/g) || []).length;
     const closeParens = (code.match(/\)/g) || []).length;
 
-    if (openBraces !== closeBraces || openParens !== closeParens) {
-      return false;
+    if (openBraces !== closeBraces) {
+      return { valid: false, error: `Mismatched curly braces: ${openBraces} open vs ${closeBraces} close.` };
     }
-    return true;
-  } else if (runtimeEnv === 'Python Sandbox') {
-    // Check for mixed indentation (tabs vs. spaces)
+    if (openParens !== closeParens) {
+      return { valid: false, error: `Mismatched parentheses: ${openParens} open vs ${closeParens} close.` };
+    }
+
+    // Check for orphaned template literals (odd number of backticks, naive check)
+    const backticks = (code.match(/`/g) || []).length;
+    if (backticks % 2 !== 0) {
+      return { valid: false, error: `Unclosed template literal (``` backticks).` };
+    }
+
+    // Broken import statements check (e.g. "import from 'xxx'" missing variable)
+    if (code.match(/^\s*import\s+from\s+['"]/m)) {
+      return { valid: false, error: `Broken import statement missing imported bindings.` };
+    }
+
+  } else if (isPython) {
     const hasTabs = /^\t+/m.test(code);
     const hasSpaces = /^ +/m.test(code);
     if (hasTabs && hasSpaces) {
-      return false;
+      return { valid: false, error: 'Mixed indentation (tabs and spaces).' };
     }
 
-    // Ensure basic block definitions end with a colon
     const blockDefs = code.match(/^(?:\s*)(?:def|class|if|elif|else|for|while|try|except|finally|with)\b.*$/gm);
     if (blockDefs) {
       for (const def of blockDefs) {
-        // Strip comments and trailing whitespace
         const cleanDef = def.replace(/#.*$/, '').trim();
         if (!cleanDef.endsWith(':')) {
-          return false;
+          return { valid: false, error: `Block definition missing colon: ${cleanDef}` };
         }
       }
     }
-    return true;
   }
-  return true;
+
+  return { valid: true };
 }
 
 
