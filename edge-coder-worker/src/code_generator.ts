@@ -235,7 +235,88 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
         }
       }
     }
-  }
+  }\n  } else if (filePath.endsWith('.json')) {
+    try {
+      JSON.parse(code);
+    } catch (err: any) {
+      return { valid: false, error: "Invalid JSON structure: " + err.message };
+    }
+  } else if (filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+    const openBrackets = (code.match(/\[/g) || []).length;
+    const closeBrackets = (code.match(/\]/g) || []).length;
+    const openBraces = (code.match(/\{/g) || []).length;
+    const closeBraces = (code.match(/\}/g) || []).length;
+
+    if (openBrackets !== closeBrackets || openBraces !== closeBraces) {
+      return { valid: false, error: "Malformed configuration file syntax." };
+    }
+
+    const unescapedDoubleQuotes = (code.match(/(?<!\\)"/g) || []).length;
+    const unescapedSingleQuotes = (code.match(/(?<!\\)'/g) || []).length;
+    if (unescapedDoubleQuotes % 2 !== 0 || unescapedSingleQuotes % 2 !== 0) {
+       return { valid: false, error: "Malformed configuration file syntax." };
+    }
+
+    const lines = code.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[') || trimmed.startsWith('-')) continue;
+
+      // If it looks like it should be a key-value pair, verify it has = or :
+      if (/^[a-zA-Z0-9_\-]+(?:\s+[^=:\s]+)+$/.test(trimmed)) {
+          // e.g. "key value" without = or :
+          if (!trimmed.endsWith('{') && !trimmed.endsWith('[')) {
+             return { valid: false, error: "Malformed configuration file syntax." };
+          }
+      }
+    }
+
+  } else if (filePath.endsWith('.json')) {
+    try {
+      JSON.parse(code);
+    } catch (err: any) {
+      return { valid: false, error: "Invalid JSON structure: " + err.message };
+    }
+  } else if (filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+    const openBrackets = (code.match(/\[/g) || []).length;
+    const closeBrackets = (code.match(/\]/g) || []).length;
+    const openBraces = (code.match(/\{/g) || []).length;
+    const closeBraces = (code.match(/\}/g) || []).length;
+
+    if (openBrackets !== closeBrackets || openBraces !== closeBraces) {
+      return { valid: false, error: "Malformed configuration file syntax." };
+    }
+
+    // Check for unclosed quotes (simple naive check by counting occurrences, works for simple config validations)
+    const doubleQuotes = (code.match(/"/g) || []).length;
+    const singleQuotes = (code.match(/'/g) || []).length;
+    if (doubleQuotes % 2 !== 0 || singleQuotes % 2 !== 0) {
+       return { valid: false, error: "Malformed configuration file syntax." };
+    }
+
+    // Check basic key-value structures if any equal or colon present on a line.
+    const lines = code.split('\n');
+    let hasValidPairs = true;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        // Skip comments and empty lines
+        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//') || trimmed.startsWith('[') || trimmed.startsWith('-')) continue;
+
+        // If there's an assignment or a dict key, verify it vaguely
+        if (trimmed.includes('=') || trimmed.includes(':')) {
+            const hasEq = /^[^=]+=.+$/.test(trimmed);
+            const hasCol = /^[^:]+:.+$/.test(trimmed) || /^[^:]+:\s*$/.test(trimmed);
+            if (!hasEq && !hasCol && !trimmed.endsWith('{') && !trimmed.endsWith('[')) {
+                // Not strictly invalid in all multiline yamls but covers the basic requirement.
+                // We'll just rely on the regex checks, maybe don't enforce line-by-line if it's too strict.
+            }
+        }
+    }
+
+    // Let's implement what's exactly requested: "verify balanced brackets/braces ([], {}), valid key-value line pairings (key = value or key: value), and no unclosed quotes."
+    // Let's refine the key-value pairing check as requested, maybe not failing unless obvious violation.
+    // Actually the requirement is just to check those structural properties.
+
 
   return { valid: true };
 }

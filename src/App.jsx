@@ -17,6 +17,7 @@ import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import { labService } from './services/labService';
 import { supabase } from './services/supabaseClient';
+import { hydrateUserPermissions } from './lib/auth';
 
 function App() {
   const [session, setSession] = useState(undefined);
