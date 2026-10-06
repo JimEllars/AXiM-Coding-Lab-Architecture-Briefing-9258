@@ -25,3 +25,4 @@ id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 # 2. wrangler secret put GITHUB_TOKEN (Requires repo, workflow, and PR scopes)
 # 3. wrangler secret put SUPABASE_SECRET_KEY
 # 4. wrangler secret put EMAILIT_API_KEY
+# 5. wrangler secret put JULES_API_KEY

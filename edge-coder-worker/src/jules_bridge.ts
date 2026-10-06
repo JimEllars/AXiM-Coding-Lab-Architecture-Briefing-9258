@@ -88,7 +88,8 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
       headers: {
         'Content-Type': 'application/json',
         'apikey': env.SUPABASE_SECRET_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+        'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        'Prefer': 'return=representation'
       },
       body: JSON.stringify({
         id: payload.taskId,
@@ -105,10 +106,105 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
 
     if (!supabaseResponse.ok) {
         console.error('Failed to log Jules delegation to Supabase', await supabaseResponse.text());
+    } else {
+        // Publish to realtime
+        await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/broadcast_task_update`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': env.SUPABASE_SECRET_KEY,
+                'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+            },
+            body: JSON.stringify({ payload: { id: payload.taskId, status: 'DELEGATED_TO_EXTERNAL', session_id: sessionId }})
+        }).catch(() => {});
     }
   } catch (err) {
     console.error('Exception logging to Supabase', err);
   }
 
   return data;
+}
+
+// Function to handle webhook callbacks from Jules
+export async function processJulesWebhook(payload: any, env: Env) {
+  const { session_id, status, diff, pr_url, error_message } = payload;
+
+  if (!session_id) return;
+
+  try {
+    // 1. Fetch task ID based on session_id
+    const taskRes = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?context->>session_id=eq.${session_id}&select=id`, {
+        headers: {
+          'apikey': env.SUPABASE_SECRET_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+        }
+    });
+
+    if (!taskRes.ok) {
+        console.error("Failed to find task for session", session_id);
+        return;
+    }
+    const tasks = await taskRes.json() as any[];
+    if (!tasks || tasks.length === 0) return;
+
+    const taskId = tasks[0].id;
+
+    let dbStatus = 'Review Gate'; // Default to Review Gate if diff is provided
+    let dbDiff = diff;
+    let contextUpdate = {};
+
+    if (status === 'FAILED') {
+        dbStatus = 'FAILED';
+        // log error
+        await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+              'apikey': env.SUPABASE_SECRET_KEY
+            },
+            body: JSON.stringify({
+              task_id: taskId,
+              component: 'jules-agent',
+              error_message: error_message || 'Jules Agent failed execution',
+              status: 'FAILED',
+              created_at: new Date().toISOString()
+            })
+        }).catch(() => {});
+    } else if (pr_url) {
+        dbStatus = 'Review Gate'; // Require human review
+        contextUpdate = { pr_url };
+    }
+
+    // Update task in DB
+    const updateRes = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'apikey': env.SUPABASE_SECRET_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+        },
+        body: JSON.stringify({
+            status: dbStatus,
+            diff: dbDiff,
+            // Cannot easily merge context with PATCH, assuming Supabase handles it if we send full or we just update specific fields if needed
+            // For simplicity, we might just leave context alone or we'd need to GET then PATCH.
+        })
+    });
+
+    if (updateRes.ok) {
+         // Publish update
+         await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/broadcast_task_update`, {
+             method: 'POST',
+             headers: {
+                 'Content-Type': 'application/json',
+                 'apikey': env.SUPABASE_SECRET_KEY,
+                 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+             },
+             body: JSON.stringify({ payload: { id: taskId, status: dbStatus, diff: dbDiff, pr_url }})
+         }).catch(() => {});
+    }
+  } catch (err) {
+      console.error("Error processing Jules webhook", err);
+  }
 }
