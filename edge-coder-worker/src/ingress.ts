@@ -757,6 +757,44 @@ export default {
               }
             }
 
+
+            if (url.pathname === '/api/v1/webhooks/jules') {
+              if (request.method !== 'POST') {
+                return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+                  status: 405, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+
+              const julesSignature = request.headers.get('X-Jules-Signature');
+              if (!julesSignature) {
+                return new Response(JSON.stringify({ error: 'Invalid Jules Signature' }), {
+                  status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+
+              const payloadText = await request.clone().text();
+              const isJulesVerified = await verifyHmacSignature(payloadText, julesSignature, env.JULES_API_KEY || env.AXIM_INTERNAL_KEY);
+
+              if (!isJulesVerified) {
+                return new Response(JSON.stringify({ error: 'Invalid Jules Signature' }), {
+                  status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+
+              try {
+                const payload: any = JSON.parse(payloadText);
+                const { processJulesWebhook } = await import('./jules_bridge');
+                await processJulesWebhook(payload, env);
+                return new Response(JSON.stringify({ status: 'success' }), {
+                  status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              } catch (error) {
+                return new Response(JSON.stringify({ error: 'Webhook processing error' }), {
+                  status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+            }
+
             if (url.pathname === '/api/v1/webhooks/agent') {
               if (request.method !== 'POST') {
                 return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {

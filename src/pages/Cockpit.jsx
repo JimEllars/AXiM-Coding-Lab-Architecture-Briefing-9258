@@ -6,7 +6,7 @@ import PipelineMonitor from '../components/PipelineMonitor';
 import SwarmLogConsole from '../components/SwarmLogConsole';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
-import ErrorBoundary from '../components/ErrorBoundary';
+import ErrorBoundary from '../common/ErrorBoundary';
 
 const Cockpit = () => {
   const [activeNodes, setActiveNodes] = useState(0);
