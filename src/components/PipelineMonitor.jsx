@@ -61,6 +61,8 @@ const OriginBadge = ({ origin_source }) => {
 
 const PipelineMonitor = () => {
   const [tasks, setTasks] = useState([]);
+  const [filterTab, setFilterTab] = useState('ALL');
+  const fleets = ['ALL', 'CORE', 'SUPPORT', 'SPEEDREPORT', 'ONYX', 'ELLARS', 'DEMAND_LETTER'];
   const [activePipeline, setActivePipeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingEviction, setConfirmingEviction] = useState({});
@@ -132,6 +134,17 @@ const PipelineMonitor = () => {
         </h3>
         <span className="text-[10px] text-gray-500 font-mono">{activePipeline.length} ACTIVE LOCKS</span>
       </div>
+      <div className="flex border-b border-[#1F2937] overflow-x-auto scrollbar-hide">
+        {fleets.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilterTab(f)}
+            className={`px-3 py-2 text-[10px] font-mono whitespace-nowrap transition-colors ${filterTab === f ? 'text-[#FDD023] border-b-2 border-[#FDD023]' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
       
       <div className="flex-1 overflow-y-auto p-3 space-y-3 terminal-scroll">
         {loading ? (
@@ -155,7 +168,18 @@ const PipelineMonitor = () => {
           {activePipeline.length === 0 ? (
             <div className="p-4 text-center text-gray-500 text-xs font-mono">NO ACTIVE OPERATIONS IN PIPELINE</div>
           ) : (
-            activePipeline.map((task, idx) => (
+            activePipeline.filter(task => {
+              if (filterTab === 'ALL') return true;
+              if (!task.repo) return false;
+              const repo = task.repo.toUpperCase();
+              if (filterTab === 'CORE' && repo.includes('CORE')) return true;
+              if (filterTab === 'SUPPORT' && repo.includes('SUPPORT')) return true;
+              if (filterTab === 'SPEEDREPORT' && repo.includes('SPEEDREPORT')) return true;
+              if (filterTab === 'ONYX' && repo.includes('ONYX')) return true;
+              if (filterTab === 'ELLARS' && repo.includes('ELLARS')) return true;
+              if (filterTab === 'DEMAND_LETTER' && repo.includes('DEMAND-LETTER')) return true;
+              return false;
+            }).map((task, idx) => (
             <motion.div
               layout
               initial={{ opacity: 0, x: -20 }}

@@ -1,449 +1,56 @@
-const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
-      body: JSON.stringify(proxyPayload)
+async function requestCognitiveCodeGeneration(
+  currentCode: string,
+  instructions: string,
+  runtime_env: string,
+  dependenciesContext: string,
+  env: Env,
+  assigned_model?: string
+): Promise<{ code: string; providerUsed: "deepseek" | "anthropic"; failoverTriggered: boolean }> {
+  const systemInstructions = `You are an expert full-stack systems engineer specializing in ${runtime_env} architecture. Output ONLY raw source code without markdown code fences.`;
+  const promptBody = `### Workspace Dependencies:\n${dependenciesContext}\n\n### Original Source:\n${currentCode}\n\n### Directives:\n${instructions}`;
+
+  // Attempt A: DeepSeek Primary
+  try {
+    const deepseekPayload = {
+      provider: "deepseek",
+      prompt: promptBody,
+      options: { model: assigned_model || "deepseek-coder", temperature: 0.2, system: systemInstructions }
+    };
+
+    const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}` },
+      body: JSON.stringify(deepseekPayload),
+      signal: AbortSignal.timeout(12000)
     });
 
-    if (!response.ok) throw new Error(`LLM Error: ${response.statusText}`);
+    if (!response.ok) throw new Error(`DeepSeek Error HTTP ${response.status}: ${await response.text()}`);
     const result: any = await response.json();
-    let modifiedCode = cleanSanitizedCodeBlob(result.content || '');
+    if (result.error) throw new Error(`DeepSeek Error: ${result.error}`);
 
-    const syntaxCheck = validateCodeSyntax(modifiedCode, path);
-    if (!syntaxCheck.valid) {
-      console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
-      const retryPrompt = `${promptBody}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
-      const retryPayload = { ...proxyPayload, prompt: retryPrompt };
+    return { code: cleanSanitizedCodeBlob(result.content || ""), providerUsed: "deepseek", failoverTriggered: false };
+  } catch (err: any) {
+    console.warn(`[LLM_CASCADE] DeepSeek primary failed (${err.message}). Failing over to Anthropic Claude 3.5 Sonnet.`);
 
-      const retryResponse = await fetch(env.SUPABASE_LLM_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
-        body: JSON.stringify(retryPayload)
-      });
-      if (!retryResponse.ok) throw new Error(`LLM Retry Error: ${retryResponse.statusText}`);
-      const retryResult: any = await retryResponse.json();
-      modifiedCode = cleanSanitizedCodeBlob(retryResult.content || '');
-    }import { Env, validateEnv } from './ingress';
-import { fetchCurrentFileState, createTaskBranch, commitGeneratedCode, openPullRequest, fetchRepositoryDependencies } from './github_bridge';
-import { reportGreenMachineTelemetry } from './telemetry';
-import { dispatchCallbackWebhook } from './callback_dispatcher';
+    // Attempt B: Anthropic Claude 3.5 Fallback
+    const anthropicPayload = {
+      provider: "anthropic",
+      prompt: promptBody,
+      options: { model: "claude-3-5-sonnet-20241022", temperature: 0.2, system: systemInstructions }
+    };
 
-export interface CodingTaskPayload {
-  task_id: string;
-  repository_owner: string;
-  repository_name: string;
-  target_file_path: string;
-  base_branch?: string;
-  instruction_prompt: string;
-  origin_source: 'Asguard_WAF' | 'Onyx_Support_Triage' | 'Manual_Dev_Cockpit';
-  cf_ray?: string;
-  runtime_env?: string;
-  assigned_model?: string;
-}
-
-
-function prepareContextWindow(content: string, threshold: number = 32000): { content: string, truncated: boolean } {
-  if (content.length <= threshold) {
-    return { content, truncated: false };
-  }
-  const half = Math.floor(threshold / 2);
-  const start = content.slice(0, half);
-  const end = content.slice(-half);
-  return {
-    content: `${start}\n...[TRUNCATED FOR CONTEXT LIMITS]...\n${end}`,
-    truncated: true
-  };
-}
-
-export async function executeCodingPipeline(payload: CodingTaskPayload, env: Env, writer?: WritableStreamDefaultWriter, ctx?: any): Promise<void> {
-  const writeSse = (type: string, message: string) => {
-     if (writer) {
-        writer.write(new TextEncoder().encode(`data: {"type":"${type}","message":"${message.replace(/"/g, '\\"')}"}\n\n`)).catch(() => {});
-     }
-  };
-
-  const envValidation = validateEnv(env);
-  if (!envValidation.valid) {
-    if (writer) {
-      await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', message: "Missing required environment configuration: " + envValidation.missing.join(', ') })}\n\n`)).catch(() => {});
-    }
-    return;
-  }
-  const sendEvent = async (type: string, message: string) => { if (writer) { await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type, message })}\n\n`)).catch(() => {}); } };
-  const {
-    task_id,
-    repository_owner: owner,
-    repository_name: repo,
-    target_file_path: path,
-    base_branch = 'main',
-    instruction_prompt,
-    origin_source,
-    cf_ray,
-    runtime_env = 'Node.js Edge',
-    assigned_model
-  } = payload;
-
-  const branchName = `axim-bot/hotfix-${task_id.substring(0, 8)}-${Date.now().toString().slice(-4)}`;
-  const githubCtx = { owner, repo, path, baseBranch: base_branch };
-
-  const startTime = Date.now();
-  let step_count = 0;
-  let tokens_consumed = 0;
-  let exit_code = 0;
-  let pipelineSucceeded = false;
-
-  const pushTelemetry = async (latency: number, steps: number, tokens: number, code: number) => {
-    try {
-    step_count++;
-      const telemetryPayload = {
-        assigned_model: assigned_model || "deepseek-coder",
-        task_id,
-        edge_latency_ms: latency,
-        tokens_consumed: tokens,
-        step_count: steps,
-        exit_code: code,
-        origin_source,
-        cf_ray: cf_ray || 'unknown'
-      };
-
-      const doFetch = fetch(`${env.SUPABASE_URL}/rest/v1/audit_logs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          'apikey': env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([telemetryPayload])
-      }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
-
-      if (ctx && ctx.waitUntil) {
-        ctx.waitUntil(doFetch);
-      } else {
-        await doFetch;
-      }
-    } catch (e) {
-      console.error('Failed to push telemetry:', e);
-    }
-  };
-
-
-  try {
-    step_count++;
-    console.log(`[CODING_LAB] [${task_id}] Fetching current file state for: ${path}`); await sendEvent('log', `[SYSTEM] Fetching current file state for: ${path}`); await sendEvent('reasoning_step', JSON.stringify({ step: 1, title: '[INGRESS]', content: 'Transmitting payload to edge router and fetching current file state...', status: 'thinking' }));
-    const currentFile = await fetchCurrentFileState(githubCtx, env);
-
-    const { content: safeContent, truncated } = prepareContextWindow(currentFile.content);
-
-    console.log(`[CODING_LAB] [${task_id}] Fetching repository dependencies`); await sendEvent('log', `[SYSTEM] Fetching repository dependencies`); await sendEvent('reasoning_step', JSON.stringify({ step: 1, title: '[INGRESS]', content: 'Transmitting payload to edge router and fetching current file state...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'thinking' }));
-    let rawDependenciesContext = await fetchRepositoryDependencies(githubCtx, env);
-    const dependenciesContext = rawDependenciesContext.slice(0, 2000);
-
-    console.log(`[CODING_LAB] [${task_id}] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('log', `[SYSTEM] Dispatching structural payload to llm-proxy gateway (Truncated: ${truncated})`); await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Analyzing payload and reasoning through patch generation via LLM gateway...', status: 'thinking' }));
-    step_count++;
-    let modifiedCode = await requestCognitiveCodeGeneration(safeContent, instruction_prompt, runtime_env, dependenciesContext, env, assigned_model);
-
-    console.log(`[CODING_LAB] [${task_id}] Validating structural syntax for ${runtime_env}`); await sendEvent('log', `[SYSTEM] Validating structural syntax for ${runtime_env}`); await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Analyzing payload and reasoning through patch generation via LLM gateway...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'thinking' }));
-    step_count++;
-    let validation = validateCodeSyntax(modifiedCode, path);
-    if (!validation.valid) {
-      console.log(`[CODING_LAB] [${task_id}] Syntax failed (${validation.error}). Executing one-shot retry...`);
-      const retryPrompt = instruction_prompt + `\n\nCRITICAL: Your previous generation produced a syntax error: ${validation.error}. Fix all syntax issues and return only valid source code.`;
-      modifiedCode = await requestCognitiveCodeGeneration(safeContent, retryPrompt, runtime_env, dependenciesContext, env, assigned_model);
-      validation = validateCodeSyntax(modifiedCode, path);
-      if (!validation.valid) {
-        throw new Error(`[AST_FAULT] The generated code failed structural syntax validation even after retry: ${validation.error}. Aborting commit.`);
-      }
-    }
-
-    console.log(`[CODING_LAB] [${task_id}] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('log', `[SYSTEM] Code generated cleanly. Provisioning task branch: ${branchName}`); await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'complete' })); await sendEvent('reasoning_step', JSON.stringify({ step: 5, title: '[PATCH_GEN]', content: 'Provisioning branch and committing generated patch...', status: 'thinking' }));
-    step_count++;
-    await createTaskBranch(githubCtx, branchName, env);
-
-    console.log(`[CODING_LAB] [${task_id}] Committing syntax modifications to Git tree`); await sendEvent('log', `[SYSTEM] Committing syntax modifications to Git tree`);
-    const commitMessage = `fix(${origin_source.toLowerCase()}): auto-remediation patch for task #${task_id}`;
-    await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
-
-    console.log(`[CODING_LAB] [${task_id}] Opening Pull Request for engineering review`); await sendEvent('log', `[SYSTEM] Opening Pull Request for engineering review`);
-    const prTitle = `ðŸ¤– [ONYX BOT HOTFIX] Autonomous Remediation for Task #${task_id}`;
-    const prBody = `## Autonomous Engineering Report\n\n**Origin Source:** ${origin_source}\n**Target File Asset:** \`${path}\`\n\n### Modifications Applied\n- Compiled structural patch based on ecosystem telemetry vectors.\n- Executed edge sanitization validation pass.\n\n*Review the diff maps in the tab above and press Merge to deploy.*`;
-    
-    step_count++;
-    const pullRequestUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
-    console.log(`[CODING_LAB] [${task_id}] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('log', `[SYSTEM] Pipeline completed successfully. PR open at: ${pullRequestUrl}`); await sendEvent('reasoning_step', JSON.stringify({ step: 5, title: '[PATCH_GEN]', content: 'Provisioning branch and committing generated patch...', status: 'complete' }));
-
-    step_count++;
-    tokens_consumed += 1500; // Approximated tokens
-    exit_code = 0;
-    await reportLabExecutionTelemetry(task_id, origin_source, pullRequestUrl, env, cf_ray, truncated, runtime_env, assigned_model);
-    pipelineSucceeded = true;
-
-    // Green Machine Telemetry
-    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+    const fallbackRes = await fetch(env.SUPABASE_LLM_PROXY_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-        "apikey": env.SUPABASE_SECRET_KEY
-      },
-      body: JSON.stringify([{
-        app_id: "axim-coding-lab",
-        endpoint: "/api/v1/tasks/dispatch",
-        method: "POST",
-        status_code: 200,
-        metadata: {
-          task_id: task_id,
-          pr_url: pullRequestUrl,
-          model: assigned_model || "deepseek-coder",
-          tokens_used: tokens_consumed || 0
-        }
-      }])
-    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}` },
+      body: JSON.stringify(anthropicPayload),
+      signal: AbortSignal.timeout(15000)
+    });
 
-    // Support System Interlock & Ledger Callback
-    if (origin_source === 'Onyx_Support_Triage' || payload.task_id) {
-      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${payload.task_id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify({
-          status: "Resolved-Automated",
-          metadata: { pull_request_url: pullRequestUrl }
-        })
-      }).catch(e => console.error('Failed to update support ticket:', e));
+    if (!fallbackRes.ok) throw new Error(`Anthropic Fallback Error HTTP ${fallbackRes.status}: ${await fallbackRes.text()}`);
+    const fallbackResult: any = await fallbackRes.json();
+    if (fallbackResult.error) throw new Error(`Anthropic Fallback Error: ${fallbackResult.error}`);
 
-      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([{
-          ticket_id: payload.task_id,
-          action: "automated_remediation_pr_created",
-          details: `PR created at ${pullRequestUrl} for task ${payload.task_id}`
-        }])
-      }).catch(e => console.error('Failed to log hitl audit:', e));
-    }
-    pipelineSucceeded = true;
-
-    // Green Machine Telemetry
-    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-        "apikey": env.SUPABASE_SECRET_KEY
-      },
-      body: JSON.stringify([{
-        app_id: "axim-coding-lab",
-        endpoint: "/api/v1/tasks/dispatch",
-        method: "POST",
-        status_code: 200,
-        metadata: {
-          task_id: task_id,
-          pr_url: pullRequestUrl,
-          model: assigned_model || "deepseek-coder",
-          tokens_used: tokens_consumed || 0
-        }
-      }])
-    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
-
-    // Support System Interlock & Ledger Callback
-    if (origin_source === 'Onyx_Support_Triage' || payload.task_id) {
-      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${payload.task_id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify({
-          status: "Resolved-Automated",
-          metadata: { pull_request_url: pullRequestUrl }
-        })
-      }).catch(e => console.error('Failed to update support ticket:', e));
-
-      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([{
-          ticket_id: payload.task_id,
-          action: "automated_remediation_pr_created",
-          details: `PR created at ${pullRequestUrl} for task ${payload.task_id}`
-        }])
-      }).catch(e => console.error('Failed to log hitl audit:', e));
-    }
-    pipelineSucceeded = true;
-
-    // Green Machine Telemetry (public.api_usage_logs)
-    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-        "apikey": env.SUPABASE_SECRET_KEY
-      },
-      body: JSON.stringify([{
-        app_id: "axim-coding-lab",
-        endpoint: "/api/v1/tasks/dispatch",
-        method: "POST",
-        status_code: 200,
-        metadata: {
-          task_id: task_id,
-          pr_url: pullRequestUrl,
-          model: assigned_model || "deepseek-coder",
-          tokens_used: tokens_consumed || 0
-        }
-      }])
-    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
-    // Support System Interlock & Ledger Callback
-    let tId = "";
-    if (typeof payload !== 'undefined' && payload.task_id) tId = payload.task_id;
-    else if (typeof task !== 'undefined' && task.ticketId) tId = task.ticketId;
-    else if (typeof taskId !== 'undefined') tId = taskId;
-
-    let pUrl = typeof pullRequestUrl !== 'undefined' ? pullRequestUrl : (typeof prUrl !== 'undefined' ? prUrl : "");
-
-    if (tId) {
-      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${tId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify({
-          status: "Resolved-Automated",
-          metadata: { pull_request_url: pUrl }
-        })
-      }).catch(e => console.error('Failed to update support ticket:', e));
-
-      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([{
-          ticket_id: tId,
-          action: "automated_remediation_pr_created",
-          details: `PR created at ${pUrl} for task ${tId}`
-        }])
-      }).catch(e => console.error('Failed to log hitl audit:', e));
-    }
-
-    // Support System Interlock & Ledger Callback
-    if (typeof origin_source !== 'undefined' ? (origin_source === 'Onyx_Support_Triage' || payload.task_id) : (task && task.ticketId)) {
-      const tId = typeof origin_source !== 'undefined' ? payload.task_id : task.ticketId;
-      const pUrl = typeof pullRequestUrl !== 'undefined' ? pullRequestUrl : prUrl;
-      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${tId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify({
-          status: "Resolved-Automated",
-          metadata: { pull_request_url: pUrl }
-        })
-      }).catch(e => console.error('Failed to update support ticket:', e));
-
-      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([{
-          ticket_id: tId,
-          action: "automated_remediation_pr_created",
-          details: `PR created at ${pUrl} for task ${tId}`
-        }])
-      }).catch(e => console.error('Failed to log hitl audit:', e));
-    }
-
-    // Assuming task_id is used for ticketId here if it came from support
-    if (origin_source === 'Onyx_Support_Triage' || payload.task_id) {
-      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${payload.task_id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify({
-          status: "Resolved-Automated",
-          metadata: { pull_request_url: pullRequestUrl }
-        })
-      }).catch(e => console.error('Failed to update support ticket:', e));
-
-      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([{
-          ticket_id: payload.task_id,
-          action: "automated_remediation_pr_created",
-          details: `PR created at ${pullRequestUrl} for task ${payload.task_id}`
-        }])
-      }).catch(e => console.error('Failed to log hitl audit:', e));
-    }
-
-    if (task.ticketId) {
-      // Support System Interlock & Ledger Callback
-      await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${task.ticketId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify({
-          status: "Resolved-Automated",
-          metadata: { pull_request_url: prUrl }
-        })
-      }).catch(e => console.error('Failed to update support ticket:', e));
-
-      await fetch(`${env.SUPABASE_URL}/rest/v1/hitl_audit_logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          "apikey": env.SUPABASE_SECRET_KEY
-        },
-        body: JSON.stringify([{
-          ticket_id: task.ticketId,
-          action: "automated_remediation_pr_created",
-          details: `PR created at ${prUrl} for task ${taskId}`
-        }])
-      }).catch(e => console.error('Failed to log hitl audit:', e));
-    }
-
-  } catch (error: any) {
-    exit_code = 1;
-
-    console.error(`[CODING_LAB_CRITICAL_FAULT] Task #${task_id} failed:`, error.message);
-    await env.TASK_LOCKS.delete(`lock:${task_id}`);
-    await logLabFaultToCore(task_id, error, env);
-  } finally {
-    const latency = Date.now() - startTime;
-    await pushTelemetry(latency, step_count, tokens_consumed, exit_code);
-    if (!pipelineSucceeded) {
-      await env.TASK_LOCKS.delete(`lock:${task_id}`).catch(() => {});
-    }
+    return { code: cleanSanitizedCodeBlob(fallbackResult.content || ""), providerUsed: "anthropic", failoverTriggered: true };
   }
 }
 
