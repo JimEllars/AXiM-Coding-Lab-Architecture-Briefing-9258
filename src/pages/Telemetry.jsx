@@ -57,7 +57,7 @@ const Telemetry = () => {
       }, 3000);
 
 
-      unsubscribeTelemetry = labService.subscribeToTelemetry(async (payloadMetrics, status) => {
+      unsubscribeTelemetry = labService.subscribeToTelemetry(async (status, payloadMetrics) => {
          setConnectionStatus(status);
          if (status === 'ONLINE / REALTIME' || status === 'CACHED') {
             try {

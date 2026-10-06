@@ -158,9 +158,10 @@ const dateStr = new Date().toISOString().split('T')[0];
         prsOpened: 12, prsReviewed: 10, prsMerged: 8,
         hotfixesIngested: 2, tokenCost: '$12.50', computeDebt: 'Low'
       };
+      const prMeta = resolveRepoMetadata('CORE');
       const pendingPRs = [{
           id: 'task-123', title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
-          repo: resolveRepoMetadata('CORE').repo, branch: 'hotfix/sanitize-inbound'
+          repo: prMeta.repo, owner: prMeta.owner, branch: 'hotfix/sanitize-inbound'
       }];
       let pendingHtml = '';
       for (const pr of pendingPRs) {
@@ -172,7 +173,7 @@ const dateStr = new Date().toISOString().split('T')[0];
             <h4 style="color: #fff; margin-top: 0;">${pr.title}</h4>
             <p style="color: #a0a0b0; font-size: 14px;">Repository: ${pr.repo} | Branch: ${pr.branch}</p>
             <div style="margin-top: 15px; display: flex; gap: 10px;">
-              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Approve & Merge</a>
+              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge&owner=${pr.owner}&repo=${pr.repo}" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Approve & Merge</a>
             </div>
           </div>
         `;
@@ -216,6 +217,10 @@ if (env.CODER_DLQ_KV) {
                       } else if (key.name.startsWith("dlq_email_") || key.name.startsWith("dlq:email:")) {
                            try {
                                const emailPayload = JSON.parse(payloadStr);
+                               if (emailPayload.project_key) {
+                                  const repoMeta = resolveRepoMetadata(emailPayload.project_key);
+                                  emailPayload.meta = { ...emailPayload.meta, repository: repoMeta.repo, owner: repoMeta.owner };
+                               }
                                const controller = new AbortController();
                                const timeout = setTimeout(() => controller.abort(), 5000);
                                const emailRes = await sendEmailItMessage(emailPayload, env, controller.signal).finally(() => clearTimeout(timeout));
