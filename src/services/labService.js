@@ -168,14 +168,14 @@ export const labService = {
           async () => {
              // Dispatch new metrics when api_usage_logs change
              const metrics = await labService.getTelemetryData();
-             callback('ONLINE / REALTIME', metrics);
+             callback(metrics, 'ONLINE / REALTIME');
           }
         )
         .subscribe((status) => {
            if (status === 'SUBSCRIBED') {
-             callback('ONLINE / REALTIME');
+             callback(null, 'ONLINE / REALTIME');
            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-             callback('Live sync reconnecting...');
+             callback(null, 'Live sync reconnecting...');
              if (!reconnectTimeout) {
                reconnectTimeout = setTimeout(connect, 3000);
              }

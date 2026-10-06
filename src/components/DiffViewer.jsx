@@ -58,7 +58,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
 
   const lines = processedDiff.split('\n');
 
-  const originApp = task?.origin_app || (taskId?.includes('TSK-') ? 'Onyx Support Triage' : 'Manual Cockpit');
+  const originApp = task?.origin_app || (taskId?.includes('TSK-') ? 'Onyx Support Triage' : (taskId?.includes('SEC-') ? 'Asguard WAF' : 'Manual Cockpit'));
   const cognitiveModel = task?.model || 'deepseek';
   const modelProvider = cognitiveModel.includes('claude') ? 'Anthropic Claude 3.5' : 'DeepSeek Coder V2';
   const modelColor = cognitiveModel.includes('claude') ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';

@@ -160,7 +160,7 @@ const dateStr = new Date().toISOString().split('T')[0];
       };
       const pendingPRs = [{
           id: 'task-123', title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
-          repo: AXiM_ECOSYSTEM_REGISTRY.CORE ? AXiM_ECOSYSTEM_REGISTRY.CORE.repo : 'axim-core-api', branch: 'hotfix/sanitize-inbound'
+          repo: resolveRepoMetadata('CORE').repo, branch: 'hotfix/sanitize-inbound'
       }];
       let pendingHtml = '';
       for (const pr of pendingPRs) {
