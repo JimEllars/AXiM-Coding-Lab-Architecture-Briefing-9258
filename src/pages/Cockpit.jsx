@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PromptTerminal from '../components/PromptTerminal';
 import PipelineMonitor from '../components/PipelineMonitor';
@@ -9,6 +9,7 @@ import { labService } from '../services/labService';
 import ErrorBoundary from '../common/ErrorBoundary';
 
 const Cockpit = () => {
+  const navigate = useNavigate();
   const [activeNodes, setActiveNodes] = useState(0);
   const [totalNodes, setTotalNodes] = useState(8);
   const [supportTickets, setSupportTickets] = useState([]);
@@ -130,7 +131,7 @@ const Cockpit = () => {
                        {ticket.pull_request_url && (
                          <a href={ticket.pull_request_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">View PR</a>
                        )}
-                       <a href="#" className="text-violet-400 hover:underline">Support Ticket</a>
+                       <button onClick={() => navigate('/prs', { state: { taskId: ticket.id, filePath: ticket.target_file_path } })} className="text-violet-400 hover:underline">Review Diff</button>
                     </div>
                   </div>
                 ))
