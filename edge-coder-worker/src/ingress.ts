@@ -3,6 +3,7 @@ import { dispatchCallbackWebhook } from './callback_dispatcher';
 import { executeCodingPipeline, executeAutonomousCodingTask } from './code_generator';
 import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
 import { dispatchToJulesAgent } from './jules_bridge';
+import { resolveRepoMetadata } from './registry';
 
 export interface KVNamespace {
   get(key: string): Promise<string | null>;
@@ -821,9 +822,11 @@ export default {
               try {
                 const payload: any = JSON.parse(payloadText);
 
+                const { owner: resolvedOwner, repo: resolvedRepo } = resolveRepoMetadata(payload.project_key || payload.repository);
                 const mappedPayload = {
                   task_id: `AGENT-${Math.random().toString(36).substring(7).toUpperCase()}`,
-                  repository_name: payload.repository,
+                  repository_owner: resolvedOwner,
+                  repository_name: resolvedRepo,
                   target_file_path: payload.file,
                   instruction_prompt: payload.directive,
                   origin_source: payload.agent_origin || 'External_Agent',
@@ -1276,6 +1279,11 @@ export default {
                   status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               }
+
+              const resolved = resolveRepoMetadata(payload.project_key || payload.repository_name);
+              if (!payload.repository_owner) payload.repository_owner = resolved.owner;
+              if (!payload.repository_name) payload.repository_name = resolved.repo;
+
               if (!payload.repository_owner || !payload.repository_name) {
                 // If it's a structural payload for code_generator, require these
                 if (url.pathname === '/api/v1/ingress') {

@@ -218,6 +218,45 @@ if (!data) {
         </div>
       )}
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 relative">
+           <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+             <SafeIcon name="Cpu" className="text-blue-400" />
+             Cognitive Provider Health
+           </h3>
+           <div className="space-y-3">
+             <div className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-slate-800">
+               <div className="flex flex-col">
+                 <span className="text-xs font-medium text-gray-300">DeepSeek Coder V2</span>
+                 <span className="text-[10px] text-gray-500 font-mono">Primary Engine</span>
+               </div>
+               <span className="text-[10px] font-bold px-2 py-0.5 rounded border uppercase bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                 [ONLINE / PRIMARY]
+               </span>
+             </div>
+             <div className="flex items-center justify-between p-3 rounded-lg bg-[#111827] border border-slate-800">
+               <div className="flex flex-col">
+                 <span className="text-xs font-medium text-gray-300">Anthropic Claude 3.5 Sonnet</span>
+                 <span className="text-[10px] text-gray-500 font-mono">Fallback Engine</span>
+               </div>
+               <span className="text-[10px] font-bold px-2 py-0.5 rounded border uppercase bg-blue-500/10 text-blue-400 border-blue-500/20">
+                 [STANDBY / READY]
+               </span>
+             </div>
+           </div>
+        </div>
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 relative flex flex-col justify-center">
+           <div className="flex items-center justify-between mb-2">
+             <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Token Usage Split</span>
+             <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Failover Events</span>
+           </div>
+           <div className="flex items-center justify-between">
+             <div className="text-xl font-bold text-white tracking-tight">92% / 8%</div>
+             <div className="text-xl font-bold text-amber-400 tracking-tight">{data?.failovers || 0}</div>
+           </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
 
         <MetricCard label="ACTIVE AGENTS" value={activeAgentCount} icon="Users" color="green" />
