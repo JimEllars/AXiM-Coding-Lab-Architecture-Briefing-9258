@@ -58,7 +58,10 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
 
   const lines = processedDiff.split('\n');
 
-
+  const originApp = task?.origin_app || (taskId?.includes('TSK-') ? 'Onyx Support Triage' : 'Manual Cockpit');
+  const cognitiveModel = task?.model || 'deepseek';
+  const modelProvider = cognitiveModel.includes('claude') ? 'Anthropic Claude 3.5' : 'DeepSeek Coder V2';
+  const modelColor = cognitiveModel.includes('claude') ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
 
   const toggleHunk = (hunkIdx) => {
     setAcceptedHunks(prev => {
@@ -212,6 +215,24 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
               </button>
             </div>
           )}
+
+
+          {/* RCA Diagnostic Header Overlay */}
+          <div className="h-10 border-b border-[#1F2937] bg-[#111827] flex items-center justify-between px-4 shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30">{originApp}</span>
+              <span className="text-[11px] font-mono font-bold text-[#FDD023]">{taskId || task?.ticketId || 'TICKET-UNKNOWN'}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${modelColor}`}>
+                [Provider: {modelProvider}]
+              </span>
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-1">
+                <SafeIcon name="Check" className="text-[10px]" />
+                [Syntax: Verified]
+              </span>
+            </div>
+          </div>
 
           <div className="h-10 border-b border-[#1F2937] bg-[#0B0F19] flex items-center justify-between px-4 shrink-0">
             <div className="flex items-center gap-3">

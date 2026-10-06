@@ -3,7 +3,7 @@ import { dispatchCallbackWebhook } from './callback_dispatcher';
 import { executeCodingPipeline, executeAutonomousCodingTask } from './code_generator';
 import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
 import { dispatchToJulesAgent } from './jules_bridge';
-import { resolveRepoMetadata } from './registry';
+import { resolveRepoMetadata, AXiM_ECOSYSTEM_REGISTRY } from './registry';
 
 export interface KVNamespace {
   get(key: string): Promise<string | null>;
@@ -160,7 +160,7 @@ const dateStr = new Date().toISOString().split('T')[0];
       };
       const pendingPRs = [{
           id: 'task-123', title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
-          repo: 'axim-core-api', branch: 'hotfix/sanitize-inbound'
+          repo: AXiM_ECOSYSTEM_REGISTRY.CORE ? AXiM_ECOSYSTEM_REGISTRY.CORE.repo : 'axim-core-api', branch: 'hotfix/sanitize-inbound'
       }];
       let pendingHtml = '';
       for (const pr of pendingPRs) {
@@ -235,9 +235,8 @@ if (env.CODER_DLQ_KV) {
 async function handleStalePrSweeper(env: any) {
 console.log("[CRON] Running PR Review & Static Analysis Sweeper");
       try {
-          const repos = ['axim-core-api', 'frontend-dashboard', 'shared-styles'];
-          for (const repo of repos) {
-              const ctxObj = { owner: 'axim', repo: repo, path: '' };
+          for (const repoDef of Object.values(AXiM_ECOSYSTEM_REGISTRY)) {
+              const ctxObj = { owner: repoDef.owner, repo: repoDef.repo, path: '' };
               const prs = await fetchOpenPullRequests(ctxObj, env);
               for (const pr of prs) {
                  const diff = await fetchPullRequestDiff(ctxObj, pr.number, env);

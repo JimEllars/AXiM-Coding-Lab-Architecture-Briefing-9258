@@ -57,12 +57,12 @@ const Telemetry = () => {
       }, 3000);
 
 
-      unsubscribeTelemetry = labService.subscribeToTelemetry(async (status) => {
+      unsubscribeTelemetry = labService.subscribeToTelemetry(async (status, payloadMetrics) => {
          setConnectionStatus(status);
          if (status === 'ONLINE / REALTIME' || status === 'CACHED') {
             try {
               // Poll real stats API, labService.getTelemetryData now includes it
-              const metrics = await labService.getTelemetryData();
+              const metrics = payloadMetrics || await labService.getTelemetryData();
               if (metrics) {
                  setData(metrics);
                  if (metrics.edgeTelemetry) {

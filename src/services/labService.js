@@ -160,14 +160,15 @@ export const labService = {
         supabase.removeChannel(telemetryChannel);
       }
 
-      telemetryChannel = supabase.channel('schema-db-changes');
+      telemetryChannel = supabase.channel('green-machine-realtime');
       telemetryChannel
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'audit_logs' },
-          () => {
-             // Dispatch new metrics when audit logs change (or trigger refresh)
-             callback('ONLINE / REALTIME');
+          { event: 'INSERT', schema: 'public', table: 'api_usage_logs' },
+          async () => {
+             // Dispatch new metrics when api_usage_logs change
+             const metrics = await labService.getTelemetryData();
+             callback('ONLINE / REALTIME', metrics);
           }
         )
         .subscribe((status) => {
