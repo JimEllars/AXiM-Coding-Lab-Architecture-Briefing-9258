@@ -474,20 +474,33 @@ export const labService = {
 
 
       const targetUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+      let attempt = 0;
+      const maxAttempts = 3;
+      let response;
 
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Axim-Signature': signature,
-          'Accept': 'text/event-stream',
-          'Authorization': `Bearer ${token}`
-        },
-        body: payloadBody
-      });
-
-      if (!response.ok) {
-         throw new Error(`Ingress Error: ${response.statusText}`);
+      while (attempt < maxAttempts) {
+        try {
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 8000);
+          response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Axim-Signature': signature,
+              'Accept': 'text/event-stream',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: payloadBody,
+            signal: controller.signal
+          });
+          clearTimeout(id);
+          if (response.ok || (response.status >= 400 && response.status < 500)) break;
+          throw new Error(`HTTP ${response.status}`);
+        } catch (e) {
+          attempt++;
+          if (attempt >= maxAttempts) throw e;
+          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+        }
       }
 
       if (response.headers.get('content-type')?.includes('text/event-stream')) {

@@ -1,3 +1,38 @@
+import { Env } from './ingress';
+import { fetchCurrentFileState, fetchRepositoryDependencies, createTaskBranch, commitGeneratedCode, openPullRequest, GithubContext } from './github_bridge';
+import { dispatchCallbackWebhook } from './callback_dispatcher';
+
+let step_count = 0;
+let tokens_consumed = 0;
+let exit_code = 0;
+
+function cleanSanitizedCodeBlob(rawText: string): string {
+  let clean = rawText.trim();
+
+  // Strip leading/trailing code fences strictly
+  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/g, '');
+  clean = clean.replace(/\n\s*```\s*$/g, '');
+
+  const codeBlockRegex = /^```[a-z]*\n([\s\S]*?)\n```$/i;
+  const match = clean.match(codeBlockRegex);
+  if (match) {
+    clean = match[1].trim();
+  }
+
+  if (clean.startsWith('```')) {
+    const lines = clean.split('\n');
+    if (lines[0].startsWith('```')) lines.shift();
+    if (lines[lines.length - 1].trim() === '```') lines.pop();
+    clean = lines.join('\n').trim();
+  }
+
+  // Remove any remaining code fences at the start or end
+  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/m, '');
+  clean = clean.replace(/\n\s*```\s*$/m, '');
+
+  return clean.trim();
+}
+
 async function requestCognitiveCodeGeneration(
   currentCode: string,
   instructions: string,
@@ -54,77 +89,9 @@ async function requestCognitiveCodeGeneration(
   }
 }
 
-async function requestCognitiveCodeGeneration(currentCode: string, instructions: string, runtime_env: string, dependenciesContext: string, env: Env, assigned_model: string = "deepseek-coder"): Promise<string> {
-  const systemInstructions = `You are an expert full-stack systems engineer specializing in ${runtime_env} architecture and scalable execution environments. Your task is to modify the provided source code according to the given instructions. You MUST output ONLY the absolute raw source code. Do NOT wrap your output in markdown code fences (\`\`\`rust, \`\`\`typescript, or \`\`\`python), and do NOT include any introductory or conversational explanations. Ensure any environment scripts and execution handlers are robust, dependency-aware, and properly sandboxed. Your output must be instantly parseable by a compiler or interpreter. When generating Python code, you must ensure strict PEP-8 indentation and AST-valid logic. Do not return markdown explanations outside of the code block. Your output must be transport-ready for a sandboxed execution environment.`;
-  
-  const promptBody = `### Active Workspace Dependencies:\n${dependenciesContext}\n\n### Original Source Code:\n${currentCode}\n\n### Modification Directives:\n${instructions}`;
 
 
-  // Economic model routing
-  let active_model = assigned_model;
-  const isComplex = instructions.toLowerCase().includes('refactor') || instructions.toLowerCase().includes('security') || instructions.length > 300;
-  if (!active_model || active_model === 'auto') {
-      active_model = isComplex ? 'claude-3-5' : 'deepseek-coder';
-  }
-  const proxyPayload = {
-    provider: 'deepseek',
-    prompt: promptBody,
-    options: {
-      model: active_model,
-      temperature: 0.2,
-      system: systemInstructions
-    }
-  };
 
-  const startCompute = Date.now();
-  const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
-    },
-    body: JSON.stringify(proxyPayload)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Core LLM Proxy Gateway rejected compilation handshake: ${response.statusText}`);
-  }
-
-  const result: any = await response.json();
-  
-  if (result.error) {
-    throw new Error(`Upstream LLM Generation Error: ${result.error}`);
-  }
-
-  return cleanSanitizedCodeBlob(result.content || '');
-}
-
-function cleanSanitizedCodeBlob(rawText: string): string {
-  let clean = rawText.trim();
-
-  // Strip leading/trailing code fences strictly
-  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/g, '');
-  clean = clean.replace(/\n\s*```\s*$/g, '');
-
-  const codeBlockRegex = /^```[a-z]*\n([\s\S]*?)\n```$/i;
-  const match = clean.match(codeBlockRegex);
-  if (match) {
-    clean = match[1].trim();
-  }
-
-  if (clean.startsWith('```')) {
-    const lines = clean.split('\n');
-    if (lines[0].startsWith('```')) lines.shift();
-    if (lines[lines.length - 1].trim() === '```') lines.pop();
-    clean = lines.join('\n').trim();
-  }
-
-  // Remove any remaining code fences at the start or end
-  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/m, '');
-  clean = clean.replace(/\n\s*```\s*$/m, '');
-
-  return clean.trim();
-}
 
 async function reportLabExecutionTelemetry(taskId: string, source: string, prUrl: string, env: Env, cfRay?: string, truncated: boolean = false, runtimeEnv: string = 'Node.js Edge', assigned_model?: string): Promise<void> {
   const telemetryBody = [{
@@ -194,6 +161,8 @@ async function logLabFaultToCore(taskId: string, error: any, env: Env): Promise<
 export function validateCodeSyntax(code: string, filePath: string): { valid: boolean; error?: string } {
   const isPython = filePath.endsWith('.py');
   const isJS = filePath.endsWith('.js') || filePath.endsWith('.ts') || filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
+  const isJSON = filePath.endsWith('.json');
+  const isYamlOrToml = filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml');
 
   if (isJS) {
     const openBraces = (code.match(/\{/g) || []).length;
@@ -202,23 +171,20 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     const closeParens = (code.match(/\)/g) || []).length;
 
     if (openBraces !== closeBraces) {
-      return { valid: false, error: `Mismatched curly braces: ${openBraces} open vs ${closeBraces} close.` };
+      return { valid: false, error: `Mismatched curly braces: ${openBraces} open vs${closeBraces} close.` };
     }
     if (openParens !== closeParens) {
-      return { valid: false, error: `Mismatched parentheses: ${openParens} open vs ${closeParens} close.` };
+      return { valid: false, error: `Mismatched parentheses: ${openParens} open vs${closeParens} close.` };
     }
 
-    // Check for orphaned template literals (odd number of backticks, naive check)
     const backticks = (code.match(/`/g) || []).length;
     if (backticks % 2 !== 0) {
       return { valid: false, error: `Unclosed template literal (backticks).` };
     }
 
-    // Broken import statements check (e.g. "import from 'xxx'" missing variable)
     if (code.match(/^\s*import\s+from\s+['"]/m)) {
       return { valid: false, error: `Broken import statement missing imported bindings.` };
     }
-
   } else if (isPython) {
     const hasTabs = /^\t+/m.test(code);
     const hasSpaces = /^ +/m.test(code);
@@ -235,92 +201,31 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
         }
       }
     }
-  }\n  } else if (filePath.endsWith('.json')) {
+  } else if (isJSON) {
     try {
       JSON.parse(code);
     } catch (err: any) {
-      return { valid: false, error: "Invalid JSON structure: " + err.message };
+      return { valid: false, error: `Invalid JSON structure: ${err.message}` };
     }
-  } else if (filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+  } else if (isYamlOrToml) {
     const openBrackets = (code.match(/\[/g) || []).length;
     const closeBrackets = (code.match(/\]/g) || []).length;
     const openBraces = (code.match(/\{/g) || []).length;
     const closeBraces = (code.match(/\}/g) || []).length;
 
     if (openBrackets !== closeBrackets || openBraces !== closeBraces) {
-      return { valid: false, error: "Malformed configuration file syntax." };
+      return { valid: false, error: 'Malformed configuration file syntax (mismatched brackets or braces).' };
     }
 
-    const unescapedDoubleQuotes = (code.match(/(?<!\\)"/g) || []).length;
-    const unescapedSingleQuotes = (code.match(/(?<!\\)'/g) || []).length;
-    if (unescapedDoubleQuotes % 2 !== 0 || unescapedSingleQuotes % 2 !== 0) {
-       return { valid: false, error: "Malformed configuration file syntax." };
-    }
-
-    const lines = code.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[') || trimmed.startsWith('-')) continue;
-
-      // If it looks like it should be a key-value pair, verify it has = or :
-      if (/^[a-zA-Z0-9_\-]+(?:\s+[^=:\s]+)+$/.test(trimmed)) {
-          // e.g. "key value" without = or :
-          if (!trimmed.endsWith('{') && !trimmed.endsWith('[')) {
-             return { valid: false, error: "Malformed configuration file syntax." };
-          }
-      }
-    }
-
-  } else if (filePath.endsWith('.json')) {
-    try {
-      JSON.parse(code);
-    } catch (err: any) {
-      return { valid: false, error: "Invalid JSON structure: " + err.message };
-    }
-  } else if (filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
-    const openBrackets = (code.match(/\[/g) || []).length;
-    const closeBrackets = (code.match(/\]/g) || []).length;
-    const openBraces = (code.match(/\{/g) || []).length;
-    const closeBraces = (code.match(/\}/g) || []).length;
-
-    if (openBrackets !== closeBrackets || openBraces !== closeBraces) {
-      return { valid: false, error: "Malformed configuration file syntax." };
-    }
-
-    // Check for unclosed quotes (simple naive check by counting occurrences, works for simple config validations)
-    const doubleQuotes = (code.match(/"/g) || []).length;
-    const singleQuotes = (code.match(/'/g) || []).length;
+    const doubleQuotes = (code.match(/(?<!\\)"/g) || []).length;
+    const singleQuotes = (code.match(/(?<!\\)'/g) || []).length;
     if (doubleQuotes % 2 !== 0 || singleQuotes % 2 !== 0) {
-       return { valid: false, error: "Malformed configuration file syntax." };
+      return { valid: false, error: 'Malformed configuration file syntax (unclosed quotes).' };
     }
-
-    // Check basic key-value structures if any equal or colon present on a line.
-    const lines = code.split('\n');
-    let hasValidPairs = true;
-    for (const line of lines) {
-        const trimmed = line.trim();
-        // Skip comments and empty lines
-        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//') || trimmed.startsWith('[') || trimmed.startsWith('-')) continue;
-
-        // If there's an assignment or a dict key, verify it vaguely
-        if (trimmed.includes('=') || trimmed.includes(':')) {
-            const hasEq = /^[^=]+=.+$/.test(trimmed);
-            const hasCol = /^[^:]+:.+$/.test(trimmed) || /^[^:]+:\s*$/.test(trimmed);
-            if (!hasEq && !hasCol && !trimmed.endsWith('{') && !trimmed.endsWith('[')) {
-                // Not strictly invalid in all multiline yamls but covers the basic requirement.
-                // We'll just rely on the regex checks, maybe don't enforce line-by-line if it's too strict.
-            }
-        }
-    }
-
-    // Let's implement what's exactly requested: "verify balanced brackets/braces ([], {}), valid key-value line pairings (key = value or key: value), and no unclosed quotes."
-    // Let's refine the key-value pairing check as requested, maybe not failing unless obvious violation.
-    // Actually the requirement is just to check those structural properties.
-
+  }
 
   return { valid: true };
 }
-
 
 export async function executeAutonomousCodingTask(task: any, env: Env): Promise<void> {
   const taskId = task.taskId || `auto-${Date.now()}`;
@@ -343,40 +248,30 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
 
     const promptBody = `### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${currentFile.content}`;
 
-    const proxyPayload = {
-      provider: 'deepseek',
-      prompt: promptBody,
-      options: {
-        model: (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder',
-        temperature: 0.2,
-        system: `You are AXiM Coder Core. Modify the code as requested. Output ONLY raw source code.`
-      }
-    };
-
-    const response = await fetch(env.SUPABASE_LLM_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
-      body: JSON.stringify(proxyPayload)
-    });
-
-    if (!response.ok) throw new Error(`LLM Error: ${response.statusText}`);
-    const result: any = await response.json();
-    let modifiedCode = cleanSanitizedCodeBlob(result.content || '');
+    const active_model = (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder';
+    const { code: generatedCode, providerUsed } = await requestCognitiveCodeGeneration(
+      currentFile.content,
+      task.instructions,
+      'Node.js Edge',
+      depsContext,
+      env,
+      active_model
+    );
+    let modifiedCode = generatedCode;
 
     const syntaxCheck = validateCodeSyntax(modifiedCode, path);
     if (!syntaxCheck.valid) {
       console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
-      const retryPrompt = `${promptBody}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
-      const retryPayload = { ...proxyPayload, prompt: retryPrompt };
-
-      const retryResponse = await fetch(env.SUPABASE_LLM_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
-        body: JSON.stringify(retryPayload)
-      });
-      if (!retryResponse.ok) throw new Error(`LLM Retry Error: ${retryResponse.statusText}`);
-      const retryResult: any = await retryResponse.json();
-      modifiedCode = cleanSanitizedCodeBlob(retryResult.content || '');
+      const retryPrompt = `${task.instructions}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
+      const retryResult = await requestCognitiveCodeGeneration(
+        currentFile.content,
+        retryPrompt,
+        'Node.js Edge',
+        depsContext,
+        env,
+        active_model
+      );
+      modifiedCode = retryResult.code;
     }
 
     const branchName = `axim-bot/ticket-${taskId.substring(0,8)}`;
@@ -425,4 +320,8 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
   } catch (error: any) {
     throw error;
   }
+}
+
+export async function executeCodingPipeline(payload: any, env: Env, writer?: any, ctx?: any): Promise<void> {
+    await executeAutonomousCodingTask(payload, env);
 }

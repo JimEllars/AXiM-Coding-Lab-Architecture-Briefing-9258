@@ -37,12 +37,14 @@ export async function reportGreenMachineTelemetry(
     }
   };
 
+  const supabaseKey = (env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
+
   const doFetch = fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-      'apikey': env.SUPABASE_SECRET_KEY
+      'Authorization': `Bearer ${supabaseKey}`,
+      'apikey': supabaseKey
     },
     body: JSON.stringify([payload])
   }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
