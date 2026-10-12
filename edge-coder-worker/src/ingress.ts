@@ -109,8 +109,8 @@ async function verifySupabaseToken(authHeader: string | null, env: Env): Promise
          method: 'POST',
          headers: {
            'Content-Type': 'application/json',
-           'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-           'apikey': env.SUPABASE_SECRET_KEY
+           'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+           'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
          },
          body: JSON.stringify({
            component: 'auth',
@@ -254,7 +254,7 @@ ${diff}`,
                  };
                  const res = await fetch(env.SUPABASE_LLM_PROXY_URL, {
                      method: 'POST',
-                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}` },
+                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}` },
                      body: JSON.stringify(proxyPayload)
                  });
                  if (res.ok) {
@@ -474,7 +474,7 @@ export default {
                 GITHUB_TOKEN: !!env.GITHUB_TOKEN,
                 GITHUB_WEBHOOK_SECRET: !!env.GITHUB_WEBHOOK_SECRET,
                 EMAILIT_API_KEY: !!env.EMAILIT_API_KEY,
-                SUPABASE_SECRET_KEY: !!env.SUPABASE_SECRET_KEY
+                SUPABASE_SECRET_KEY: !!((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
               }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
@@ -511,8 +511,8 @@ export default {
                        method: 'POST',
                        headers: {
                          'Content-Type': 'application/json',
-                         'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-                         'apikey': env.SUPABASE_SECRET_KEY
+                         'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+                         'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
                        },
                        body: JSON.stringify(telemetryBody)
                      });
@@ -621,13 +621,13 @@ export default {
                     await dispatchCallbackWebhook('support', { ticket_id: taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: 'main', commit_sha: 'merged' }, env);
                     await dispatchCallbackWebhook('asguard', { incident_hash: taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: 'main' }, env);
 
-                    if (taskId && env.SUPABASE_URL && env.SUPABASE_SECRET_KEY) {
+                    if (taskId && env.SUPABASE_URL && ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')) {
                        await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
                          method: 'PATCH',
                          headers: {
                            'Content-Type': 'application/json',
-                           'apikey': env.SUPABASE_SECRET_KEY,
-                           'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+                           'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                           'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
                          },
                          body: JSON.stringify({ status: 'MERGED' })
                        });
@@ -725,8 +725,8 @@ export default {
                   const encodedPrUrl = encodeURIComponent(prUrl);
                   const selectResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?pull_request_url=eq.${encodedPrUrl}&select=task_id`, {
                     headers: {
-                      'apikey': env.SUPABASE_SECRET_KEY,
-                      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+                      'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                      'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
                     }
                   });
 
@@ -740,8 +740,8 @@ export default {
                         method: 'PATCH',
                         headers: {
                           'Content-Type': 'application/json',
-                          'apikey': env.SUPABASE_SECRET_KEY,
-                          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+                          'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                          'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
                         },
                         body: JSON.stringify({ status: newStatus })
                       });
@@ -899,8 +899,8 @@ export default {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-                      'apikey': env.SUPABASE_SECRET_KEY
+                      'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+                      'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
                     },
                     body: JSON.stringify(errorBody)
                   });
@@ -1084,8 +1084,8 @@ export default {
                      method: 'POST',
                      headers: {
                        'Content-Type': 'application/json',
-                       'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-                       'apikey': env.SUPABASE_SECRET_KEY
+                       'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+                       'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
                      },
                      body: JSON.stringify(telemetryBody)
                    });
@@ -1118,8 +1118,8 @@ export default {
                          method: 'POST',
                          headers: {
                            'Content-Type': 'application/json',
-                           'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-                           'apikey': env.SUPABASE_SECRET_KEY
+                           'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+                           'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
                          },
                          body: JSON.stringify(errorBody)
                        });
@@ -1129,8 +1129,8 @@ export default {
                         method: 'PATCH',
                         headers: {
                           'Content-Type': 'application/json',
-                          'apikey': env.SUPABASE_SECRET_KEY,
-                          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+                          'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                          'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
                         },
                         body: JSON.stringify({ status: 'FAILED' })
                       });
@@ -1191,7 +1191,7 @@ export default {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
-                          'x-axim-token': env.SUPABASE_SECRET_KEY
+                          'x-axim-token': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
                         },
                         body: JSON.stringify(payload)
                       });
@@ -1356,8 +1356,8 @@ export default {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-                          'apikey': env.SUPABASE_SECRET_KEY
+                          'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+                          'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
                         },
                         body: JSON.stringify({
                           task_id: taskIdentifier,
@@ -1398,7 +1398,7 @@ export default {
                     try {
                       await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`, 'apikey': env.SUPABASE_SECRET_KEY },
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`, 'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '') },
                         body: JSON.stringify({ task_id: taskIdentifier, component: 'axim-coding-lab-worker', error_message: e.message, stack_trace: e.stack || '', status: 'FAILED', created_at: new Date().toISOString() })
                       });
                     } catch(err) {}
@@ -1414,7 +1414,7 @@ export default {
                     try {
                       await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`, 'apikey': env.SUPABASE_SECRET_KEY },
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`, 'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '') },
                         body: JSON.stringify({ task_id: taskIdentifier, component: 'axim-coding-lab-worker', error_message: e.message, stack_trace: e.stack || '', status: 'FAILED', created_at: new Date().toISOString() })
                       });
                     } catch(err) {}

@@ -31,7 +31,15 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
   };
 
   const defaultPrompt = "Review full app. We need to move this web app towards full functionality. Review app and make a plan for continued development.";
-  const activePrompt = payload.prompt || defaultPrompt;
+  const JULES_SYSTEM_DIRECTIVES = [
+    "OPERATIONAL DIRECTIVES FOR JULES RUNNER:",
+    "1. DO NOT call any external MCP servers (do NOT attempt to connect to Supabase or Chatbase).",
+    "2. DO NOT run 'git checkout -b' or switch branches. Stay on the current working branch.",
+    "3. DO NOT run 'git push' in the terminal. Let the Jules platform submit the PR automatically.",
+    "4. Run local tests and linters, commit changes locally ('git commit -m \"...\"'), and complete via your native UI completion tool.",
+    "----------------------------------------"
+  ].join('\n');
+  const activePrompt = `${JULES_SYSTEM_DIRECTIVES}\n\n${payload.prompt || defaultPrompt}`;
 
   const response = await fetchWithRetry(endpoint, {
     method: 'POST',
@@ -59,8 +67,8 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-          'apikey': env.SUPABASE_SECRET_KEY
+          'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+          'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
         },
         body: JSON.stringify({
           task_id: payload.taskId,
@@ -87,8 +95,8 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': env.SUPABASE_SECRET_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+        'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
         'Prefer': 'return=representation'
       },
       body: JSON.stringify({
@@ -112,8 +120,8 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'apikey': env.SUPABASE_SECRET_KEY,
-                'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+                'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
             },
             body: JSON.stringify({ payload: { id: payload.taskId, status: 'DELEGATED_TO_EXTERNAL', session_id: sessionId }})
         }).catch(() => {});
@@ -135,8 +143,8 @@ export async function processJulesWebhook(payload: any, env: Env) {
     // 1. Fetch task ID based on session_id
     const taskRes = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?context->>session_id=eq.${session_id}&select=id`, {
         headers: {
-          'apikey': env.SUPABASE_SECRET_KEY,
-          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+          'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+          'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
         }
     });
 
@@ -160,8 +168,8 @@ export async function processJulesWebhook(payload: any, env: Env) {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
-              'apikey': env.SUPABASE_SECRET_KEY
+              'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+              'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
             },
             body: JSON.stringify({
               task_id: taskId,
@@ -181,8 +189,8 @@ export async function processJulesWebhook(payload: any, env: Env) {
         method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
-            'apikey': env.SUPABASE_SECRET_KEY,
-            'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+            'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+            'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
         },
         body: JSON.stringify({
             status: dbStatus,
@@ -198,8 +206,8 @@ export async function processJulesWebhook(payload: any, env: Env) {
              method: 'POST',
              headers: {
                  'Content-Type': 'application/json',
-                 'apikey': env.SUPABASE_SECRET_KEY,
-                 'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+                 'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                 'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
              },
              body: JSON.stringify({ payload: { id: taskId, status: dbStatus, diff: dbDiff, pr_url }})
          }).catch(() => {});
