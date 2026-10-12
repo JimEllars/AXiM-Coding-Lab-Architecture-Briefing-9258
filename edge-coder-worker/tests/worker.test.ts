@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resolveRepoMetadata } from '../src/registry';
 import { generateHmacSignature } from '../src/utils/crypto';
 import { processJulesWebhook } from '../src/jules_bridge';
+import { validateCodeSyntax } from '../src/code_generator';
 
 // Setup basic global mock for crypto if needed
 if (typeof crypto === 'undefined') {
@@ -131,6 +132,62 @@ describe('Worker Unit Tests', () => {
           })
         );
       });
+  });
+
+
+  describe('validateCodeSyntax', () => {
+    it('should validate valid JS syntax', () => {
+      const code = `
+        function test() {
+          console.log('Hello');
+        }
+      `;
+      const res = validateCodeSyntax(code, 'test.js');
+      expect(res.valid).toBe(true);
+    });
+
+    it('should invalidate JS with mismatched braces', () => {
+      const code = `
+        function test() {
+          console.log('Hello');
+      `;
+      const res = validateCodeSyntax(code, 'test.js');
+      expect(res.valid).toBe(false);
+      expect(res.error).toContain('Mismatched curly braces');
+    });
+
+    it('should validate valid JSON syntax', () => {
+      const code = `{"key": "value", "arr": [1, 2, 3]}`;
+      const res = validateCodeSyntax(code, 'data.json');
+      expect(res.valid).toBe(true);
+    });
+
+    it('should invalidate malformed JSON syntax', () => {
+      const code = `{"key": "value", "arr": [1, 2, 3]`; // missing closing brace
+      const res = validateCodeSyntax(code, 'data.json');
+      expect(res.valid).toBe(false);
+      expect(res.error).toContain('Invalid JSON');
+    });
+
+    it('should validate valid YAML syntax', () => {
+      const code = `
+        key: "value"
+        arr:
+          - 1
+          - 2
+      `;
+      const res = validateCodeSyntax(code, 'config.yaml');
+      expect(res.valid).toBe(true);
+    });
+
+    it('should invalidate YAML with unclosed quotes', () => {
+      const code = `
+        key: "value
+      `;
+      const res = validateCodeSyntax(code, 'config.yaml');
+      expect(res.valid).toBe(false);
+      expect(res.error).toContain('unclosed quotes');
+    });
   });
 
 });

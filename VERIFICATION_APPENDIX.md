@@ -9,3 +9,4 @@
 | `edge-coder-worker/tests/worker.test.ts` (L1-137) | `describe('Worker Unit Tests', () => { ... })` | Worker Unit Tests (`npm test`) |
 
 All checks passed successfully.
+Appendix Updated: Add tests for validateCodeSyntax, lines added in worker.test.ts

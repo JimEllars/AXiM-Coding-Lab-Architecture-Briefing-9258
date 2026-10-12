@@ -144,7 +144,7 @@ const DiffViewer = ({ diff, filePath, taskId, task, onActionSuccess }) => {
 
       if (error) throw error;
 
-      if (status === 'APPROVED' || status === 'REJECTED') {
+      if (status === 'APPROVED' || status === 'REJECTED' || status === 'REVISION_REQUESTED') {
         const repoParts = (task?.repository || 'axim-organization/axim-core-api').split('/');
         const owner = repoParts.length > 1 ? repoParts[0] : 'axim-organization';
         const repoName = repoParts.length > 1 ? repoParts[1] : repoParts[0];

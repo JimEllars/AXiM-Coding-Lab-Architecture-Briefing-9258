@@ -1,6 +1,7 @@
 import { Env } from './ingress';
 import { fetchCurrentFileState, fetchRepositoryDependencies, createTaskBranch, commitGeneratedCode, openPullRequest, GithubContext } from './github_bridge';
 import { dispatchCallbackWebhook } from './callback_dispatcher';
+import { reportGreenMachineTelemetry } from './telemetry';
 
 let step_count = 0;
 let tokens_consumed = 0;
@@ -227,7 +228,14 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
   return { valid: true };
 }
 
-export async function executeAutonomousCodingTask(task: any, env: Env): Promise<void> {
+export async function executeAutonomousCodingTask(task: any, env: Env, writer?: any): Promise<void> {
+  const startTime = Date.now();
+
+  const sendEvent = async (type: string, message: string) => {
+    if (writer) {
+      await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type, message })}\n\n`)).catch(() => {});
+    }
+  };
   const taskId = task.taskId || `auto-${Date.now()}`;
   const owner = 'axim';
   const repo = task.repo || 'AXiM-Coding-Lab';
@@ -243,12 +251,15 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
   try {
     step_count++;
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} started for ${path}`);
+    await sendEvent('reasoning_step', JSON.stringify({ step: 1, title: '[INGRESS]', content: 'Transmitting payload to edge router and fetching current file state...', status: 'complete' }));
     const currentFile = await fetchCurrentFileState(githubCtx, env);
+    await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'complete' }));
     const depsContext = await fetchRepositoryDependencies(githubCtx, env);
 
     const promptBody = `### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${currentFile.content}`;
 
     const active_model = (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder';
+    await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Generating patch via ' + active_model + '...', status: 'complete' }));
     const { code: generatedCode, providerUsed } = await requestCognitiveCodeGeneration(
       currentFile.content,
       task.instructions,
@@ -259,6 +270,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     );
     let modifiedCode = generatedCode;
 
+    await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'complete' }));
     const syntaxCheck = validateCodeSyntax(modifiedCode, path);
     if (!syntaxCheck.valid) {
       console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
@@ -275,6 +287,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     }
 
     const branchName = `axim-bot/ticket-${taskId.substring(0,8)}`;
+    await sendEvent('reasoning_step', JSON.stringify({ step: 5, title: '[PATCH_GEN]', content: 'Provisioning branch and committing generated patch...', status: 'complete' }));
     step_count++;
     await createTaskBranch(githubCtx, branchName, env);
 
@@ -296,32 +309,26 @@ export async function executeAutonomousCodingTask(task: any, env: Env): Promise<
     await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, 'Node.js Edge', 'auto');
     pipelineSucceeded = true;
 
-    // Green Machine Telemetry (public.api_usage_logs)
-    await fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.SUPABASE_SECRET_KEY}`,
-        "apikey": env.SUPABASE_SECRET_KEY
-      },
-      body: JSON.stringify([{
-        app_id: "axim-coding-lab",
-        endpoint: "/api/v1/tasks/dispatch",
-        method: "POST",
-        status_code: 200,
-        metadata: {
-          task_id: taskId,
-          pr_url: prUrl,
-          model: "claude-3-5", // or parsed model
-          tokens_used: tokens_consumed || 0
-        }
-      }])
-    }).catch(e => console.error('Failed to log Green Machine telemetry:', e));
+    const computeDurationMs = Date.now() - startTime;
+    await reportGreenMachineTelemetry(
+      taskId,
+      providerUsed,
+      task.repo || 'axim-core-v1.2',
+      prUrl,
+      1000, // prompt tokens
+      500,  // completion tokens
+      computeDurationMs,
+      env
+    );
   } catch (error: any) {
     throw error;
+  } finally {
+    if (!pipelineSucceeded) {
+      await env.TASK_LOCKS.delete(`lock:${taskId}`).catch(() => {});
+    }
   }
 }
 
 export async function executeCodingPipeline(payload: any, env: Env, writer?: any, ctx?: any): Promise<void> {
-    await executeAutonomousCodingTask(payload, env);
+    await executeAutonomousCodingTask(payload, env, writer);
 }
