@@ -86,6 +86,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
 const payloadBody = JSON.stringify({
         instruction_prompt: prompt,
         repository_name: targetRepo,
+        project_key: targetRepo,
         target_file_path: targetFile,
         origin_source: 'Manual_Dev_Cockpit',
         contextIds: selectedContext,
@@ -172,11 +173,14 @@ const payloadBody = JSON.stringify({
                 <select 
                   value={targetRepo}
                   onChange={(e) => setTargetRepo(e.target.value)}
-                  className="block w-40 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                  className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
-                  <option value="axim-core-api">axim-core-api</option>
-                  <option value="frontend-dashboard">frontend-dashboard</option>
-                  <option value="shared-styles">shared-styles</option>
+                  <option value="CORE">CORE (axim-core-v1.2)</option>
+                  <option value="SUPPORT">SUPPORT (AXiM-Support-System-1.1-4538)</option>
+                  <option value="SPEEDREPORT">SPEEDREPORT (SpeedReport.org-Speed-Test-App-9642)</option>
+                  <option value="ONYX">ONYX (onyx_mk3)</option>
+                  <option value="ELLARS">ELLARS (ELLARS.us.com-Frontend-Site-1.1-1974)</option>
+                  <option value="DEMAND_LETTER">DEMAND_LETTER (Decentralized-Demand-Letter-Generator-Development-8155)</option>
                 </select>
               </div>
               <div className="space-y-1">
