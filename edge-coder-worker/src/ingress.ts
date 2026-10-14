@@ -1147,6 +1147,30 @@ export default {
 
 
             // DLQ Sweep endpoint
+
+            if (url.pathname === "/api/v1/dlq/stats" && request.method === "GET") {
+              let dlq_pending_count = 0;
+              try {
+                if (env.CODER_DLQ_KV) {
+                  const dlqList = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+                  dlq_pending_count = dlqList.keys.length;
+                } else if (env.LAB_STATE) {
+                  const dlqList = await env.LAB_STATE.list({ prefix: 'dlq:' });
+                  dlq_pending_count = dlqList.keys.length;
+                }
+              } catch (e) {
+                console.error("Failed to fetch DLQ stats", e);
+              }
+              return new Response(JSON.stringify({
+                status: "success",
+                pending_count: dlq_pending_count,
+                timestamp: new Date().toISOString()
+              }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+              });
+            }
+
             if (url.pathname === "/api/v1/dlq/sweep" && request.method === "POST") {
               const authHeader = request.headers.get('Authorization');
               const sigHeader = request.headers.get('X-Axim-Signature');

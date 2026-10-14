@@ -1,3 +1,4 @@
+import { dispatchSupportTask } from './supportGateway';
 /**
  * AXiM Coding Lab - Enterprise Service Layer (V3)
  * Orchestrates the "Organizational Brain", Multi-Agent Swarms, and Knowledge Injection.
@@ -857,6 +858,30 @@ export const labService = {
     }
   },
 
+
+  fetchDlqStats: async () => {
+    try {
+      const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+      const statsUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/dlq/stats');
+
+      const response = await fetch(statsUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch DLQ stats: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (err) {
+      console.error('Exception fetching DLQ stats:', err);
+      return { status: "error", pending_count: 0 };
+    }
+  },
+
   triggerDlqSweep: async () => {
     try {
       const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
@@ -894,6 +919,23 @@ export const labService = {
     } catch (err) {
       console.error('Exception triggering DLQ sweep:', err);
       return { success: false, error: err.message };
+    }
+  },
+
+
+  requestPrReview: async ({ owner, repo, prNumber, taskId }) => {
+    try {
+      const response = await dispatchSupportTask({
+        operation: 'PR_CODE_REVIEW',
+        repository_owner: owner,
+        repository_name: repo,
+        pr_number: prNumber,
+        task_id: taskId
+      });
+      return response;
+    } catch (err) {
+      console.error('Exception requesting PR review:', err);
+      throw err;
     }
   },
 

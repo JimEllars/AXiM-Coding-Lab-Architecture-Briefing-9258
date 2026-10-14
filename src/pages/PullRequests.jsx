@@ -168,7 +168,7 @@ const PullRequests = () => {
               </div>
 
               {/* Tabs */}
-              <div className="flex gap-1 p-1 bg-[#0a0f1c] border border-gray-800 rounded-lg w-fit shrink-0">
+              <div className="flex gap-1 p-1 bg-[#0a0f1c] border border-gray-800 rounded-lg w-full shrink-0 items-center">
                 <button 
                   onClick={() => setView('diff')}
                   className={`px-4 py-1.5 rounded text-xs font-medium transition-all ${view === 'diff' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
@@ -185,6 +185,27 @@ const PullRequests = () => {
                       {selectedTask.context?.comments.length}
                     </span>
                   )}
+                </button>
+
+                <button
+                  onClick={async () => {
+                    try {
+                      const repoParts = (selectedTask.repository || '').split('/');
+                      const owner = selectedTask.repository_owner || (repoParts.length > 1 ? repoParts[0] : 'axim-organization');
+                      const repo = selectedTask.repository_name || (repoParts.length > 1 ? repoParts[1] : selectedTask.repository || 'unknown');
+                      // Note: We might not have prNumber directly, relying on task context/metadata if available, or just sending taskId
+                      await labService.requestPrReview({ owner, repo, prNumber: selectedTask.context?.pr_number || selectedTask.pr_number, taskId: selectedTask.id });
+                      setMergeToast('AI PR Review Requested Successfully');
+                      setTimeout(() => setMergeToast(null), 3000);
+                    } catch (err) {
+                      setMergeToast('Failed to Request AI PR Review');
+                      setTimeout(() => setMergeToast(null), 3000);
+                    }
+                  }}
+                  className="px-4 py-1.5 rounded text-xs font-medium transition-all text-blue-400 hover:text-blue-300 flex items-center gap-2 border border-blue-400/20 bg-blue-400/5 hover:bg-blue-400/10 ml-auto"
+                >
+                  <SafeIcon name="Cpu" className="text-[12px]" />
+                  Request AI Code Review
                 </button>
               </div>
               
