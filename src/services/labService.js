@@ -821,6 +821,21 @@ export const labService = {
     }
   },
 
+
+  fetchFilePreview: async (owner, repo, path, branch = 'main') => {
+    try {
+      const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      }
+      return await response.text();
+    } catch (err) {
+      console.error('Error fetching file preview:', err);
+      return `Error loading file preview: ${err.message}`;
+    }
+  },
+
   getAuditLogs: async () => {
     try {
       const { data, error } = await supabase.from('coding_tasks_errors').select('*').order('created_at', { ascending: false });
