@@ -19,12 +19,24 @@ const addSystemLog = (log) => {
   sessionStorage.setItem('axim_system_logs', JSON.stringify(SYSTEM_LOGS));
 };
 
-let AGENTS = [
+const FALLBACK_AGENTS = [
   { id: 'AXIM-CODER-01', name: 'AXiM Coder Core', role: 'Internal Autonomous Engineer', status: 'Active', model: 'Multi-Model (Claude/DeepSeek)', capabilities: ['Ecosystem Tasks', 'PR Sweeping', 'Edge Generation'], uptime: '100%', tasks_completed: 450, isPrimary: true },
-    { id: 'ONYX-01', name: 'Onyx Architect', role: 'System Design', status: 'Idle', model: 'DeepSeek-V2-Chat', capabilities: ['AST Parsing', 'Dependency Mapping'], uptime: '99.9%', tasks_completed: 142 },
+  { id: 'ONYX-01', name: 'Onyx Architect', role: 'System Design', status: 'Idle', model: 'DeepSeek-V2-Chat', capabilities: ['AST Parsing', 'Dependency Mapping'], uptime: '99.9%', tasks_completed: 142 },
   { id: 'ASGUARD-01', name: 'Asguard Sentry', role: 'SecOps Patching', status: 'Active', model: 'GPT-4o', capabilities: ['Vulnerability Scan', 'Sanitization'], uptime: '100%', tasks_completed: 89 },
   { id: 'KRONOS-01', name: 'Kronos DevOps', role: 'CI/CD Automation', status: 'Idle', model: 'Claude-3.5', capabilities: ['Wrangler Deploy', 'Workflow Gen'], uptime: '99.8%', tasks_completed: 215 }
 ];
+
+let CACHED_AGENTS = null;
+const fetchAgents = async () => {
+  try {
+    const { data, error } = await supabase.from('platform_agents').select('*');
+    if (error || !data || data.length === 0) return FALLBACK_AGENTS;
+    return data;
+  } catch (err) {
+    console.warn('Failed to fetch platform agents, falling back', err);
+    return FALLBACK_AGENTS;
+  }
+};
 
 // Initialize Realtime Sync
 let channel;
@@ -324,7 +336,11 @@ export const labService = {
     return data || [];
   },
 
-  getAgents: () => Promise.resolve([...AGENTS]),
+  getAgents: async () => {
+    if (CACHED_AGENTS) return CACHED_AGENTS;
+    CACHED_AGENTS = await fetchAgents();
+    return CACHED_AGENTS;
+  },
   
   getOrgStats: () => Promise.resolve({
     totalNodes: 142,
@@ -356,6 +372,32 @@ export const labService = {
     const allKnowledge = await labService.getKnowledge();
     broadcast({ type: 'KNOWLEDGE_UPDATED', knowledge: allKnowledge });
 
+    return data;
+  },
+
+  deleteNote: async (id) => {
+    const { error } = await supabase.from('knowledge_nodes').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting knowledge node:', error);
+      return false;
+    }
+    const allKnowledge = await labService.getKnowledge();
+    broadcast({ type: 'KNOWLEDGE_UPDATED', knowledge: allKnowledge });
+    return true;
+  },
+
+  updateNote: async (id, updates) => {
+    const { data, error } = await supabase
+      .from('knowledge_nodes')
+      .update({ ...updates, lastUpdated: 'Just now' })
+      .eq('id', id)
+      .select().single();
+    if (error) {
+      console.error('Error updating knowledge node:', error);
+      return null;
+    }
+    const allKnowledge = await labService.getKnowledge();
+    broadcast({ type: 'KNOWLEDGE_UPDATED', knowledge: allKnowledge });
     return data;
   },
 
@@ -433,7 +475,17 @@ export const labService = {
     }
     broadcast({ type: 'REASONING_START', taskId, prompt: payload.instruction_prompt });
 
-    const agent = AGENTS[Math.floor(Math.random() * AGENTS.length)];
+    let agentList = CACHED_AGENTS || FALLBACK_AGENTS;
+    let agent;
+
+    if (payload.assigned_model && payload.assigned_model.toLowerCase().includes('claude')) {
+      agent = agentList.find(a => a.role === 'CI/CD Automation' || a.role === 'System Design' || a.name === 'Onyx Architect') || agentList[0];
+    } else if (payload.origin_source === 'Asguard_WAF') {
+      agent = agentList.find(a => a.role === 'SecOps Patching') || agentList[0];
+    } else {
+      agent = agentList.find(a => a.name === 'AXiM Coder Core') || agentList[0];
+    }
+    if (!agent) agent = FALLBACK_AGENTS[0];
     
     const steps = [
       { t: `[INGRESS] Transmitting payload to edge router...`, delay: 100 },

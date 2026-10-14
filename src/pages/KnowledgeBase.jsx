@@ -9,6 +9,7 @@ const KnowledgeBase = () => {
   const [search, setSearch] = useState('');
   const [newNote, setNewNote] = useState({ title: '', content: '', category: 'General', tags: '' });
   const [activeCategory, setActiveCategory] = useState('All');
+  const [editingNote, setEditingNote] = useState(null);
 
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);
@@ -19,12 +20,43 @@ const KnowledgeBase = () => {
 
   const handleSave = async () => {
     if (!newNote.title || !newNote.content) return;
-    await labService.addNote({
-      ...newNote,
-      tags: newNote.tags.split(',').map(t => t.trim()).filter(t => t)
-    });
+
+    const tagsArray = typeof newNote.tags === 'string'
+      ? newNote.tags.split(',').map(t => t.trim()).filter(t => t)
+      : newNote.tags;
+
+    if (editingNote) {
+      await labService.updateNote(editingNote.id, {
+        title: newNote.title,
+        content: newNote.content,
+        category: newNote.category,
+        tags: tagsArray
+      });
+      setEditingNote(null);
+    } else {
+      await labService.addNote({
+        ...newNote,
+        tags: tagsArray
+      });
+    }
+
     setNewNote({ title: '', content: '', category: 'General', tags: '' });
     setIsAdding(false);
+  };
+
+  const handleEdit = (item) => {
+    setEditingNote(item);
+    setNewNote({
+      title: item.title,
+      content: item.content,
+      category: item.category || 'General',
+      tags: item.tags ? item.tags.join(', ') : ''
+    });
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id) => {
+    await labService.deleteNote(id);
   };
 
   const filtered = knowledge.filter(k => {
@@ -92,7 +124,7 @@ const KnowledgeBase = () => {
             >
               <div className="flex items-center gap-2 text-blue-400 mb-2">
                 <SafeIcon name="Plus" />
-                <span className="text-xs font-bold uppercase tracking-widest font-mono">Create_Knowledge_Node</span>
+                <span className="text-xs font-bold uppercase tracking-widest font-mono">{editingNote ? 'Edit_Knowledge_Node' : 'Create_Knowledge_Node'}</span>
               </div>
               <input 
                 placeholder="Title (e.g., API Error Handling)" 
@@ -129,8 +161,8 @@ const KnowledgeBase = () => {
                 className="w-full bg-[#111827] border border-gray-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none font-mono"
               />
               <div className="flex gap-3 pt-2">
-                <button onClick={handleSave} className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-500 transition-colors">Commit Node</button>
-                <button onClick={() => setIsAdding(false)} className="flex-1 py-2.5 bg-gray-800 text-gray-400 rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors">Discard</button>
+                <button onClick={handleSave} className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-500 transition-colors">{editingNote ? 'Update Node' : 'Commit Node'}</button>
+                <button onClick={() => { setIsAdding(false); setEditingNote(null); setNewNote({ title: '', content: '', category: 'General', tags: '' }); }} className="flex-1 py-2.5 bg-gray-800 text-gray-400 rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors">Discard</button>
               </div>
             </motion.div>
           )}
@@ -168,9 +200,14 @@ const KnowledgeBase = () => {
                 <SafeIcon name="User" className="text-xs" />
                 <span>{item.author}</span>
               </div>
-              <button className="text-xs text-gray-500 hover:text-blue-400 transition-colors">
-                <SafeIcon name="Edit" />
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => handleEdit(item)} className="text-xs text-gray-500 hover:text-blue-400 transition-colors">
+                  <SafeIcon name="Edit" />
+                </button>
+                <button onClick={() => handleDelete(item.id)} className="text-xs text-gray-500 hover:text-red-400 transition-colors">
+                  <SafeIcon name="Trash" />
+                </button>
+              </div>
             </div>
           </motion.div>
         ))}
