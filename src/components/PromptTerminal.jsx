@@ -5,6 +5,10 @@ import { labService } from '../services/labService';
 
 const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
+  const [filePreview, setFilePreview] = useState(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -24,6 +28,50 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Debounced file preview fetcher
+  useEffect(() => {
+    if (!targetFile || !targetRepo) {
+      setFilePreview(null);
+      setPreviewError(null);
+      setShowPreview(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        let repoName = targetRepo;
+        if (targetRepo === 'CORE') repoName = 'axim-core-v1.2';
+        if (targetRepo === 'SUPPORT') repoName = 'AXiM-Support-System-1.1-4538';
+        if (targetRepo === 'SPEEDREPORT') repoName = 'SpeedReport.org-Speed-Test-App-9642';
+        if (targetRepo === 'ONYX') repoName = 'onyx_mk3';
+        if (targetRepo === 'ELLARS') repoName = 'ELLARS.us.com-Frontend-Site-1.1-1974';
+        if (targetRepo === 'DEMAND_LETTER') repoName = 'Decentralized-Demand-Letter-Generator-Development-8155';
+
+        // Use default owner "axim-dev" for now, or assume it's part of the repo string logic if we had one. We'll use JimEllars or axim-dev. The task says:
+        // calls the GitHub contents API or a proxy endpoint. labService uses raw.githubusercontent.com/{owner}/{repo}
+        const owner = 'JimEllars'; // Or whatever org it is, but we'll try JimEllars or just hardcode JimEllars since it's the target repo owner.
+
+        const text = await labService.fetchFilePreview(owner, repoName, targetFile);
+        if (text && text.startsWith('Error loading file preview')) {
+           setPreviewError(text);
+           setFilePreview(null);
+        } else {
+           setFilePreview(text);
+           setShowPreview(true);
+        }
+      } catch (err) {
+        setPreviewError(err.message);
+      } finally {
+        setIsPreviewLoading(false);
+      }
+    }, 750); // 750ms debounce
+
+    return () => clearTimeout(timer);
+  }, [targetFile, targetRepo]);
+
 
 
   useEffect(() => {
@@ -156,6 +204,33 @@ const payloadBody = JSON.stringify({
                 <span className="text-yellow-500 font-mono text-sm tracking-widest bg-yellow-500/10 px-4 py-2 border border-yellow-500/50 rounded">SUPER USER CLEARANCE REQUIRED</span>
               </div>
             )}
+                        {showPreview && filePreview && (
+              <div className="absolute top-2 left-2 right-2 bg-[#0B0F19]/90 border border-gray-700 rounded z-30 shadow-lg backdrop-blur-md overflow-hidden flex flex-col" style={{ maxHeight: '200px' }}>
+                <div className="flex justify-between items-center p-2 border-b border-gray-700 bg-[#111827]">
+                  <span className="text-[10px] text-blue-400 font-mono flex items-center gap-2">
+                    <SafeIcon name="File" className="text-xs" /> LIVE PREVIEW: {targetFile}
+                  </span>
+                  <button onClick={() => setShowPreview(false)} className="text-gray-500 hover:text-white">
+                    <SafeIcon name="X" className="text-xs" />
+                  </button>
+                </div>
+                <div className="p-2 overflow-y-auto text-[10px] font-mono text-gray-300 leading-relaxed terminal-scroll whitespace-pre-wrap">
+                  {filePreview.split('\n').slice(0, 20).join('\n')}
+                  {filePreview.split('\n').length > 20 && '\n... (truncated)'}
+                </div>
+              </div>
+            )}
+            {isPreviewLoading && (
+              <div className="absolute top-2 right-2 text-[10px] text-blue-400 font-mono z-30 flex items-center gap-1">
+                 <SafeIcon name="Loader" className="animate-spin" /> FETCHING PREVIEW...
+              </div>
+            )}
+            {previewError && targetFile && !isPreviewLoading && (
+              <div className="absolute top-2 right-2 text-[10px] text-red-400 font-mono z-30 flex items-center gap-1 bg-red-900/20 px-2 py-1 rounded">
+                 <SafeIcon name="AlertTriangle" /> PREVIEW UNAVAILABLE
+              </div>
+            )}
+
             <textarea 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

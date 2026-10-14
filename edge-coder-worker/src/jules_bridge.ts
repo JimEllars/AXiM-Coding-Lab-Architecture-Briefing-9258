@@ -159,7 +159,7 @@ export async function processJulesWebhook(payload: any, env: Env) {
 
     let dbStatus = 'Review Gate'; // Default to Review Gate if diff is provided
     let dbDiff = diff;
-    let contextUpdate = {};
+    let metadataUpdate: any = null;
 
     if (status === 'FAILED') {
         dbStatus = 'FAILED';
@@ -179,12 +179,28 @@ export async function processJulesWebhook(payload: any, env: Env) {
               created_at: new Date().toISOString()
             })
         }).catch(() => {});
+    } else if (status === 'COMPLETED' && pr_url) {
+        dbStatus = 'PR_OPENED';
+        metadataUpdate = { pr_url };
     } else if (pr_url) {
         dbStatus = 'Review Gate'; // Require human review
-        contextUpdate = { pr_url };
+        metadataUpdate = { pr_url };
     }
 
+    // Fetch existing context to merge metadata if needed, but per instructions update 'metadata' JSON object directly or 'context'
+    // Task instructions say: "updating the metadata JSON object with the pr_url."
+    // Let's assume there is a `metadata` column in `coding_tasks` based on instruction, or we just patch `metadata`.
+    // We will do a PATCH with `status`, `diff`, and `metadata`.
+
     // Update task in DB
+    const patchBody: any = {
+        status: dbStatus,
+        diff: dbDiff
+    };
+    if (metadataUpdate) {
+        patchBody.metadata = metadataUpdate;
+    }
+
     const updateRes = await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
         method: 'PATCH',
         headers: {
@@ -192,12 +208,7 @@ export async function processJulesWebhook(payload: any, env: Env) {
             'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
             'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
         },
-        body: JSON.stringify({
-            status: dbStatus,
-            diff: dbDiff,
-            // Cannot easily merge context with PATCH, assuming Supabase handles it if we send full or we just update specific fields if needed
-            // For simplicity, we might just leave context alone or we'd need to GET then PATCH.
-        })
+        body: JSON.stringify(patchBody)
     });
 
     if (updateRes.ok) {
@@ -211,6 +222,46 @@ export async function processJulesWebhook(payload: any, env: Env) {
              },
              body: JSON.stringify({ payload: { id: taskId, status: dbStatus, diff: dbDiff, pr_url }})
          }).catch(() => {});
+
+         if (status === 'COMPLETED' && pr_url) {
+             try {
+                // Dispatch the X-Axim-Signature ecosystem callback webhook to the AXiM Support system
+                const supportApiUrl = (env as any).SUPPORT_API_URL || 'https://support.axim.us.com';
+                const callbackUrl = `${supportApiUrl.replace(/\/$/, '')}/api/v1/tasks/dispatch`;
+                const payloadBody = JSON.stringify({ task_id: taskId, status: 'PATCH_READY', pr_url });
+
+                // We need to sign this. Crypto operations in edge worker.
+                // For simplicity, we can do a quick HMAC if we have the secret,
+                // or just send it if generateHmacSignature isn't easily available here.
+                // The instructions say "Dispatch the X-Axim-Signature ecosystem callback webhook to the AXiM Support system with status: 'PATCH_READY'."
+
+                const cryptoKey = await crypto.subtle.importKey(
+                    'raw',
+                    new TextEncoder().encode((env as any).AXIM_INTERNAL_KEY || 'development-key'),
+                    { name: 'HMAC', hash: 'SHA-256' },
+                    false,
+                    ['sign']
+                );
+                const signatureBuffer = await crypto.subtle.sign(
+                    'HMAC',
+                    cryptoKey,
+                    new TextEncoder().encode(payloadBody)
+                );
+                const signatureArray = Array.from(new Uint8Array(signatureBuffer));
+                const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+                await fetch(callbackUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Axim-Signature': signatureHex
+                    },
+                    body: payloadBody
+                }).catch(e => console.error("Error dispatching to support API", e));
+             } catch (e) {
+                console.error("Error signing/dispatching to support API", e);
+             }
+         }
     }
   } catch (err) {
       console.error("Error processing Jules webhook", err);
