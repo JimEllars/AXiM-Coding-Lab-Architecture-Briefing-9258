@@ -16,11 +16,19 @@ const Repositories = () => {
   const [scaffoldError, setScaffoldError] = useState('');
 
   useEffect(() => {
-    labService.getRepositories().then(setRepos);
+    labService.getRepositories().then(fetchedRepos => {
+      if (fetchedRepos && fetchedRepos.length > 0) {
+        setRepos(fetchedRepos);
+      }
+    });
 
     const handleEvent = (event) => {
       if (event.type === 'TASKS_UPDATED') {
-        labService.getRepositories().then(setRepos);
+        labService.getRepositories().then(fetchedRepos => {
+          if (fetchedRepos && fetchedRepos.length > 0) {
+            setRepos(fetchedRepos);
+          }
+        });
       }
     };
 

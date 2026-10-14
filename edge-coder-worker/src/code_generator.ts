@@ -256,7 +256,22 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'complete' }));
     const depsContext = await fetchRepositoryDependencies(githubCtx, env);
 
-    const promptBody = `### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${currentFile.content}`;
+    let organizationalContext = "";
+    if (task.contextIds && task.contextIds.length > 0) {
+      const idsQuery = task.contextIds.map((id: any) => `"${id}"`).join(',');
+      const knowledgeRes = await fetch(`${env.SUPABASE_URL}/rest/v1/knowledge_nodes?id=in.(${idsQuery})`, {
+        headers: {
+          'apikey': env.SUPABASE_SECRET_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`
+        }
+      });
+      if (knowledgeRes.ok) {
+        const nodes: any = await knowledgeRes.json();
+        organizationalContext = nodes.map((n: any) => `[Org Rule: ${n.title}] ${n.content}`).join('\n');
+      }
+    }
+
+    const promptBody = `### Organizational Knowledge / Rules:\n${organizationalContext}\n\n### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${currentFile.content}`;
 
     const active_model = (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder';
     await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Generating patch via ' + active_model + '...', status: 'complete' }));
@@ -269,6 +284,12 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
       active_model
     );
     let modifiedCode = generatedCode;
+
+    const currentLock = await env.TASK_LOCKS.get(`lock:${taskId}`);
+    if (!currentLock) {
+      await sendEvent('log', '[ABORT] Task lock evicted by administrator. Halting pipeline before Git commit.');
+      throw new Error('Task was forcefully evicted. Pipeline aborted.');
+    }
 
     await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'complete' }));
     const syntaxCheck = validateCodeSyntax(modifiedCode, path);
