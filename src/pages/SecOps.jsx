@@ -20,6 +20,11 @@ const SecOps = () => {
     }});
   };
 
+
+  const criticalCount = incidents.filter(i => i.severity === 'CRITICAL' && i.status !== 'RESOLVED').length;
+  const highCount = incidents.filter(i => i.severity === 'HIGH' && i.status !== 'RESOLVED').length;
+  const resolvedCount = incidents.filter(i => i.status === 'RESOLVED').length;
+
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
@@ -36,9 +41,9 @@ const SecOps = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <SeverityCard label="CRITICAL" count={1} color="red" />
-        <SeverityCard label="HIGH" count={1} color="orange" />
-        <SeverityCard label="TOTAL_RESOLVED" count={142} color="green" />
+        <SeverityCard label="CRITICAL" count={criticalCount} color="red" />
+        <SeverityCard label="HIGH" count={highCount} color="orange" />
+        <SeverityCard label="TOTAL_RESOLVED" count={resolvedCount} color="green" />
       </div>
 
       <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">

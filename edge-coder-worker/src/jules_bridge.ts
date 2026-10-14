@@ -126,9 +126,30 @@ export async function dispatchToJulesAgent(payload: { repoOwner: string, repoNam
             body: JSON.stringify({ payload: { id: payload.taskId, status: 'DELEGATED_TO_EXTERNAL', session_id: sessionId }})
         }).catch(() => {});
     }
-  } catch (err) {
+
+  } catch (err: any) {
     console.error('Exception logging to Supabase', err);
+    // Graceful degradation: Fail the task in the database so it doesn't hang indefinitely
+    try {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${payload.taskId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+          'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
+        },
+        body: JSON.stringify({
+          status: 'FAILED',
+          context: {
+             note: 'External Jules API failure (outage). Agent delegation aborted.'
+          }
+        })
+      });
+    } catch (patchErr) {
+       console.error('Failed to gracefully degrade Jules API outage to task failure', patchErr);
+    }
   }
+
 
   return data;
 }

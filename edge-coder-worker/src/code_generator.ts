@@ -159,6 +159,26 @@ async function logLabFaultToCore(taskId: string, error: any, env: Env): Promise<
   }
 }
 
+
+export function sanitizeVulnerabilityVectors(code: string): { safe: boolean; error?: string } {
+  // Regex check for obvious raw unescaped variable concatenations often injected by LLMs into SQL template strings
+  // Example: `SELECT * FROM users WHERE id = ${id}`
+  // We check for `.*SELECT.*\$\{.*\}.*` inside backticks or similar patterns for basic SQL injection vectors
+  const sqlInjectionPattern = /`\s*(SELECT|INSERT|UPDATE|DELETE).+?\$\{.+?\}.*?`/i;
+
+  if (sqlInjectionPattern.test(code)) {
+    return { safe: false, error: 'Detected potential SQL injection vector: Unescaped variable concatenation in template string.' };
+  }
+
+  // Generic concatenated SQL pattern: "SELECT * FROM " + var
+  const stringConcatInjection = /["']\s*(SELECT|INSERT|UPDATE|DELETE).+?["']\s*\+/i;
+  if (stringConcatInjection.test(code)) {
+     return { safe: false, error: 'Detected potential SQL injection vector: String concatenation in SQL query.' };
+  }
+
+  return { safe: true };
+}
+
 export function validateCodeSyntax(code: string, filePath: string): { valid: boolean; error?: string } {
   const isPython = filePath.endsWith('.py');
   const isJS = filePath.endsWith('.js') || filePath.endsWith('.ts') || filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
@@ -305,6 +325,16 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
         active_model
       );
       modifiedCode = retryResult.code;
+    }
+
+
+    if (task.origin_source === 'Asguard_WAF') {
+      await sendEvent('reasoning_step', JSON.stringify({ step: 4.5, title: '[SEC_SWEEP]', content: 'Executing pre-commit vulnerability sanitization...', status: 'complete' }));
+      const secCheck = sanitizeVulnerabilityVectors(modifiedCode);
+      if (!secCheck.safe) {
+        console.warn(`[AUTONOMOUS_CODER] Security vulnerability detected in generated code: ${secCheck.error}`);
+        throw new Error(`Pre-commit security validation failed: ${secCheck.error}`);
+      }
     }
 
     const branchName = `axim-bot/ticket-${taskId.substring(0,8)}`;
