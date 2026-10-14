@@ -8,8 +8,47 @@ const Topology = () => {
   const [selectedNode, setSelectedNode] = useState(null);
   const [filterActive, setFilterActive] = useState(false);
 
+  const [edgeStats, setEdgeStats] = useState(null);
+
   useEffect(() => {
-    labService.getRepositories().then(setRepos);
+    const fetchTopologyData = async () => {
+      const edgeData = await labService.fetchEdgeTelemetry();
+      setEdgeStats(edgeData);
+
+      // Construct nodes based on live telemetry
+      const nodes = [
+        {
+          id: 'cloudflare-worker',
+          name: 'Cloudflare Worker',
+          health: edgeData ? 100 : 0,
+          activeSwarm: true,
+          dependencies: ['supabase-db'],
+          latency: edgeData ? `${edgeData.average_latency || 0}ms` : 'N/A'
+        },
+        {
+          id: 'passport-sso',
+          name: 'Passport SSO Proxy',
+          health: 100, // Assuming generally healthy
+          activeSwarm: false,
+          dependencies: ['cloudflare-worker'],
+          latency: 'N/A'
+        },
+        {
+          id: 'supabase-db',
+          name: 'Supabase Database',
+          health: 100,
+          activeSwarm: false,
+          dependencies: [],
+          latency: 'N/A'
+        }
+      ];
+      setRepos(nodes);
+    };
+
+    fetchTopologyData();
+    // Refresh every 10s
+    const interval = setInterval(fetchTopologyData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -85,6 +124,12 @@ const Topology = () => {
                 <Stat label="HEALTH" value={`${selectedNode.health}%`} color="green" />
                 <Stat label="SWARM_STATUS" value={selectedNode.activeSwarm ? 'ACTIVE' : 'STANDBY'} color={selectedNode.activeSwarm ? 'blue' : 'gray'} />
                 
+                {selectedNode.latency && (
+                  <Stat label="LATENCY" value={selectedNode.latency} color="blue" />
+                )}
+                {selectedNode.id === 'cloudflare-worker' && edgeStats && (
+                  <Stat label="ACTIVE EDGE LOCKS" value={edgeStats.dlq_pending_count || 0} color="yellow" />
+                )}
                 <div className="pt-4 border-t border-slate-800">
                   <p className="text-[10px] text-gray-400 font-mono uppercase mb-2">Dependencies</p>
                   <div className="flex flex-wrap gap-2">
