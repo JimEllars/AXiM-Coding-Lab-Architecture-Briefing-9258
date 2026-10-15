@@ -13,6 +13,7 @@ const Topology = () => {
   useEffect(() => {
     const fetchTopologyData = async () => {
       const edgeData = await labService.fetchEdgeTelemetry();
+      const integrationHealth = await labService.fetchIntegrationHealth();
       setEdgeStats(edgeData);
 
       // Construct nodes based on live telemetry
@@ -22,7 +23,7 @@ const Topology = () => {
           name: 'Cloudflare Worker',
           health: edgeData ? 100 : 0,
           activeSwarm: true,
-          dependencies: ['supabase-db'],
+          dependencies: ['supabase-db', 'github-bridge', 'llm-proxy'],
           latency: edgeData ? `${edgeData.average_latency || 0}ms` : 'N/A'
         },
         {
@@ -40,6 +41,22 @@ const Topology = () => {
           activeSwarm: false,
           dependencies: [],
           latency: 'N/A'
+        },
+        {
+          id: 'github-bridge',
+          name: 'GitHub API Bridge',
+          health: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 100 : (integrationHealth.github.status === 'Degraded' ? 50 : 0)) : 0,
+          activeSwarm: false,
+          dependencies: [],
+          latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : 'N/A'
+        },
+        {
+          id: 'llm-proxy',
+          name: 'Core LLM Proxy',
+          health: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 100 : (integrationHealth.llm.status === 'Degraded' ? 50 : 0)) : 0,
+          activeSwarm: false,
+          dependencies: [],
+          latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : 'N/A'
         }
       ];
       setRepos(nodes);

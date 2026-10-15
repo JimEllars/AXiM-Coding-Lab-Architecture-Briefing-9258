@@ -4,9 +4,35 @@ import { labService } from '../services/labService';
 
 const SwarmLogConsole = () => {
   const [logs, setLogs] = useState([]);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [filter, setFilter] = useState('ALL'); // ALL, INFO, WARN, ERROR, AI_AGENT
+  const [autoScroll, setAutoScroll] = useState(() => {
+    const saved = localStorage.getItem('axim_swarm_log_prefs');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.autoScroll !== undefined ? parsed.autoScroll : true;
+      } catch (e) {
+        return true;
+      }
+    }
+    return true;
+  });
+  const [filter, setFilter] = useState(() => {
+    const saved = localStorage.getItem('axim_swarm_log_prefs');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.filter || 'ALL';
+      } catch (e) {
+        return 'ALL';
+      }
+    }
+    return 'ALL'; // ALL, INFO, WARN, ERROR, AI_AGENT
+  });
   const scrollRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem('axim_swarm_log_prefs', JSON.stringify({ autoScroll, filter }));
+  }, [autoScroll, filter]);
 
   useEffect(() => {
     const handleClear = () => setLogs([]);

@@ -463,6 +463,34 @@ export default {
               }
             }
 
+
+            if (request.method === 'GET' && url.pathname === '/api/v1/health/integrations') {
+              const startGithub = Date.now();
+              const startLlm = Date.now();
+
+              const results = await Promise.allSettled([
+                fetch('https://api.github.com/zen', { headers: { 'User-Agent': 'AXiM-Labs', 'Authorization': `Bearer ${env.GITHUB_TOKEN}` } }),
+                fetch(env.SUPABASE_LLM_PROXY_URL, { method: 'OPTIONS' })
+              ]);
+
+              const githubLatency = Date.now() - startGithub;
+              const llmLatency = Date.now() - startLlm;
+
+              const githubRes = results[0];
+              const llmRes = results[1];
+
+              const githubStatus = githubRes.status === 'fulfilled' && githubRes.value.ok ? 'Nominal' : 'Degraded';
+              const llmStatus = llmRes.status === 'fulfilled' && llmRes.value.ok ? 'Nominal' : 'Degraded';
+
+              return new Response(JSON.stringify({
+                github: { status: githubStatus, latencyMs: githubLatency },
+                llm: { status: llmStatus, latencyMs: llmLatency }
+              }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+              });
+            }
+
             if (request.method === 'GET' && url.pathname === '/api/v1/health') {
               return new Response(JSON.stringify({
                 LAB_STATE: !!env.LAB_STATE,

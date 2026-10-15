@@ -705,10 +705,27 @@ export const labService = {
     }
   },
 
+  fetchIntegrationHealth: async () => {
+    try {
+      const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';
+      if (!workerUrl) return { github: null, llm: null };
+
+      const res = await fetch(`${workerUrl}/api/v1/health/integrations`);
+      if (res.ok) {
+        return await res.json();
+      }
+      return { github: null, llm: null };
+    } catch (e) {
+      console.warn('Failed to fetch integration health:', e);
+      return { github: null, llm: null };
+    }
+  },
+
   getTelemetryData: async (timeWindow = '7d') => {
     try {
       const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';
       let edgeData = null;
+      let integrationHealth = { github: null, llm: null };
       if (workerUrl) {
           try {
              const res = await fetch(`${workerUrl}/api/telemetry/stats?window=${timeWindow}`);
@@ -718,6 +735,7 @@ export const labService = {
           } catch (e) {
              console.warn('Failed to fetch from worker telemetry API. Falling back to DB...', e);
           }
+          integrationHealth = await labService.fetchIntegrationHealth();
       }
 
       // Basic analytical grouping query over api_usage_logs
@@ -732,8 +750,8 @@ export const labService = {
           dateLabels: [],
           tokenUsage: [],
           nodeHealth: [
-            { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
-            { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+            { name: 'Core LLM Proxy', status: integrationHealth?.llm ? integrationHealth.llm.status : 'Unknown', latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : '-', color: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 'green' : 'yellow') : 'blue' },
+            { name: 'GitHub API Bridge', status: integrationHealth?.github ? integrationHealth.github.status : 'Unknown', latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : '-', color: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 'green' : 'yellow') : 'blue' },
             { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
             { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
           ],
@@ -795,8 +813,8 @@ export const labService = {
         dateLabels,
         tokenUsage,
         nodeHealth: [
-          { name: 'Core LLM Proxy', status: 'Operational', latency: 'N/A', color: 'green' },
-          { name: 'GitHub API Bridge', status: 'Nominal', latency: 'N/A', color: 'green' },
+          { name: 'Core LLM Proxy', status: integrationHealth?.llm ? integrationHealth.llm.status : 'Operational', latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : 'N/A', color: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 'green' : 'yellow') : 'green' },
+          { name: 'GitHub API Bridge', status: integrationHealth?.github ? integrationHealth.github.status : 'Nominal', latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : 'N/A', color: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 'green' : 'yellow') : 'green' },
           { name: 'Asguard SOC Ingress', status: 'Active', latency: 'N/A', color: 'green' },
           { name: 'Worker Analytics (Edge)', status: edgeData ? 'Active' : 'Degraded', latency: edgeData ? `${edgeData.average_latency}ms` : 'N/A', color: edgeData ? 'green' : 'yellow' }
         ],
