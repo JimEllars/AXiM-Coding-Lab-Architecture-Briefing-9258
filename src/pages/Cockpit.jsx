@@ -118,7 +118,7 @@ const Cockpit = () => {
                   <div key={ticket.id} className="p-3 rounded-lg bg-[#111726] border border-slate-800 text-[11px] text-gray-300">
                     <div className="flex justify-between items-center mb-2">
                        <span className="font-bold text-violet-300">{ticket.ticketId || ticket.id}</span>
-                       <span className="px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 font-mono text-[9px]">{ticket.status}</span>
+                       <span className={`px-1.5 py-0.5 rounded font-mono text-[9px] ${ticket.status === "FAILED" ? "bg-red-500/10 text-red-400" : "bg-violet-500/10 text-violet-400"}`}>{ticket.status}</span>
                     </div>
                     <p className="mb-3 truncate">{ticket.instruction_prompt || ticket.description || 'Automated Remediation'}</p>
                     <div className="flex items-center gap-1.5 text-[9px] font-mono text-gray-500 uppercase">
@@ -132,6 +132,14 @@ const Cockpit = () => {
                          <a href={ticket.pull_request_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">View PR</a>
                        )}
                        <button onClick={() => navigate('/prs', { state: { taskId: ticket.id, filePath: ticket.target_file_path } })} className="text-violet-400 hover:underline">Review Diff</button>
+                       {ticket.status === 'FAILED' && (
+                         <button onClick={async () => {
+                           await labService.triggerTask(ticket);
+                           alert('Retry swarm triggered.');
+                         }} className="text-orange-400 hover:underline ml-auto flex items-center gap-1">
+                           <SafeIcon name="RefreshCw" className="text-[10px]" /> Retry Swarm
+                         </button>
+                       )}
                     </div>
                   </div>
                 ))

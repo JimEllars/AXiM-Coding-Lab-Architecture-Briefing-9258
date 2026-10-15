@@ -15,7 +15,7 @@ const Telemetry = () => {
       const active = agents.filter(a => a.status === 'Active').length;
       setActiveAgentCount(active);
     });
-  }, []);
+  }, [timeWindow]);
 
   const [error, setError] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('OPERATING NORMALLY / CACHED');
@@ -38,7 +38,7 @@ const Telemetry = () => {
       active = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [timeWindow]);
 
 
 
@@ -62,7 +62,7 @@ const Telemetry = () => {
          if (status === 'ONLINE / REALTIME' || status === 'CACHED') {
             try {
               // Poll real stats API, labService.getTelemetryData now includes it
-              const metrics = payloadMetrics || await labService.getTelemetryData();
+              const metrics = payloadMetrics || await labService.getTelemetryData(timeWindow);
               if (metrics) {
                  setData(metrics);
                  if (metrics.edgeTelemetry) {
@@ -84,7 +84,7 @@ const Telemetry = () => {
       if (unsubscribePipeline) unsubscribePipeline();
       if (unsubscribeTelemetry) unsubscribeTelemetry();
     };
-  }, []);
+  }, [timeWindow]);
 
 if (!data) {
     return (
