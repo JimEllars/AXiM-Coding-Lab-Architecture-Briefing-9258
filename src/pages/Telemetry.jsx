@@ -99,9 +99,9 @@ if (!data) {
             <SafeIcon name="Zap" className="text-sm" />
             OPTIMIZED
           </div>
-          <div className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border ${connectionStatus === 'ONLINE / REALTIME' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+          <button onClick={() => labService.reconnectRealtime()} className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border cursor-pointer hover:opacity-80 transition-opacity ${connectionStatus === 'ONLINE / REALTIME' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800 text-gray-400 border-gray-700'}`} title="Force reconnect realtime websocket">
             {connectionStatus}
-          </div>
+          </button>
         </div>
         </div>
 
@@ -202,20 +202,26 @@ if (!data) {
                <SafeIcon name="Zap" className="text-sm" />
                OPTIMIZED
              </div>
-             {connectionStatus.includes('DEGRADED') || connectionStatus.includes('FALLBACK') || connectionStatus.includes('ERROR') ? (
-               <button
-                 onClick={() => labService.reconnectRealtime()}
-                 className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer`}
-               >
-                 <div className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></div>
-                 {connectionStatus} - CLICK TO RECONNECT
-               </button>
-             ) : (
-               <div className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest ${connectionStatus.includes('ONLINE') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
-                 <div className={`w-1.5 h-1.5 rounded-full ${connectionStatus.includes('ONLINE') ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></div>
-                 {connectionStatus}
-               </div>
-             )}
+             <button
+               onClick={() => labService.reconnectRealtime()}
+               className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest transition-colors cursor-pointer ${
+                 connectionStatus.includes('DEGRADED') || connectionStatus.includes('FALLBACK') || connectionStatus.includes('ERROR')
+                   ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+                   : connectionStatus.includes('ONLINE')
+                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                     : 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
+               }`}
+               title="Force reconnect realtime websocket"
+             >
+               <div className={`w-1.5 h-1.5 rounded-full ${
+                 connectionStatus.includes('DEGRADED') || connectionStatus.includes('FALLBACK') || connectionStatus.includes('ERROR')
+                   ? 'bg-rose-400 animate-pulse'
+                   : connectionStatus.includes('ONLINE')
+                     ? 'bg-emerald-400 animate-pulse'
+                     : 'bg-amber-400'
+               }`}></div>
+               {connectionStatus} - RECONNECT
+             </button>
           </div>
         </div>
       </div>
