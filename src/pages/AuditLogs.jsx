@@ -33,6 +33,8 @@ const AuditLogs = () => {
 
   const [filterSeverity, setFilterSeverity] = useState('ALL');
   const [filterTime, setFilterTime] = useState('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [actorFilter, setActorFilter] = useState('');
 
   const filteredLogs = logs.filter(log => {
     if (filterSeverity !== 'ALL' && log.status !== filterSeverity) return false;
@@ -44,6 +46,10 @@ const AuditLogs = () => {
       if (filterTime === '24H' && now - logDate > 86400000) return false;
       if (filterTime === '7D' && now - logDate > 604800000) return false;
     }
+
+    if (searchTerm && !(log.action || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (actorFilter && !(log.actor || '').toLowerCase().includes(actorFilter.toLowerCase())) return false;
+
     return true;
   });
 
@@ -91,6 +97,20 @@ const AuditLogs = () => {
 
 
       <div className="mb-4 flex gap-4">
+        <input
+          type="text"
+          placeholder="Search actions..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="bg-[#0a0f1c] border border-gray-800 text-gray-300 text-xs rounded px-3 py-1.5 focus:outline-none placeholder-gray-600"
+        />
+        <input
+          type="text"
+          placeholder="Filter by actor..."
+          value={actorFilter}
+          onChange={(e) => setActorFilter(e.target.value)}
+          className="bg-[#0a0f1c] border border-gray-800 text-gray-300 text-xs rounded px-3 py-1.5 focus:outline-none placeholder-gray-600"
+        />
         <select
           value={filterSeverity}
           onChange={(e) => setFilterSeverity(e.target.value)}

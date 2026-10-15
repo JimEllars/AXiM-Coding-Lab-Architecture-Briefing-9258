@@ -314,6 +314,10 @@ export const labService = {
   },
 
   disconnectRealtime,
+  reconnectRealtime: () => {
+    disconnectRealtime();
+    initializeRealtime();
+  },
   subscribe: (l) => {
     listeners.add(l);
     return () => listeners.delete(l);
