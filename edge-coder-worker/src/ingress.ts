@@ -777,8 +777,28 @@ export default {
                 });
               }
 
+
               const payloadText = await request.clone().text();
+
+              try {
+                const parsedPayload = JSON.parse(payloadText);
+                if (parsedPayload.timestamp) {
+                  const ts = typeof parsedPayload.timestamp === 'number' ? parsedPayload.timestamp : new Date(parsedPayload.timestamp).getTime();
+                  if (!isNaN(ts)) {
+                    const diff = Date.now() - ts;
+                    if (diff > 900000) {
+                      return new Response(JSON.stringify({ error: 'Invalid Jules Signature: Webhook expired' }), {
+                        status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                      });
+                    }
+                  }
+                }
+              } catch (e) {
+                 // ignore json parse error to let it fail later
+              }
+
               const isJulesVerified = await verifyHmacSignature(payloadText, julesSignature, env.JULES_API_KEY || env.AXIM_INTERNAL_KEY);
+
 
               if (!isJulesVerified) {
                 return new Response(JSON.stringify({ error: 'Invalid Jules Signature' }), {

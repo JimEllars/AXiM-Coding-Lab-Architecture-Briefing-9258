@@ -2,9 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { labService } from '../services/labService';
+import { isSuperUser } from '../lib/auth';
 import SafeIcon from '@/common/SafeIcon';
 
 const Repositories = () => {
+  const userEmail = localStorage.getItem('axim_user_email');
+  const canScaffold = userEmail && isSuperUser(userEmail);
   const [repos, setRepos] = useState([]);
   const [scanning, setScanning] = useState(null);
   const [isScaffoldModalOpen, setIsScaffoldModalOpen] = useState(false);
@@ -90,13 +93,15 @@ const Repositories = () => {
           <h1 className="text-2xl font-bold text-white tracking-tight">Ecosystem Repositories</h1>
           <p className="text-sm text-gray-400 mt-1">Managed Codebases & Autonomous Swarm Status</p>
         </div>
-        <button
-          onClick={() => setIsScaffoldModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)]"
-        >
-          <SafeIcon name="Plus" />
-          Connect Repository
-        </button>
+        {canScaffold && (
+          <button
+            onClick={() => setIsScaffoldModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)]"
+          >
+            <SafeIcon name="Plus" />
+            Connect Repository
+          </button>
+        )}
       </div>
 
       {repos.length === 0 ? (
@@ -177,7 +182,7 @@ const Repositories = () => {
 
       {/* Scaffolding Modal */}
       <AnimatePresence>
-        {isScaffoldModalOpen && (
+        {isScaffoldModalOpen && canScaffold && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}

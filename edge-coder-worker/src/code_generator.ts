@@ -248,6 +248,20 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
   return { valid: true };
 }
 
+
+export function prepareContextWindow(content: string, threshold: number = 32000): { content: string, truncated: boolean } {
+  if (content.length > threshold) {
+    return {
+      content: content.substring(0, threshold),
+      truncated: true
+    };
+  }
+  return {
+    content: content,
+    truncated: false
+  };
+}
+
 export async function executeAutonomousCodingTask(task: any, env: Env, writer?: any): Promise<void> {
   const startTime = Date.now();
 
@@ -273,6 +287,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} started for ${path}`);
     await sendEvent('reasoning_step', JSON.stringify({ step: 1, title: '[INGRESS]', content: 'Transmitting payload to edge router and fetching current file state...', status: 'complete' }));
     const currentFile = await fetchCurrentFileState(githubCtx, env);
+    const { content: contextContent, truncated } = prepareContextWindow(currentFile.content);
     await sendEvent('reasoning_step', JSON.stringify({ step: 2, title: '[BRAIN]', content: 'Injecting organizational context and fetching dependencies...', status: 'complete' }));
     const depsContext = await fetchRepositoryDependencies(githubCtx, env);
 
@@ -291,12 +306,12 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
       }
     }
 
-    const promptBody = `### Organizational Knowledge / Rules:\n${organizationalContext}\n\n### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${currentFile.content}`;
+    const promptBody = `### Organizational Knowledge / Rules:\n${organizationalContext}\n\n### Task: ${task.title}\n\n### Instructions:\n${task.instructions}\n\n### Code:\n${contextContent}`;
 
     const active_model = (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder';
     await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Generating patch via ' + active_model + '...', status: 'complete' }));
     const { code: generatedCode, providerUsed } = await requestCognitiveCodeGeneration(
-      currentFile.content,
+      contextContent,
       task.instructions,
       'Node.js Edge',
       depsContext,
@@ -317,7 +332,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
       console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
       const retryPrompt = `${task.instructions}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
       const retryResult = await requestCognitiveCodeGeneration(
-        currentFile.content,
+        contextContent,
         retryPrompt,
         'Node.js Edge',
         depsContext,
@@ -346,7 +361,10 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
 
     const prTitle = `[AXiM Coder] ${task.title}`;
-    const prBody = `## Autonomous Engineering Task: ${taskId}\n\n**Requested By:** ${task.requestedBy || 'System'}\n**Priority:** ${task.priority || 'Normal'}\n\n### Instructions\n${task.instructions}\n\n*Review diff and merge.*`;
+    let prBody = `## Autonomous Engineering Task: ${taskId}\n\n**Requested By:** ${task.requestedBy || 'System'}\n**Priority:** ${task.priority || 'Normal'}\n\n### Instructions\n${task.instructions}\n\n*Review diff and merge.*`;
+    if (truncated) {
+      prBody += `\n\n> ⚠️ **Notice:** The original file exceeded maximum context limits (32k tokens). The prompt context was automatically truncated before LLM generation. Please carefully review the patch for missing external dependencies.`;
+    }
     const prUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
 
     // Webhook Callbacks
