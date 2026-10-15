@@ -40,7 +40,7 @@ const CommandPalette = ({ isOpen, onClose }) => {
     { icon: 'Target', label: 'Ecosystem Topology', path: '/topology', shortcut: 'G T' },
     { icon: 'Activity', label: 'Swarm Telemetry', path: '/telemetry', shortcut: 'G L' },
     { icon: 'Settings', label: 'System Settings', path: '/settings', shortcut: 'G O' },
-    { icon: 'Database', label: 'Trigger DLQ Sweep', action: () => labService.triggerDlqSweep(), shortcut: 'A D' },
+    { icon: 'Database', label: 'Trigger DLQ Sweep', action: () => { labService.triggerDlqSweep(); alert('DLQ Sweep Triggered'); }, shortcut: 'A D' },
     { icon: 'RefreshCw', label: 'Clear System Cache & Reload', action: () => { sessionStorage.clear(); window.location.reload(); }, shortcut: 'A C' }
   ].filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
 

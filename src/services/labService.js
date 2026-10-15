@@ -316,7 +316,7 @@ export const labService = {
   disconnectRealtime,
   reconnectRealtime: () => {
     disconnectRealtime();
-    initializeRealtime();
+    setTimeout(() => initializeRealtime(), 500);
   },
   subscribe: (l) => {
     listeners.add(l);

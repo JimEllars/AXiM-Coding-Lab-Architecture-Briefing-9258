@@ -47,7 +47,7 @@ const AuditLogs = () => {
       if (filterTime === '7D' && now - logDate > 604800000) return false;
     }
 
-    if (searchTerm && !(log.action || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (searchTerm && !( (log.action || '').toLowerCase().includes(searchTerm.toLowerCase()) || (log.target || '').toLowerCase().includes(searchTerm.toLowerCase()) || (log.actor || '').toLowerCase().includes(searchTerm.toLowerCase()) )) return false;
     if (actorFilter && !(log.actor || '').toLowerCase().includes(actorFilter.toLowerCase())) return false;
 
     return true;
