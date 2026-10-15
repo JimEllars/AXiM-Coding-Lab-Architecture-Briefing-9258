@@ -310,10 +310,11 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
 
     const active_model = (task.priority === 'high' || (task.instructions && (task.instructions.toLowerCase().includes('refactor') || task.instructions.toLowerCase().includes('security')))) ? 'claude-3-5' : 'deepseek-coder';
     await sendEvent('reasoning_step', JSON.stringify({ step: 3, title: '[ANALYSIS]', content: 'Generating patch via ' + active_model + '...', status: 'complete' }));
+    const activeRuntime = task.runtime_env || task.context?.runtime_env || 'Node.js Edge';
     const { code: generatedCode, providerUsed } = await requestCognitiveCodeGeneration(
       contextContent,
       task.instructions,
-      'Node.js Edge',
+      activeRuntime,
       depsContext,
       env,
       active_model
@@ -334,7 +335,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
       const retryResult = await requestCognitiveCodeGeneration(
         contextContent,
         retryPrompt,
-        'Node.js Edge',
+        activeRuntime,
         depsContext,
         env,
         active_model
@@ -375,7 +376,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     step_count++;
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
-    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, 'Node.js Edge', 'auto');
+    await reportLabExecutionTelemetry(taskId, task.requestedBy || 'Autonomous', prUrl, env, undefined, undefined, activeRuntime, 'auto');
     pipelineSucceeded = true;
 
     const computeDurationMs = Date.now() - startTime;

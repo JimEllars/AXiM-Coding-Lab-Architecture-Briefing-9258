@@ -204,10 +204,11 @@ export const labService = {
     };
   },
 
-  fetchTelemetryStats: async () => {
+  fetchTelemetryStats: async (timeWindow = '7d') => {
     const cacheKey = 'axim_telemetry_stats_cache';
     const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
-    const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '/api/telemetry/stats') : '/api/telemetry/stats';
+    const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
+    const workerUrl = ingressUrl.replace('/api/v1/ingress', '/api/telemetry/stats') + '?window=' + timeWindow;
 
     try {
       const controller = new AbortController();
@@ -700,13 +701,13 @@ export const labService = {
     }
   },
 
-  getTelemetryData: async () => {
+  getTelemetryData: async (timeWindow = '7d') => {
     try {
       const workerUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace('/api/v1/ingress', '') : '';
       let edgeData = null;
       if (workerUrl) {
           try {
-             const res = await fetch(`${workerUrl}/api/telemetry/stats`);
+             const res = await fetch(`${workerUrl}/api/telemetry/stats?window=${timeWindow}`);
              if (res.ok) {
                  edgeData = await res.json();
              }
