@@ -66,6 +66,7 @@ const PipelineMonitor = () => {
   const [activePipeline, setActivePipeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingEviction, setConfirmingEviction] = useState({});
+  const [showCopied, setShowCopied] = useState(null);
 
   const handleEvictLock = async (taskId) => {
     if (!confirmingEviction[taskId]) {
@@ -192,7 +193,22 @@ const PipelineMonitor = () => {
                 <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-shimmer"></div>
               )}
               <div className="flex justify-between items-start mb-2">
-                <span className="text-[11px] font-mono text-[#FDD023] group-hover:text-blue-300 transition-colors">{task.id}</span>
+                <span
+                  className="text-[11px] font-mono text-[#FDD023] group-hover:text-blue-300 transition-colors cursor-pointer relative"
+                  onClick={() => {
+                    navigator.clipboard.writeText(task.id);
+                    setShowCopied(task.id);
+                    setTimeout(() => setShowCopied(null), 2000);
+                  }}
+                  title="Copy ID to clipboard"
+                >
+                  {task.id}
+                  {showCopied === task.id && (
+                    <span className="absolute -top-6 left-0 bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded text-[8px] font-bold border border-green-500/30">
+                      Copied!
+                    </span>
+                  )}
+                </span>
                 <StatusBadge status={task.status} />
               </div>
               <div className="text-[12px] text-gray-300 font-medium truncate mb-1">

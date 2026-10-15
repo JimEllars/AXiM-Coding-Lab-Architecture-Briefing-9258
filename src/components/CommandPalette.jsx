@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { labService } from '../services/labService';
 import SafeIcon from '@/common/SafeIcon';
 
 const CommandPalette = ({ isOpen, onClose }) => {
@@ -39,10 +40,16 @@ const CommandPalette = ({ isOpen, onClose }) => {
     { icon: 'Target', label: 'Ecosystem Topology', path: '/topology', shortcut: 'G T' },
     { icon: 'Activity', label: 'Swarm Telemetry', path: '/telemetry', shortcut: 'G L' },
     { icon: 'Settings', label: 'System Settings', path: '/settings', shortcut: 'G O' },
+    { icon: 'Database', label: 'Trigger DLQ Sweep', action: () => labService.triggerDlqSweep(), shortcut: 'A D' },
+    { icon: 'RefreshCw', label: 'Clear System Cache & Reload', action: () => { sessionStorage.clear(); window.location.reload(); }, shortcut: 'A C' }
   ].filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
 
-  const handleSelect = (path) => {
-    navigate(path);
+  const handleSelect = (cmd) => {
+    if (cmd.action) {
+      cmd.action();
+    } else if (cmd.path) {
+      navigate(cmd.path);
+    }
     onClose();
     setQuery('');
   };
@@ -83,7 +90,7 @@ const CommandPalette = ({ isOpen, onClose }) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (commands[selectedIndex]) {
-                  handleSelect(commands[selectedIndex].path);
+                  handleSelect(commands[selectedIndex]);
                 }
               }
             }}
@@ -94,7 +101,7 @@ const CommandPalette = ({ isOpen, onClose }) => {
           {commands.map((cmd, idx) => (
             <button 
               key={idx} 
-              onClick={() => handleSelect(cmd.path)}
+              onClick={() => handleSelect(cmd)}
               onMouseEnter={() => setSelectedIndex(idx)}
               className={`w-full flex items-center justify-between p-3 rounded-xl group transition-all ${idx === selectedIndex ? 'bg-blue-600/20 ring-1 ring-blue-500/50' : 'hover:bg-blue-600/10'}`}
             >

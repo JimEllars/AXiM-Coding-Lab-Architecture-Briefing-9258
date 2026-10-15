@@ -202,10 +202,20 @@ if (!data) {
                <SafeIcon name="Zap" className="text-sm" />
                OPTIMIZED
              </div>
-             <div className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest ${connectionStatus.includes('ONLINE') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : connectionStatus.includes('DEGRADED') ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
-               <div className={`w-1.5 h-1.5 rounded-full ${connectionStatus.includes('ONLINE') ? 'bg-emerald-400 animate-pulse' : connectionStatus.includes('DEGRADED') ? 'bg-rose-400 animate-pulse' : 'bg-amber-400'}`}></div>
-               {connectionStatus}
-             </div>
+             {connectionStatus.includes('DEGRADED') || connectionStatus.includes('FALLBACK') || connectionStatus.includes('ERROR') ? (
+               <button
+                 onClick={() => labService.reconnectRealtime()}
+                 className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer`}
+               >
+                 <div className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></div>
+                 {connectionStatus} - CLICK TO RECONNECT
+               </button>
+             ) : (
+               <div className={`flex items-center gap-2 px-3 py-1.5 rounded border text-[9px] font-mono font-bold tracking-widest ${connectionStatus.includes('ONLINE') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+                 <div className={`w-1.5 h-1.5 rounded-full ${connectionStatus.includes('ONLINE') ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></div>
+                 {connectionStatus}
+               </div>
+             )}
           </div>
         </div>
       </div>
