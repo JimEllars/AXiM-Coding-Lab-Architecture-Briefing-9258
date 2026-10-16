@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { motion } from 'framer-motion';
 import { labService } from '../services/labService';
 import SafeIcon from '@/common/SafeIcon';
@@ -9,6 +9,30 @@ const Topology = () => {
   const [filterActive, setFilterActive] = useState(false);
 
   const [edgeStats, setEdgeStats] = useState(null);
+  const containerRef = useRef(null);
+  const [coords, setCoords] = useState({});
+
+  const updateCoords = () => {
+    if (!containerRef.current) return;
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const newCoords = {};
+    const nodes = containerRef.current.querySelectorAll('[data-node-id]');
+    nodes.forEach(node => {
+      const rect = node.getBoundingClientRect();
+      const id = node.getAttribute('data-node-id');
+      newCoords[id] = {
+        x: rect.left - containerRect.left + rect.width / 2,
+        y: rect.top - containerRect.top + rect.height / 2
+      };
+    });
+    setCoords(newCoords);
+  };
+
+  useLayoutEffect(() => {
+    updateCoords();
+    window.addEventListener('resize', updateCoords);
+    return () => window.removeEventListener('resize', updateCoords);
+  }, [repos, filterActive]);
 
   useEffect(() => {
     const fetchTopologyData = async () => {
@@ -97,7 +121,7 @@ const Topology = () => {
              style={{ backgroundImage: 'radial-gradient(#3b82f6 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
         
         {/* Topology View (Simplified SVG Map) */}
-        <div className="flex-1 relative flex items-center justify-center">
+        <div ref={containerRef} className="flex-1 relative flex items-center justify-center">
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             {(filterActive ? repos.filter(r => r.activeSwarm) : repos).map(repo =>
               repo.dependencies.map(depId => {
@@ -105,7 +129,7 @@ const Topology = () => {
                 if (!dep || (filterActive && !dep.activeSwarm)) return null;
                 const isActive = repo.activeSwarm && dep.activeSwarm;
                 return (
-                  <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} isActive={isActive} />
+                  <Connection key={`${repo.id}-${depId}`} from={repo.id} to={depId} isActive={isActive} coords={coords} />
                 );
               })
             )}
@@ -173,6 +197,7 @@ const Topology = () => {
 
 const Node = ({ repo, isSelected, onClick }) => (
   <motion.button
+    data-node-id={repo.id}
     whileHover={{ scale: 1.05 }}
     onClick={onClick}
     className={`w-48 p-4 rounded-xl border transition-all flex flex-col items-center gap-3 relative z-20 ${
@@ -191,11 +216,14 @@ const Node = ({ repo, isSelected, onClick }) => (
   </motion.button>
 );
 
-const Connection = ({ from, to, isActive }) => {
-  // Mock SVG lines - in a real app these would use ref coordinates
+const Connection = ({ from, to, isActive, coords }) => {
+  if (!coords || !coords[from] || !coords[to]) return null;
+  const start = coords[from];
+  const end = coords[to];
+
   return (
     <line
-      x1="20%" y1="30%" x2="80%" y2="70%"
+      x1={start.x} y1={start.y} x2={end.x} y2={end.y}
       stroke={isActive ? "#3b82f6" : "#1e293b"}
       strokeWidth={isActive ? "2" : "1"}
       strokeDasharray={isActive ? "none" : "4"}
