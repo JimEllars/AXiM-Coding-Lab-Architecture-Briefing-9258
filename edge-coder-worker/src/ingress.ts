@@ -466,21 +466,27 @@ export default {
 
             if (request.method === 'GET' && url.pathname === '/api/v1/health/integrations') {
               const startGithub = Date.now();
+              const githubPromise = fetch('https://api.github.com/zen', { headers: { 'User-Agent': 'AXiM-Labs', 'Authorization': `Bearer ${env.GITHUB_TOKEN}` } }).then(async r => {
+                const latencyMs = Date.now() - startGithub;
+                return { status: r.ok ? 'Nominal' : 'Degraded', latencyMs };
+              });
+
               const startLlm = Date.now();
+              const llmPromise = fetch(env.SUPABASE_LLM_PROXY_URL, { method: 'OPTIONS' }).then(async r => {
+                const latencyMs = Date.now() - startLlm;
+                return { status: r.ok ? 'Nominal' : 'Degraded', latencyMs };
+              });
 
-              const results = await Promise.allSettled([
-                fetch('https://api.github.com/zen', { headers: { 'User-Agent': 'AXiM-Labs', 'Authorization': `Bearer ${env.GITHUB_TOKEN}` } }),
-                fetch(env.SUPABASE_LLM_PROXY_URL, { method: 'OPTIONS' })
-              ]);
-
-              const githubLatency = Date.now() - startGithub;
-              const llmLatency = Date.now() - startLlm;
+              const results = await Promise.allSettled([githubPromise, llmPromise]);
 
               const githubRes = results[0];
               const llmRes = results[1];
 
-              const githubStatus = githubRes.status === 'fulfilled' && githubRes.value.ok ? 'Nominal' : 'Degraded';
-              const llmStatus = llmRes.status === 'fulfilled' && llmRes.value.ok ? 'Nominal' : 'Degraded';
+              const githubStatus = githubRes.status === 'fulfilled' ? githubRes.value.status : 'Critical';
+              const githubLatency = githubRes.status === 'fulfilled' ? githubRes.value.latencyMs : (Date.now() - startGithub);
+
+              const llmStatus = llmRes.status === 'fulfilled' ? llmRes.value.status : 'Critical';
+              const llmLatency = llmRes.status === 'fulfilled' ? llmRes.value.latencyMs : (Date.now() - startLlm);
 
               return new Response(JSON.stringify({
                 github: { status: githubStatus, latencyMs: githubLatency },

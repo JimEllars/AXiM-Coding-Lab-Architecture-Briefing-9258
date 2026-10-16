@@ -153,8 +153,8 @@ const getValidToken = async () => {
     dateLabels: [],
     tokenUsage: [],
     nodeHealth: [
-      { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
-      { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+      { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'red' },
+      { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'red' },
       { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
       { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
     ],
@@ -750,8 +750,8 @@ export const labService = {
           dateLabels: [],
           tokenUsage: [],
           nodeHealth: [
-            { name: 'Core LLM Proxy', status: integrationHealth?.llm ? integrationHealth.llm.status : 'Unknown', latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : '-', color: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 'green' : 'yellow') : 'blue' },
-            { name: 'GitHub API Bridge', status: integrationHealth?.github ? integrationHealth.github.status : 'Unknown', latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : '-', color: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 'green' : 'yellow') : 'blue' },
+            { name: 'Core LLM Proxy', status: integrationHealth?.llm ? integrationHealth.llm.status : 'Unknown', latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : '-', color: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 'green' : (integrationHealth.llm.status === 'Degraded' ? 'yellow' : 'red')) : 'red' },
+            { name: 'GitHub API Bridge', status: integrationHealth?.github ? integrationHealth.github.status : 'Unknown', latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : '-', color: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 'green' : (integrationHealth.github.status === 'Degraded' ? 'yellow' : 'red')) : 'red' },
             { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
             { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
           ],
@@ -813,8 +813,8 @@ export const labService = {
         dateLabels,
         tokenUsage,
         nodeHealth: [
-          { name: 'Core LLM Proxy', status: integrationHealth?.llm ? integrationHealth.llm.status : 'Operational', latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : 'N/A', color: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 'green' : 'yellow') : 'green' },
-          { name: 'GitHub API Bridge', status: integrationHealth?.github ? integrationHealth.github.status : 'Nominal', latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : 'N/A', color: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 'green' : 'yellow') : 'green' },
+          { name: 'Core LLM Proxy', status: integrationHealth?.llm ? integrationHealth.llm.status : 'Unknown', latency: integrationHealth?.llm ? `${integrationHealth.llm.latencyMs}ms` : 'N/A', color: integrationHealth?.llm ? (integrationHealth.llm.status === 'Nominal' ? 'green' : (integrationHealth.llm.status === 'Degraded' ? 'yellow' : 'red')) : 'red' },
+          { name: 'GitHub API Bridge', status: integrationHealth?.github ? integrationHealth.github.status : 'Unknown', latency: integrationHealth?.github ? `${integrationHealth.github.latencyMs}ms` : 'N/A', color: integrationHealth?.github ? (integrationHealth.github.status === 'Nominal' ? 'green' : (integrationHealth.github.status === 'Degraded' ? 'yellow' : 'red')) : 'red' },
           { name: 'Asguard SOC Ingress', status: 'Active', latency: 'N/A', color: 'green' },
           { name: 'Worker Analytics (Edge)', status: edgeData ? 'Active' : 'Degraded', latency: edgeData ? `${edgeData.average_latency}ms` : 'N/A', color: edgeData ? 'green' : 'yellow' }
         ],
@@ -833,8 +833,8 @@ export const labService = {
         dateLabels: [],
         tokenUsage: [],
         nodeHealth: [
-          { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'blue' },
-          { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'blue' },
+          { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'red' },
+          { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'red' },
           { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
           { name: 'Worker Analytics (Edge)', status: 'Unknown', latency: '-', color: 'blue' }
         ],
