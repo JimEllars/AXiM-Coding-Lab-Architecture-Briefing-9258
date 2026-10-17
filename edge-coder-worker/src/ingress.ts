@@ -464,33 +464,24 @@ export default {
             }
 
 
-            if (request.method === 'GET' && url.pathname === '/api/v1/health/integrations') {
+                        if (request.method === 'GET' && url.pathname === '/api/v1/health/integrations') {
               const startGithub = Date.now();
               const githubPromise = fetch('https://api.github.com/zen', { headers: { 'User-Agent': 'AXiM-Labs', 'Authorization': `Bearer ${env.GITHUB_TOKEN}` } }).then(async r => {
                 const latencyMs = Date.now() - startGithub;
                 return { status: r.ok ? 'Nominal' : 'Degraded', latencyMs };
-              });
+              }).catch(() => ({ status: 'Critical', latencyMs: Date.now() - startGithub }));
 
               const startLlm = Date.now();
               const llmPromise = fetch(env.SUPABASE_LLM_PROXY_URL, { method: 'OPTIONS' }).then(async r => {
                 const latencyMs = Date.now() - startLlm;
                 return { status: r.ok ? 'Nominal' : 'Degraded', latencyMs };
-              });
+              }).catch(() => ({ status: 'Critical', latencyMs: Date.now() - startLlm }));
 
-              const results = await Promise.allSettled([githubPromise, llmPromise]);
-
-              const githubRes = results[0];
-              const llmRes = results[1];
-
-              const githubStatus = githubRes.status === 'fulfilled' ? githubRes.value.status : 'Critical';
-              const githubLatency = githubRes.status === 'fulfilled' ? githubRes.value.latencyMs : (Date.now() - startGithub);
-
-              const llmStatus = llmRes.status === 'fulfilled' ? llmRes.value.status : 'Critical';
-              const llmLatency = llmRes.status === 'fulfilled' ? llmRes.value.latencyMs : (Date.now() - startLlm);
+              const [githubResult, llmResult] = await Promise.allSettled([githubPromise, llmPromise]);
 
               return new Response(JSON.stringify({
-                github: { status: githubStatus, latencyMs: githubLatency },
-                llm: { status: llmStatus, latencyMs: llmLatency }
+                github: githubResult.status === 'fulfilled' ? githubResult.value : { status: 'Critical', latencyMs: 0 },
+                llm: llmResult.status === 'fulfilled' ? llmResult.value : { status: 'Critical', latencyMs: 0 }
               }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
