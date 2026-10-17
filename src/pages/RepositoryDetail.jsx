@@ -46,7 +46,7 @@ const RepositoryDetail = () => {
   const handlePatchRequest = () => {
     if (!selectedFile) return;
     navigate('/', { state: { 
-      repoId: repo.name, 
+      repoId: 'JimEllars/' + repo.name,
       filePath: selectedFile.name,
       autoPrompt: 'Refactor ' + selectedFile.name
     }});

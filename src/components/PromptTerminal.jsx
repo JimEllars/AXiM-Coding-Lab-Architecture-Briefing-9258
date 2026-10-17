@@ -6,6 +6,8 @@ import { labService } from '../services/labService';
 const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
   const [filePreview, setFilePreview] = useState(null);
+  const [fileContent, setFileContent] = useState(null);
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -40,6 +42,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
 
     const timer = setTimeout(async () => {
       setIsPreviewLoading(true);
+      setIsLoadingFile(true);
       setPreviewError(null);
       try {
         let repoName = targetRepo;
@@ -54,7 +57,9 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         // calls the GitHub contents API or a proxy endpoint. labService uses raw.githubusercontent.com/{owner}/{repo}
         const owner = 'JimEllars'; // Or whatever org it is, but we'll try JimEllars or just hardcode JimEllars since it's the target repo owner.
 
-        const text = await labService.fetchFilePreview(owner, repoName, targetFile);
+        const text = await labService.fetchFilePreview(targetRepo.split('/')[0] || 'axim', targetRepo.split('/')[1] || targetRepo, targetFile);
+        setFileContent(text);
+        setIsLoadingFile(false);
         if (text && text.startsWith('Error loading file preview')) {
            setPreviewError(text);
            setFilePreview(null);
@@ -155,6 +160,21 @@ const payloadBody = JSON.stringify({
     }
   };
 
+    const handleAutoMatch = () => {
+    setSelectedContext([]);
+    const promptLower = prompt.toLowerCase();
+    const promptWords = promptLower.split(/\W+/).filter(w => w.length > 2);
+
+    const matchedIds = knowledge.filter(item => {
+      const titleLower = item.title.toLowerCase();
+      const matchInTitle = promptWords.some(word => titleLower.includes(word));
+      const matchInTags = item.tags && item.tags.some(tag => promptWords.some(word => tag.toLowerCase().includes(word)));
+      return matchInTitle || matchInTags;
+    }).map(item => item.id);
+
+    setSelectedContext(matchedIds);
+  };
+
   const toggleContext = (id) => {
     setSelectedContext(prev => 
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -239,6 +259,16 @@ const payloadBody = JSON.stringify({
               disabled={isGenerating}
               spellCheck="false"
             />
+            {fileContent && (
+              <div className="bg-gray-900 border-t border-gray-800 p-2 overflow-y-auto" style={{ maxHeight: '200px' }}>
+                <pre className="text-[10px] text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
+                  <code>
+                    {fileContent.split('\n').slice(0, 20).join('\n')}
+                    {fileContent.split('\n').length > 20 && '\n... (truncated)'}
+                  </code>
+                </pre>
+              </div>
+            )}
           </div>
 
           <div className="p-4 border-t border-[#1F2937] bg-[#0B0F19]/30 flex items-center justify-between shrink-0">
@@ -307,10 +337,13 @@ const payloadBody = JSON.stringify({
 
         {/* Brain Context Sidebar */}
         <div className="w-72 bg-[#0B0F19]/50 border-l border-[#1F2937] flex flex-col shrink-0">
-          <div className="p-4 border-b border-[#1F2937] bg-[#111827]/50">
+          <div className="p-4 border-b border-[#1F2937] bg-[#111827]/50 flex justify-between items-center">
             <h4 className="text-[10px] text-gray-400 font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
               <SafeIcon name="Book" className="text-[#FDD023]" /> Organizational Brain
             </h4>
+            <button onClick={handleAutoMatch} className="text-[10px] font-mono text-blue-400 border border-blue-500/30 px-2 py-1 rounded hover:bg-blue-500/10 transition-colors">
+              Auto-Match
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2 terminal-scroll">
             {knowledge.map(item => (
