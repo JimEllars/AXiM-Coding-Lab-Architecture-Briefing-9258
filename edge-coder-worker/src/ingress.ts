@@ -1193,6 +1193,42 @@ export default {
 
             // DLQ Sweep endpoint
 
+            if (url.pathname === "/api/v1/github/tree" && request.method === "GET") {
+              const owner = url.searchParams.get("owner");
+              const repo = url.searchParams.get("repo");
+              if (!owner || !repo) {
+                return new Response(JSON.stringify({ error: "Missing owner or repo" }), {
+                  status: 400,
+                  headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                });
+              }
+              try {
+                const ghResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`, {
+                  headers: {
+                    "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+                    "User-Agent": "AXiM-Coding-Lab",
+                    "Accept": "application/vnd.github.v3+json"
+                  }
+                });
+                const ghData = await ghResponse.json();
+                if (!ghResponse.ok) {
+                  return new Response(JSON.stringify({ error: "GitHub API error", details: ghData }), {
+                    status: ghResponse.status,
+                    headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                  });
+                }
+                return new Response(JSON.stringify(ghData), {
+                  status: 200,
+                  headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                });
+              } catch (e: any) {
+                return new Response(JSON.stringify({ error: e.message }), {
+                  status: 500,
+                  headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
+                });
+              }
+            }
+
             if (url.pathname === "/api/v1/dlq/stats" && request.method === "GET") {
               let dlq_pending_count = 0;
               try {

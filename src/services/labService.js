@@ -846,6 +846,19 @@ export const labService = {
   },
 
 
+  fetchRepositoryTree: async (owner, repo) => {
+    try {
+      const workerBase = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace("/api/v1/ingress", "") : "";
+      const response = await fetch(`${workerBase}/api/v1/github/tree?owner=${owner}&repo=${repo}`);
+      if (!response.ok) throw new Error("Failed to fetch tree");
+      const data = await response.json();
+      return data.tree || [];
+    } catch (err) {
+      console.error("Error fetching repository tree:", err);
+      return [];
+    }
+  },
+
   fetchFilePreview: async (owner, repo, path, branch = 'main') => {
     try {
       const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;

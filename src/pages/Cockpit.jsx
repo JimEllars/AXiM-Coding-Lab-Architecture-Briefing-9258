@@ -140,6 +140,19 @@ const Cockpit = () => {
                            <SafeIcon name="RefreshCw" className="text-[10px]" /> Retry Swarm
                          </button>
                        )}
+                       {(ticket.status === 'COMPLETED' || ticket.status === 'MERGED') && (
+                         <button onClick={async () => {
+                           try {
+                             await labService.patchTask(ticket.id, { status: 'ARCHIVED' });
+                             setSupportTickets(prev => prev.filter(t => t.id !== ticket.id));
+                           } catch (err) {
+                             console.error("Failed to archive task", err);
+                             alert("Failed to archive task.");
+                           }
+                         }} className="text-gray-400 hover:text-white hover:underline ml-auto flex items-center gap-1">
+                           <SafeIcon name="Archive" className="text-[10px]" /> Archive
+                         </button>
+                       )}
                     </div>
                   </div>
                 ))

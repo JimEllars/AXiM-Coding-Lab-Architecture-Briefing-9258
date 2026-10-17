@@ -18,9 +18,17 @@ const RepositoryDetail = () => {
       setRepo(foundRepo);
 
       if (foundRepo) {
-        labService.getTasks().then(tasks => {
+        Promise.all([
+          labService.getTasks(),
+          labService.fetchRepositoryTree('JimEllars', foundRepo.name)
+        ]).then(([tasks, tree]) => {
           const repoTasks = tasks.filter(t => t.repository_name === foundRepo.name && t.target_file_path);
           const pathMap = new Map();
+
+          const treeFiles = tree.filter(item => item.type === 'blob');
+          treeFiles.forEach(file => {
+            pathMap.set(file.path, { name: file.path, health: 100, warning: false });
+          });
 
           repoTasks.forEach(t => {
             const path = t.target_file_path;

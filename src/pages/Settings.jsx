@@ -142,8 +142,23 @@ const handleSave = () => {
                 <h4 className="text-sm font-medium text-white">API Authentication</h4>
                 <p className="text-xs text-gray-500">Connected integration key</p>
               </div>
-              <div className="px-4 py-1.5 bg-gray-900 border border-gray-700 rounded text-xs font-mono text-gray-400">
-                {apiKeyMask}
+              <div className="flex flex-col items-end gap-2">
+                <div className="px-4 py-1.5 bg-gray-900 border border-gray-700 rounded text-xs font-mono text-gray-400">
+                  {apiKeyMask}
+                </div>
+                <button
+                  onClick={async () => {
+                    const health = await labService.fetchIntegrationHealth();
+                    if (health && health.llm && health.llm.status === 'Nominal') {
+                      alert('Environment API Connection: Nominal');
+                    } else {
+                      alert('Environment API Connection: Degraded or Failed');
+                    }
+                  }}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold uppercase transition-colors"
+                >
+                  Test Connection
+                </button>
               </div>
             </div>
           </div>
@@ -187,9 +202,24 @@ const handleSave = () => {
                 <h4 className="text-sm font-medium text-white">GitHub Integration</h4>
                 <p className="text-xs text-gray-500">Managing access to 14 repositories</p>
               </div>
-              <button className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs font-medium transition-colors border border-gray-700">
-                Refresh Token
-              </button>
+              <div className="flex flex-col items-end gap-2">
+                <button className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs font-medium transition-colors border border-gray-700">
+                  Refresh Token
+                </button>
+                <button
+                  onClick={async () => {
+                    const health = await labService.fetchIntegrationHealth();
+                    if (health && health.github && health.github.status === 'Nominal') {
+                      alert('GitOps Infrastructure Connection: Nominal');
+                    } else {
+                      alert('GitOps Infrastructure Connection: Degraded or Failed');
+                    }
+                  }}
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-[10px] font-bold uppercase transition-colors"
+                >
+                  Test Connection
+                </button>
+              </div>
             </div>
             <div className="flex items-center justify-between p-4 rounded-lg bg-[#111827] border border-gray-800">
               <div>
