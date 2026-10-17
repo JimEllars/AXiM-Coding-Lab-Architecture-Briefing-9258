@@ -153,11 +153,11 @@ const getValidToken = async () => {
     dateLabels: [],
     tokenUsage: [],
     nodeHealth: [
-      { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'red' },
-      { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'red' },
-      { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
-      { name: 'Worker Task Locks', status: 'Unknown', latency: '-', color: 'blue' }
-    ],
+          { name: 'Core LLM Proxy', status: 'Unknown', latency: '-', color: 'red' },
+          { name: 'GitHub API Bridge', status: 'Unknown', latency: '-', color: 'red' },
+          { name: 'Asguard SOC Ingress', status: 'Unknown', latency: '-', color: 'blue' },
+          { name: 'Worker Analytics (Edge)', status: 'Unknown', latency: '-', color: 'blue' }
+        ],
     roiMetrics: { hoursSaved: 0, efficiencyGain: '0%', totalCost: '$0.00', estimatedSavings: '$0.00' },
     logs: []
   };
