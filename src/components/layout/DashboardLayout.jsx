@@ -58,9 +58,41 @@ const NavItem = ({ to, icon, label, active, badge }) => (
 
 const DashboardLayout = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isAppLauncherOpen, setIsAppLauncherOpen] = useState(false);
+  const [userName, setUserName] = useState('Admin Ellars');
+  const [userRole, setUserRole] = useState('Superuser');
 
   const [activeLocks, setActiveLocks] = useState(0);
   const [gracePeriodTimer, setGracePeriodTimer] = useState(null);
+
+  useEffect(() => {
+    try {
+      const profile = localStorage.getItem('axim_user_profile');
+      if (profile) {
+        const parsed = JSON.parse(profile);
+        if (parsed && parsed.name) {
+          setUserName(parsed.name);
+        } else {
+          const email = localStorage.getItem('axim_user_email');
+          if (email) {
+             setUserName(email.split('@')[0]);
+          }
+        }
+      } else {
+        const email = localStorage.getItem('axim_user_email');
+        if (email) {
+           setUserName(email.split('@')[0]);
+        }
+      }
+
+      const role = localStorage.getItem('axim_user_role');
+      if (role) {
+        setUserRole(role);
+      }
+    } catch (e) {
+      console.error("Failed to parse user profile", e);
+    }
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -167,9 +199,40 @@ const DashboardLayout = () => {
                 </div>
               )}
             </div>
+            {/* App Launcher */}
+            <div className="relative">
+              <button
+                onClick={() => setIsAppLauncherOpen(!isAppLauncherOpen)}
+                className="w-9 h-9 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center hover:bg-gray-700 hover:border-gray-600 transition-colors"
+                title="Ecosystem Links"
+              >
+                <SafeIcon name="Grid" className="text-gray-400" />
+              </button>
+
+              {isAppLauncherOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl py-2 z-50">
+                  <div className="px-3 py-1 mb-1">
+                     <p className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Ecosystem Links</p>
+                  </div>
+                  <a href="https://support.axim.us.com" target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+                    <SafeIcon name="LifeBuoy" className="text-sm" />
+                    Support Gateway
+                  </a>
+                  <a href="https://sso.axim.us.com" target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+                    <SafeIcon name="Key" className="text-sm" />
+                    Passport SSO
+                  </a>
+                  <a href="https://asguard.axim.us.com" target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+                    <SafeIcon name="Shield" className="text-sm" />
+                    Asguard WAF
+                  </a>
+                </div>
+              )}
+            </div>
+
             <div className="text-right hidden sm:block">
-              <p className="text-[10px] text-white font-bold leading-none">{localStorage.getItem('axim_user_profile') ? JSON.parse(localStorage.getItem('axim_user_profile')).name : 'Admin Ellars'}</p>
-              <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">{localStorage.getItem('axim_user_role') || 'Superuser'}</p>
+              <p className="text-[10px] text-white font-bold leading-none">{userName}</p>
+              <p className="text-[9px] text-gray-500 font-mono mt-1 uppercase">{userRole}</p>
             </div>
             <button
               onClick={async () => {

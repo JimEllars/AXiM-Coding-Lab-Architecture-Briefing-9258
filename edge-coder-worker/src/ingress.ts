@@ -1203,7 +1203,17 @@ export default {
                 });
               }
               try {
-                const ghResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`, {
+                const metaResp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+                  headers: {
+                    "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+                    "User-Agent": "AXiM-Coding-Lab",
+                    "Accept": "application/vnd.github.v3+json"
+                  }
+                });
+                const metaData: any = await metaResp.json();
+                const defaultBranch = metaData.default_branch || 'main';
+
+                const ghResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, {
                   headers: {
                     "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
                     "User-Agent": "AXiM-Coding-Lab",
