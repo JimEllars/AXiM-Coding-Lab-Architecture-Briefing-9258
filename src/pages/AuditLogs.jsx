@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import { labService } from '../services/labService';
 import { supabase } from '../services/supabaseClient';
 import SafeIcon from '@/common/SafeIcon';
@@ -34,7 +35,8 @@ const AuditLogs = () => {
   const [filterSeverity, setFilterSeverity] = useState('ALL');
   const [filterTime, setFilterTime] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [actorFilter, setActorFilter] = useState('');
+  const location = useLocation();
+  const [actorFilter, setActorFilter] = useState(location.state?.actorFilter || '');
 
   const filteredLogs = logs.filter(log => {
     if (filterSeverity !== 'ALL' && log.status !== filterSeverity) return false;

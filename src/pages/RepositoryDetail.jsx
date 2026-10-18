@@ -91,7 +91,15 @@ const RepositoryDetail = () => {
                 <button className="px-4 py-2 bg-[#111827] hover:bg-gray-800 text-gray-400 rounded-lg text-xs font-bold transition-all border border-gray-800">
                   Settings
                 </button>
-                <button className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-600/20">
+                <button onClick={() => {
+                  labService.logAuditEvent({
+                    component: 'SecOps Scanner',
+                    action: 'MANUAL_DEEP_SCAN_INITIATED',
+                    target: repo.name,
+                    status: 'LOG'
+                  });
+                  alert(`Asynchronous deep vulnerability scan initiated for ${repo.name}. Check Audit Logs for results.`);
+                }} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-600/20">
                   Deep Scan
                 </button>
               </div>

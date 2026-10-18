@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { labService } from '../services/labService';
 import SafeIcon from '@/common/SafeIcon';
 
 const AgentRegistry = () => {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
   const [filterActive, setFilterActive] = useState(false);
   const [stats, setStats] = useState(null);
@@ -152,7 +154,7 @@ const AgentRegistry = () => {
                 </div>
               </div>
 
-              <button className="w-full py-2.5 bg-gray-900 hover:bg-blue-600 hover:text-white text-gray-400 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-slate-800 mt-2">
+              <button onClick={() => navigate('/audit', { state: { actorFilter: agent.name } })} className="w-full py-2.5 bg-gray-900 hover:bg-blue-600 hover:text-white text-gray-400 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-slate-800 mt-2">
                 View Mission Logs
               </button>
             </div>
