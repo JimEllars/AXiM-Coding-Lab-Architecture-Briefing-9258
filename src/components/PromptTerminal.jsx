@@ -85,7 +85,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [availableRepos, setAvailableRepos] = useState([]);
 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [targetRepo, setTargetRepo] = useState(initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-core-api');
+  const [targetRepo, setTargetRepo] = useState(() => {
+    const repo = initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-organization/axim-core-api';
+    return repo.startsWith('JimEllars/') ? repo.replace('JimEllars/', 'axim-organization/') : repo;
+  });
+
   const [targetFile, setTargetFile] = useState(initialFile || sessionStorage.getItem('axim_terminal_file') || '');
   const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
   const [executionEngine, setExecutionEngine] = useState(sessionStorage.getItem('axim_terminal_engine') || 'AXiM Swarm (In-House)');
@@ -120,7 +124,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
 
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);
-    if (initialRepo) setTargetRepo(initialRepo);
+    if (initialRepo) {
+      // Ensure correct format 'axim-organization/repo-name' is set
+      const normalizedRepo = initialRepo.startsWith('JimEllars/') ? initialRepo.replace('JimEllars/', 'axim-organization/') : initialRepo;
+      setTargetRepo(normalizedRepo);
+    }
     if (initialPrompt) setPrompt(initialPrompt);
     if (initialFile) setTargetFile(initialFile);
   }, [initialRepo, initialPrompt, initialFile]);
@@ -288,8 +296,8 @@ const payloadBody = JSON.stringify({
                   className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   {availableRepos.map(repo => (
-                    <option key={repo.id} value={`axim-organization/${repo.name}`}>
-                      {repo.name}
+                    <option key={repo.id} value={'axim-organization/' + repo.name}>
+                      {repo.name.toUpperCase()}
                     </option>
                   ))}
                 </select>
