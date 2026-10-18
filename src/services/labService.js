@@ -461,6 +461,25 @@ export const labService = {
     }
   },
 
+
+  patchTask: async (id, updates) => {
+    try {
+      const { data, error } = await supabase
+        .from('coding_tasks')
+        .update(updates)
+        .eq('id', id)
+        .select();
+      if (error) {
+        console.error('Error patching task:', error);
+        throw error;
+      }
+      return data;
+    } catch (err) {
+      console.error('Exception patching task:', err);
+      throw err;
+    }
+  },
+
   triggerTask: async (payload) => {
     const taskId = payload.task_id || `TASK-${Math.random().toString(36).substring(7).toUpperCase()}`;
     if (!payload.assigned_model) {
