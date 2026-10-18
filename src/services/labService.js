@@ -794,15 +794,18 @@ export const labService = {
          const model = log.metadata?.model;
 
          if (model === 'deepseek-coder') {
-           const inputTokens = Number(log.metadata?.input_tokens) || (tokenCount * 0.5);
-           const outputTokens = Number(log.metadata?.output_tokens) || (tokenCount * 0.5);
-           totalCost += (inputTokens / 1000000) * 0.14 + (outputTokens / 1000000) * 0.28;
+           const inputTokens = Number(log.metadata?.input_tokens) || 0;
+           const outputTokens = Number(log.metadata?.output_tokens) || 0;
+           const deepCost = (!isNaN(inputTokens) ? (inputTokens / 1000000) * 0.14 : 0) + (!isNaN(outputTokens) ? (outputTokens / 1000000) * 0.28 : 0);
+           totalCost += !isNaN(deepCost) ? deepCost : 0;
          } else if (model === 'claude-3-5') {
-           const inputTokens = Number(log.metadata?.input_tokens) || (tokenCount * 0.5);
-           const outputTokens = Number(log.metadata?.output_tokens) || (tokenCount * 0.5);
-           totalCost += (inputTokens / 1000000) * 3.00 + (outputTokens / 1000000) * 15.00;
+           const inputTokens = Number(log.metadata?.input_tokens) || 0;
+           const outputTokens = Number(log.metadata?.output_tokens) || 0;
+           const claudeCost = (!isNaN(inputTokens) ? (inputTokens / 1000000) * 3.00 : 0) + (!isNaN(outputTokens) ? (outputTokens / 1000000) * 15.00 : 0);
+           totalCost += !isNaN(claudeCost) ? claudeCost : 0;
          } else {
-           totalCost += (tokenCount / 1000) * 0.01;
+           const fallbackCost = (!isNaN(tokenCount) ? (tokenCount / 1000) * 0.01 : 0);
+           totalCost += !isNaN(fallbackCost) ? fallbackCost : 0;
          }
          totalTokens += tokenCount;
 
@@ -825,7 +828,8 @@ export const labService = {
     const tokenUsage = Array.from(tokenUsageMap.values());
 
     const hoursSaved = totalRequests;
-      const estimatedSavings = (hoursSaved * 80) - totalCost;
+      const rawEstimatedSavings = (hoursSaved * 80) - totalCost;
+      const estimatedSavings = !isNaN(rawEstimatedSavings) ? rawEstimatedSavings : 0;
       const efficiencyGain = hoursSaved > 0 ? '84%' : '0%';
 
       return {
