@@ -790,16 +790,16 @@ export const labService = {
          totalRequests++;
 
          // Extract token expenditures from metadata
-         const tokenCount = log.metadata?.tokens || 0;
+         const tokenCount = Number(log.metadata?.tokens) || 0;
          const model = log.metadata?.model;
 
          if (model === 'deepseek-coder') {
-           const inputTokens = log.metadata?.input_tokens || (tokenCount * 0.5);
-           const outputTokens = log.metadata?.output_tokens || (tokenCount * 0.5);
+           const inputTokens = Number(log.metadata?.input_tokens) || (tokenCount * 0.5);
+           const outputTokens = Number(log.metadata?.output_tokens) || (tokenCount * 0.5);
            totalCost += (inputTokens / 1000000) * 0.14 + (outputTokens / 1000000) * 0.28;
          } else if (model === 'claude-3-5') {
-           const inputTokens = log.metadata?.input_tokens || (tokenCount * 0.5);
-           const outputTokens = log.metadata?.output_tokens || (tokenCount * 0.5);
+           const inputTokens = Number(log.metadata?.input_tokens) || (tokenCount * 0.5);
+           const outputTokens = Number(log.metadata?.output_tokens) || (tokenCount * 0.5);
            totalCost += (inputTokens / 1000000) * 3.00 + (outputTokens / 1000000) * 15.00;
          } else {
            totalCost += (tokenCount / 1000) * 0.01;
@@ -840,8 +840,8 @@ export const labService = {
         roiMetrics: {
           hoursSaved,
           efficiencyGain,
-          totalCost: `${totalCost.toFixed(2)}`,
-          estimatedSavings: `${Math.max(0, estimatedSavings).toFixed(2)}`
+          totalCost: `${(!isNaN(totalCost) ? totalCost : 0).toFixed(2)}`,
+          estimatedSavings: `${Math.max(0, (!isNaN(estimatedSavings) ? estimatedSavings : 0)).toFixed(2)}`
         },
         logs: logs || [],
         edgeTelemetry: edgeData
