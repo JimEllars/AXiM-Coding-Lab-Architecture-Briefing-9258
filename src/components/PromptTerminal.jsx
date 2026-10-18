@@ -82,6 +82,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   useEffect(() => {
     sessionStorage.setItem('axim_terminal_prompt', prompt);
   }, [prompt]);
+  const [availableRepos, setAvailableRepos] = useState([]);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [targetRepo, setTargetRepo] = useState(initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-core-api');
   const [targetFile, setTargetFile] = useState(initialFile || sessionStorage.getItem('axim_terminal_file') || '');
@@ -89,6 +91,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   const [executionEngine, setExecutionEngine] = useState(sessionStorage.getItem('axim_terminal_engine') || 'AXiM Swarm (In-House)');
   const [knowledge, setKnowledge] = useState([]);
   const [selectedContext, setSelectedContext] = useState([]);
+
+  useEffect(() => {
+    labService.getRepositories().then(setAvailableRepos);
+  }, []);
+
 
   const userRole = localStorage.getItem('axim_user_role') || 'engineer';
   const isSuperUser = userRole === 'super_user';
@@ -280,12 +287,11 @@ const payloadBody = JSON.stringify({
                   onChange={(e) => setTargetRepo(e.target.value)}
                   className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
-                  <option value="CORE">CORE (axim-core-v1.2)</option>
-                  <option value="SUPPORT">SUPPORT (AXiM-Support-System-1.1-4538)</option>
-                  <option value="SPEEDREPORT">SPEEDREPORT (SpeedReport.org-Speed-Test-App-9642)</option>
-                  <option value="ONYX">ONYX (onyx_mk3)</option>
-                  <option value="ELLARS">ELLARS (ELLARS.us.com-Frontend-Site-1.1-1974)</option>
-                  <option value="DEMAND_LETTER">DEMAND_LETTER (Decentralized-Demand-Letter-Generator-Development-8155)</option>
+                  {availableRepos.map(repo => (
+                    <option key={repo.id} value={`axim-organization/${repo.name}`}>
+                      {repo.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1">
