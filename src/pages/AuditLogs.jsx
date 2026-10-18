@@ -35,8 +35,7 @@ const AuditLogs = () => {
   const [filterSeverity, setFilterSeverity] = useState('ALL');
   const [filterTime, setFilterTime] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const location = useLocation();
-  const [actorFilter, setActorFilter] = useState(location.state?.actorFilter || '');
+  const [actorFilter, setActorFilter] = useState(useLocation().state?.actorFilter || '');
 
   const filteredLogs = logs.filter(log => {
     if (filterSeverity !== 'ALL' && log.status !== filterSeverity) return false;
