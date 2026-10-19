@@ -28,7 +28,7 @@ export async function dispatchSupportTask(payload) {
 
   const payloadString = JSON.stringify(payload);
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
     const response = await fetch(getDispatchUrl(), {
