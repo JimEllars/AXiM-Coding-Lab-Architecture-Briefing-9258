@@ -11,8 +11,8 @@ function cleanSanitizedCodeBlob(rawText: string): string {
   let clean = rawText.trim();
 
   // Strip leading/trailing code fences strictly
-  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/g, '');
-  clean = clean.replace(/\n\s*```\s*$/g, '');
+  clean = clean.replace(/^\s*```[a-zA-Z]*\s*\n/gm, '');
+  clean = clean.replace(/\n\s*```\s*$/gm, '');
 
   const codeBlockRegex = /^```[a-z]*\n([\s\S]*?)\n```$/i;
   const match = clean.match(codeBlockRegex);
