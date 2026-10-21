@@ -1396,7 +1396,7 @@ export default {
                       method: 'POST',
                       status_code: 202,
                       error_message: null,
-                      metadata: { event: 'IDEMPOTENCY_COLLISION_BLOCKED', key: idempotencyKey, source: payload.origin_source }
+                      metadata: { event: 'IDEMPOTENCY_COLLISION_BLOCKED', key: idempotencyKey,                       source: payload.origin_source || 'unknown' }
                     }])
                   }).catch(err => console.error("Telemetry failure on idempotency block:", err)));
                   return new Response(JSON.stringify({

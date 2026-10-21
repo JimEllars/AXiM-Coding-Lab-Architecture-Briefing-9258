@@ -7,7 +7,7 @@ let step_count = 0;
 let tokens_consumed = 0;
 let exit_code = 0;
 
-function cleanSanitizedCodeBlob(rawText: string): string {
+export function cleanSanitizedCodeBlob(rawText: string): string {
   let clean = rawText.trim();
 
   // Strip leading/trailing code fences strictly
