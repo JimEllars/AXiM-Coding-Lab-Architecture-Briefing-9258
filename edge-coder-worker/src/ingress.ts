@@ -1382,11 +1382,22 @@ export default {
               if (idempotencyKey) {
                 const isDuplicate = await env.TASK_LOCKS.get(`idempotency:${idempotencyKey}`);
                 if (isDuplicate) {
-                  ctx.waitUntil(reportGreenMachineTelemetry(env, 'edge_coder', 0, 0, {
-                    endpoint: '/api/v1/ingress',
-                    event: 'IDEMPOTENCY_COLLISION_BLOCKED',
-                    key: idempotencyKey,
-                    source: payload.origin_source || 'unknown'
+                  const serviceKey = (env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
+                  ctx.waitUntil(fetch(`${env.SUPABASE_URL}/rest/v1/api_usage_logs`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': 'Bearer ' + serviceKey,
+                      'apikey': serviceKey
+                    },
+                    body: JSON.stringify([{
+                      app_id: 'axim-coding-lab',
+                      endpoint: '/api/v1/ingress',
+                      method: 'POST',
+                      status_code: 202,
+                      error_message: null,
+                      metadata: { event: 'IDEMPOTENCY_COLLISION_BLOCKED', key: idempotencyKey,                       source: payload.origin_source || 'unknown' }
+                    }])
                   }).catch(err => console.error("Telemetry failure on idempotency block:", err)));
                   return new Response(JSON.stringify({
                     status: 'ignored',
