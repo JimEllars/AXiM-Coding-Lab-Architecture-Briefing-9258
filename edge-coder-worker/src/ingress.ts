@@ -1455,6 +1455,18 @@ export default {
               // Establish a 1-hour active lock for the generation cycle
               await env.TASK_LOCKS.put(`lock:${taskIdentifier}`, "active", { expirationTtl: 3600 });
 
+              if (payload.target_file_paths && payload.target_file_paths.length > 1) {
+                // Task exceeds safe V8 CPU time limits for standard fetch event. Offload to Queue.
+                await env.SWARM_QUEUE.send(payload);
+                return new Response(JSON.stringify({
+                  status: 'accepted',
+                  message: 'Payload verified. Heavy task dispatched to Swarm Queue.',
+                  task_id: taskIdentifier
+                }), {
+                  status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+
               // Transform to Server-Sent Events stream if requested by client (e.g. Accept: text/event-stream)
               const acceptHeader = request.headers.get('Accept') || '';
               if (acceptHeader.includes('text/event-stream')) {

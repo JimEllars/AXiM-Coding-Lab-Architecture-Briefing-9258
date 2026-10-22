@@ -95,7 +95,7 @@ const Cockpit = () => {
           <PromptTerminal 
             initialRepo={state?.repoId} 
             initialPrompt={state?.autoPrompt}
-            initialFile={state?.filePath}
+            initialFiles={state?.filePaths || (state?.filePath ? [state.filePath] : [])}
           />
           <div className="h-[350px]">
             <ErrorBoundary><SwarmLogConsole /></ErrorBoundary>

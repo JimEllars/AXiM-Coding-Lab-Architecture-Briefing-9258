@@ -534,7 +534,7 @@ export const labService = {
           task_id: taskId,
           repository_owner: 'axim-organization',
           repository_name: payload.repository_name,
-          target_file_path: payload.target_file_path,
+          target_file_paths: payload.target_file_paths,
           instruction_prompt: payload.instruction_prompt,
           origin_source: payload.origin_source || 'Manual_Dev_Cockpit',
           contextIds: payload.contextIds,

@@ -8,7 +8,7 @@ const RepositoryDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [repo, setRepo] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [filePaths, setFilePaths] = useState([]);
   const [activeTasks, setActiveTasks] = useState([]);
 
@@ -52,11 +52,11 @@ const RepositoryDetail = () => {
   }, [id]);
 
   const handlePatchRequest = () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
     navigate('/', { state: { 
       repoId: 'JimEllars/' + repo.name,
-      filePath: selectedFile.name,
-      autoPrompt: 'Refactor ' + selectedFile.name
+      filePaths: selectedFiles.map(f => f.path),
+      autoPrompt: 'Refactor ' + selectedFiles.map(f => f.name).join(', ')
     }});
   };
 
@@ -118,7 +118,7 @@ const RepositoryDetail = () => {
                 <SafeIcon name="Folder" className="text-blue-500" />
                 FILE_TREE_HEALTH
               </h3>
-              {selectedFile && (
+              {selectedFiles.length > 0 && (
                 <motion.button
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -137,8 +137,14 @@ const RepositoryDetail = () => {
                     name={f.name}
                     health={f.health}
                     warning={f.warning}
-                    isSelected={selectedFile?.name === f.name}
-                    onSelect={() => setSelectedFile(f)}
+                    isSelected={selectedFiles.some(sf => sf.name === f.name)}
+                    onSelect={() => {
+                      setSelectedFiles(prev =>
+                        prev.some(sf => sf.name === f.name)
+                          ? prev.filter(sf => sf.name !== f.name)
+                          : [...prev, f]
+                      );
+                    }}
                   />
                 ))
               ) : (
@@ -226,11 +232,17 @@ const FileRow = ({ name, health, warning, isSelected, onSelect }) => (
     onClick={onSelect}
     type="button"
     className={`w-full text-left flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer border ${
-
       isSelected ? 'bg-blue-600/10 border-blue-500/40' : 'bg-transparent border-transparent hover:bg-gray-800/30'
     }`}
   >
     <div className="flex items-center gap-3">
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={onSelect}
+        onClick={(e) => e.stopPropagation()}
+        className="form-checkbox h-3 w-3 text-blue-500 rounded border-gray-700 bg-gray-900"
+      />
       <SafeIcon name={warning ? 'AlertTriangle' : 'File'} className={warning ? 'text-yellow-500' : 'text-gray-500'} />
       <span className={`text-xs font-mono ${isSelected ? 'text-blue-400 font-bold' : 'text-gray-300'}`}>{name}</span>
     </div>

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
 
-const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
+const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
   const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
   const [filePreview, setFilePreview] = useState(null);
   const [fileContent, setFileContent] = useState(null);
@@ -33,7 +33,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
 
   // Debounced file preview fetcher
   useEffect(() => {
-    if (!targetFile || !targetRepo) {
+    const primaryFile = targetFiles?.split(',')[0]?.trim();
+    if (!primaryFile || !targetRepo) {
       setFilePreview(null);
       setPreviewError(null);
       setShowPreview(false);
@@ -57,7 +58,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
         // calls the GitHub contents API or a proxy endpoint. labService uses raw.githubusercontent.com/{owner}/{repo}
         const owner = 'JimEllars'; // Or whatever org it is, but we'll try JimEllars or just hardcode JimEllars since it's the target repo owner.
 
-        const text = await labService.fetchFilePreview(targetRepo.split('/')[0] || 'axim', targetRepo.split('/')[1] || targetRepo, targetFile);
+        const text = await labService.fetchFilePreview(targetRepo.split('/')[0] || 'axim', targetRepo.split('/')[1] || targetRepo, primaryFile);
         setFileContent(text);
         setIsLoadingFile(false);
         if (text && text.startsWith('Error loading file preview')) {
@@ -75,7 +76,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     }, 750); // 750ms debounce
 
     return () => clearTimeout(timer);
-  }, [targetFile, targetRepo]);
+  }, [targetFiles, targetRepo]);
 
 
 
@@ -90,7 +91,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
     return repo.startsWith('JimEllars/') ? repo.replace('JimEllars/', 'axim-organization/') : repo;
   });
 
-  const [targetFile, setTargetFile] = useState(initialFile || sessionStorage.getItem('axim_terminal_file') || '');
+  const [targetFiles, setTargetFiles] = useState(
+    initialFiles?.length > 0
+      ? initialFiles.join(', ')
+      : sessionStorage.getItem('axim_terminal_file') || ''
+  );
   const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
   const [executionEngine, setExecutionEngine] = useState(sessionStorage.getItem('axim_terminal_engine') || 'AXiM Swarm (In-House)');
   const [knowledge, setKnowledge] = useState([]);
@@ -115,8 +120,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
   }, [targetRepo]);
 
   useEffect(() => {
-    sessionStorage.setItem('axim_terminal_file', targetFile);
-  }, [targetFile]);
+    sessionStorage.setItem('axim_terminal_file', targetFiles);
+  }, [targetFiles]);
 
   useEffect(() => {
     sessionStorage.setItem('axim_terminal_engine', executionEngine);
@@ -130,8 +135,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFile }) => {
       setTargetRepo(normalizedRepo);
     }
     if (initialPrompt) setPrompt(initialPrompt);
-    if (initialFile) setTargetFile(initialFile);
-  }, [initialRepo, initialPrompt, initialFile]);
+    if (initialFiles) setTargetFiles(initialFiles.join(', '));
+  }, [initialRepo, initialPrompt, initialFiles]);
 
   const handleDeploy = async () => {
     if (!prompt.trim()) {
@@ -155,7 +160,7 @@ const payloadBody = JSON.stringify({
         instruction_prompt: prompt,
         repository_name: targetRepo,
         project_key: targetRepo,
-        target_file_path: targetFile,
+        target_file_paths: targetFiles.split(',').map(f => f.trim()).filter(Boolean),
         origin_source: 'Manual_Dev_Cockpit',
         contextIds: selectedContext,
         task_id: taskId,
@@ -243,7 +248,7 @@ const payloadBody = JSON.stringify({
               <div className="absolute top-2 left-2 right-2 bg-[#0B0F19]/90 border border-gray-700 rounded z-30 shadow-lg backdrop-blur-md overflow-hidden flex flex-col" style={{ maxHeight: '200px' }}>
                 <div className="flex justify-between items-center p-2 border-b border-gray-700 bg-[#111827]">
                   <span className="text-[10px] text-blue-400 font-mono flex items-center gap-2">
-                    <SafeIcon name="File" className="text-xs" /> LIVE PREVIEW: {targetFile}
+                    <SafeIcon name="File" className="text-xs" /> LIVE PREVIEW: {targetFiles}
                   </span>
                   <button onClick={() => setShowPreview(false)} className="text-gray-500 hover:text-white">
                     <SafeIcon name="X" className="text-xs" />
@@ -260,7 +265,7 @@ const payloadBody = JSON.stringify({
                  <SafeIcon name="Loader" className="animate-spin" /> FETCHING PREVIEW...
               </div>
             )}
-            {previewError && targetFile && !isPreviewLoading && (
+            {previewError && targetFiles && !isPreviewLoading && (
               <div className="absolute top-2 right-2 text-[10px] text-red-400 font-mono z-30 flex items-center gap-1 bg-red-900/20 px-2 py-1 rounded">
                  <SafeIcon name="AlertTriangle" /> PREVIEW UNAVAILABLE
               </div>
@@ -326,11 +331,11 @@ const payloadBody = JSON.stringify({
               </div>
               <div className="space-y-1">
                 <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">File Path</span>
-                <input 
-                  value={targetFile}
-                  onChange={(e) => setTargetFile(e.target.value)}
-                  placeholder="src/routes/auth.ts" 
-                  className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
+                <textarea
+                  value={targetFiles}
+                  onChange={(e) => setTargetFiles(e.target.value)}
+                  placeholder="src/routes/auth.ts, src/utils/helpers.ts"
+                  className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors resize-y min-h-[32px] max-h-[100px]"
                 />
               </div>
             </div>
