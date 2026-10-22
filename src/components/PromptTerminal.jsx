@@ -88,7 +88,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [targetRepo, setTargetRepo] = useState(() => {
     const repo = initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-organization/axim-core-api';
-    return repo.startsWith('JimEllars/') ? repo.replace('JimEllars/', 'axim-organization/') : repo;
+    return repo;
   });
 
   const [targetFiles, setTargetFiles] = useState(
@@ -131,7 +131,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
     labService.getKnowledge().then(setKnowledge);
     if (initialRepo) {
       // Ensure correct format 'axim-organization/repo-name' is set
-      const normalizedRepo = initialRepo.startsWith('JimEllars/') ? initialRepo.replace('JimEllars/', 'axim-organization/') : initialRepo;
+      const normalizedRepo = initialRepo;
       setTargetRepo(normalizedRepo);
     }
     if (initialPrompt) setPrompt(initialPrompt);

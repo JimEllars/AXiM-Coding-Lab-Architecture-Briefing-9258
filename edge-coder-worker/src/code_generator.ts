@@ -176,6 +176,13 @@ export function sanitizeVulnerabilityVectors(code: string): { safe: boolean; err
      return { safe: false, error: 'Detected potential SQL injection vector: String concatenation in SQL query.' };
   }
 
+  const phpDangerousExecution = /\b(eval|system|passthru|exec|shell_exec|popen|proc_open|assert)\s*\(/i;
+  const phpSuperGlobalConcat = /(\$_(GET|POST|REQUEST|SERVER|COOKIE))\[.*?\]\s*\./i;
+
+  if (phpDangerousExecution.test(code) || phpSuperGlobalConcat.test(code)) {
+    return { safe: false, error: 'Detected potential PHP command injection or insecure superglobal concatenation' };
+  }
+
   return { safe: true };
 }
 
@@ -184,6 +191,7 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
   const isJS = filePath.endsWith('.js') || filePath.endsWith('.ts') || filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
   const isJSON = filePath.endsWith('.json');
   const isYamlOrToml = filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml');
+  const isPHP = filePath.endsWith('.php');
 
   if (isJS) {
     const openBraces = (code.match(/\{/g) || []).length;
@@ -243,6 +251,20 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     if (doubleQuotes % 2 !== 0 || singleQuotes % 2 !== 0) {
       return { valid: false, error: 'Malformed configuration file syntax (unclosed quotes).' };
     }
+  } else if (isPHP) {
+    const openBraces = (code.match(/\{/g) || []).length;
+    const closeBraces = (code.match(/\}/g) || []).length;
+    const openParens = (code.match(/\(/g) || []).length;
+    const closeParens = (code.match(/\)/g) || []).length;
+    if (openBraces !== closeBraces) {
+      return { valid: false, error: `Mismatched curly braces in PHP: ${openBraces} open vs ${closeBraces} close.` };
+    }
+    if (openParens !== closeParens) {
+      return { valid: false, error: `Mismatched parentheses in PHP: ${openParens} open vs ${closeParens} close.` };
+    }
+    if (code.trim().length > 0 && !code.includes('<?php')) {
+      return { valid: false, error: 'Missing opening <?php tag in PHP file.' };
+    }
   }
 
   return { valid: true };
@@ -271,8 +293,9 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     }
   };
   const taskId = task.taskId || `auto-${Date.now()}`;
-  const owner = 'axim';
-  const repo = task.repo || 'AXiM-Coding-Lab';
+  const resolved = resolveRepoMetadata(task.project_key || task.repository_name || task.repo);
+    const owner = task.repository_owner || resolved.owner || 'JimEllars';
+    const repo = task.repository_name || task.repo || resolved.repo || 'axim-core-v1.2';
   // Attempt to parse instructions for file path if not provided
   let path = task.target_file_paths ? task.target_file_paths[0] : task.target_file_path;
   if (!path) {

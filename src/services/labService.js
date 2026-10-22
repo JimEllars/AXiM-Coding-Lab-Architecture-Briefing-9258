@@ -532,7 +532,7 @@ export const labService = {
       // We wrap the fetch request to our Worker Router
       const payloadBody = JSON.stringify({
           task_id: taskId,
-          repository_owner: 'axim-organization',
+          repository_owner: payload.repository_owner || 'JimEllars',
           repository_name: payload.repository_name,
           target_file_paths: payload.target_file_paths,
           instruction_prompt: payload.instruction_prompt,
@@ -650,6 +650,23 @@ export const labService = {
       }
 
       const repoMap = new Map();
+      const STATIC_REGISTRY = {"CORE":{"key":"CORE","owner":"JimEllars","repo":"axim-core-v1.2","defaultBranch":"main","type":"hybrid","testCommand":"npm test"},"SUPPORT":{"key":"SUPPORT","owner":"JimEllars","repo":"AXiM-Support-System-1.1-4538","defaultBranch":"main","type":"hybrid","testCommand":"npm test"},"SPEEDREPORT":{"key":"SPEEDREPORT","owner":"JimEllars","repo":"SpeedReport.org-Speed-Test-App-9642","defaultBranch":"main","type":"hybrid","testCommand":"npm test"},"ONYX":{"key":"ONYX","owner":"JimEllars","repo":"onyx_mk3","defaultBranch":"main","type":"rust","testCommand":"cargo test --workspace"},"ELLARS":{"key":"ELLARS","owner":"JimEllars","repo":"ELLARS.us.com-Frontend-Site-1.1-1974","defaultBranch":"main","type":"cloudflare-pages","testCommand":"npm test"},"DEMAND_LETTER":{"key":"DEMAND_LETTER","owner":"JimEllars","repo":"Decentralized-Demand-Letter-Generator-Development-8155","defaultBranch":"main","type":"cloudflare-pages","testCommand":"npm test"},"ACADEMY":{"key":"ACADEMY","owner":"JimEllars","repo":"AXiM-Academy-App-1-188","defaultBranch":"main","type":"cloudflare-pages","testCommand":"npm test"},"FRONTEND":{"key":"FRONTEND","owner":"JimEllars","repo":"AXiM-Web3-Frontend-Development-7312","defaultBranch":"main","type":"cloudflare-pages","testCommand":"npm test"},"ASGUARD":{"key":"ASGUARD","owner":"JimEllars","repo":"axim-asguard-system-app-1","defaultBranch":"main","type":"hybrid","testCommand":"npm test"},"CODING_LAB":{"key":"CODING_LAB","owner":"JimEllars","repo":"AXiM-Coding-Lab-Architecture-Briefing-9258","defaultBranch":"main","type":"hybrid","testCommand":"npm test"}};
+
+      // Inject static ecosystem registry nodes
+      Object.values(STATIC_REGISTRY).forEach(reg => {
+        repoMap.set(reg.repo, {
+          id: `R-${reg.repo}`,
+          name: reg.repo,
+          health: 100,
+          activeSwarm: false,
+          lastPatch: new Date().toLocaleDateString(),
+          language: reg.type === 'rust' ? 'Rust' : (reg.type === 'hybrid' ? 'TypeScript' : 'JavaScript'),
+          coverage: 'N/A',
+          files: 0,
+          branches: 0,
+        });
+      });
+
       data.forEach(task => {
         if (!repoMap.has(task.repository_name)) {
           repoMap.set(task.repository_name, {
