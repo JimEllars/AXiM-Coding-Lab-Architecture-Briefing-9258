@@ -274,7 +274,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
   const owner = 'axim';
   const repo = task.repo || 'AXiM-Coding-Lab';
   // Attempt to parse instructions for file path if not provided
-  let path = task.target_file_path;
+  let path = task.target_file_paths ? task.target_file_paths[0] : task.target_file_path;
   if (!path) {
     const match = task.instructions?.match(/(?:in|at|on) `?([a-zA-Z0-9_/-]+\.[a-zA-Z0-9]+)`?/);
     path = match ? match[1] : 'README.md';
