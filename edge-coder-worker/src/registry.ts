@@ -13,7 +13,11 @@ export const AXiM_ECOSYSTEM_REGISTRY: Record<string, RepoDefinition> = {
   SPEEDREPORT: { key: "SPEEDREPORT", owner: "JimEllars", repo: "SpeedReport.org-Speed-Test-App-9642", defaultBranch: "main", type: "hybrid", testCommand: "npm test" },
   ONYX: { key: "ONYX", owner: "JimEllars", repo: "onyx_mk3", defaultBranch: "main", type: "rust", testCommand: "cargo test --workspace" },
   ELLARS: { key: "ELLARS", owner: "JimEllars", repo: "ELLARS.us.com-Frontend-Site-1.1-1974", defaultBranch: "main", type: "cloudflare-pages", testCommand: "npm test" },
-  DEMAND_LETTER: { key: "DEMAND_LETTER", owner: "JimEllars", repo: "Decentralized-Demand-Letter-Generator-Development-8155", defaultBranch: "main", type: "cloudflare-pages", testCommand: "npm test" }
+  DEMAND_LETTER: { key: "DEMAND_LETTER", owner: "JimEllars", repo: "Decentralized-Demand-Letter-Generator-Development-8155", defaultBranch: "main", type: "cloudflare-pages", testCommand: "npm test" },
+  ACADEMY: { key: "ACADEMY", owner: "JimEllars", repo: "AXiM-Academy-App-1-188", defaultBranch: "main", type: "cloudflare-pages", testCommand: "npm test" },
+  FRONTEND: { key: "FRONTEND", owner: "JimEllars", repo: "AXiM-Web3-Frontend-Development-7312", defaultBranch: "main", type: "cloudflare-pages", testCommand: "npm test" },
+  ASGUARD: { key: "ASGUARD", owner: "JimEllars", repo: "axim-asguard-system-app-1", defaultBranch: "main", type: "hybrid", testCommand: "npm test" },
+  CODING_LAB: { key: "CODING_LAB", owner: "JimEllars", repo: "AXiM-Coding-Lab-Architecture-Briefing-9258", defaultBranch: "main", type: "hybrid", testCommand: "npm test" }
 };
 
 export function resolveRepoMetadata(projectKey?: string, fallbackRepo?: string): { owner: string; repo: string; defaultBranch: string } {

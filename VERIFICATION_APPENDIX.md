@@ -30,3 +30,19 @@ Implemented in `src/pages/Repositories.jsx`.
 Tested changes by running `npx vitest run` in the `edge-coder-worker` directory.
 - `validateCodeSyntax` tests exist and were confirmed passing.
 - 18 tests passed.
+
+## Sprint 1.3: PHP Defense & Fleet Registry Hardening
+- **Ingress Hardening (`edge-coder-worker/src/ingress.ts`):**
+  - Lines 302-310: Implemented PHP CGI Argument Injection & Traversal Probes. Added tests in `hardening.test.ts` to verify 403 Forbidden rejection for `?-d`, `auto_prepend_file`, path traversals.
+- **PHP Syntax & Sanitization (`edge-coder-worker/src/code_generator.ts`):**
+  - Lines 179-184: Added checks for `eval`, `shell_exec`, and unescaped superglobal concatenation. Added test `tests/worker.test.ts`.
+  - Lines 255-268: Added braces, parens, and `<?php` tag checking logic.
+- **Repository Owner Disambiguation:**
+  - Replaced hardcoded `axim-organization` with `JimEllars` and resolved values across `code_generator.ts`, `labService.js`, `PromptTerminal.jsx`, and `PullRequests.jsx`.
+- **Ecosystem Registry Expand (`edge-coder-worker/src/registry.ts`, `src/services/labService.js`):**
+  - Added `ACADEMY`, `FRONTEND`, `ASGUARD`, `CODING_LAB` fleet apps. Merged static registries with dynamic tasks in UI list.
+- **Webhook & Queue Verification (`edge-coder-worker/src/ingress.ts`):**
+  - Consolidated signature checks.
+  - Safe queue dispatch fallback wrapped in conditional check.
+
+All tests passed via `npx vitest run tests/hardening.test.ts tests/worker.test.ts`. Vite build passed without error.

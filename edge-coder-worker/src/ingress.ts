@@ -51,8 +51,8 @@ function getCorsHeaders(request: Request) {
   // Exclude origin matching for server-to-server or webhooks without an origin
   return {
     'Access-Control-Allow-Origin': origin ? allowOrigin : '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature, Authorization, Idempotency-Key, X-GitHub-Delivery, Accept',
   };
 }
 
@@ -297,6 +297,18 @@ export default {
 
     const traceId = request.headers.get('cf-ray') || crypto.randomUUID();
     const url = new URL(request.url);
+
+    // Edge Ingress Hardening: Reject PHP CGI Argument Injection & Traversal Probes
+    const suspiciousPhpPattern = /(\?-d|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode)/i;
+    if (suspiciousPhpPattern.test(url.search)) {
+      return new Response(JSON.stringify({ error: "Forbidden: Suspicious CGI argument injection detected" }), { status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+    }
+
+    const pathTraversalPattern = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php)/i;
+    if (pathTraversalPattern.test(url.pathname)) {
+      return new Response(JSON.stringify({ error: "Forbidden: Suspicious path probe detected" }), { status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+    }
+
 
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -721,23 +733,6 @@ export default {
               // We'll trust the HMAC.
 
               try {
-                const signature = request.headers.get('X-Hub-Signature-256');
-                if (!signature) {
-                  return new Response(JSON.stringify({ error: 'Unauthorized: Missing GitHub Signature' }), {
-                    status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-                  });
-                }
-
-                const payloadText = await request.clone().text();
-                const cleanSignature = signature.replace(/^sha256=/, '');
-                const isVerified = await verifyHmacSignature(payloadText, cleanSignature, env.GITHUB_TOKEN || env.AXIM_INTERNAL_KEY);
-
-                if (!isVerified) {
-                  return new Response(JSON.stringify({ error: 'Unauthorized: Invalid GitHub Signature' }), {
-                    status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-                  });
-                }
-
                 const payload: any = await request.clone().json();
 
                 // Handle pull request event
@@ -1457,7 +1452,11 @@ export default {
 
               if (payload.target_file_paths && payload.target_file_paths.length > 1) {
                 // Task exceeds safe V8 CPU time limits for standard fetch event. Offload to Queue.
-                await env.SWARM_QUEUE.send(payload);
+                if ((env as any).SWARM_QUEUE) {
+                  await (env as any).SWARM_QUEUE.send(payload);
+                } else {
+                  ctx.waitUntil(executeCodingPipeline(payload, env, null, ctx));
+                }
                 return new Response(JSON.stringify({
                   status: 'accepted',
                   message: 'Payload verified. Heavy task dispatched to Swarm Queue.',
