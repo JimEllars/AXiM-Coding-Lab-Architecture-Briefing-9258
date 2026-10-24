@@ -49,5 +49,31 @@ describe('Worker Tests', () => {
       const result = sanitizeVulnerabilityVectors(safePhp);
       expect(result.safe).toBe(true);
     });
+
+  describe('Hardware-as-Code (HAC) Validation', () => {
+    test('Validates FreeCAD Python structure', () => {
+      const validFreeCAD = `import FreeCAD\nimport Part\ndef create_box():\n    box = Part.makeBox(10,10,10)\n    Part.show(box)\n`;
+      const result = validateCodeSyntax(validFreeCAD, 'model.py');
+      expect(result.valid).toBe(true);
+    });
+
+    test('Validates MuJoCo XML structure', () => {
+      const validMujoco = `<mujoco>
+    <worldbody>
+        <body name="torso" pos="0 0 1">
+            <joint name="root" type="free"/>
+        </body>
+    </worldbody>
+</mujoco>`;
+      const result = validateCodeSyntax(validMujoco, 'robot.xml');
+      expect(result.valid).toBe(true);
+    });
+
+    test('Validates Embedded C++ structure', () => {
+      const validCpp = `#include <Arduino.h>\nvoid setup() {\n  Serial.begin(115200);\n}\nvoid loop() {\n  delay(100);\n}`;
+      const result = validateCodeSyntax(validCpp, 'firmware.ino');
+      expect(result.valid).toBe(true);
+    });
   });
+});
 });

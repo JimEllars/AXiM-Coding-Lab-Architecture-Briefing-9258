@@ -142,7 +142,7 @@ const PullRequests = () => {
                 </span>
                   <span className="text-[10px] text-gray-500 font-mono truncate">{task.repository}</span>
                 </div>
-                <a href={`https://github.com/${task.repository_owner || 'axim-organization'}/${task.repository_name || task.repository || 'unknown'}`} target="_blank" rel="noreferrer" className="text-gray-500 hover:text-blue-400 transition-colors px-1" onClick={(e) => e.stopPropagation()}>
+                <a href={`https://github.com/${task.repository_owner || 'JimEllars'}/${task.repository_name || task.repository || 'unknown'}`} target="_blank" rel="noreferrer" className="text-gray-500 hover:text-blue-400 transition-colors px-1" onClick={(e) => e.stopPropagation()}>
                   <SafeIcon name="ExternalLink" className="text-[12px]" />
                 </a>
               </div>
@@ -191,7 +191,7 @@ const PullRequests = () => {
                   onClick={async () => {
                     try {
                       const repoParts = (selectedTask.repository || '').split('/');
-                      const owner = selectedTask.repository_owner || (repoParts.length > 1 ? repoParts[0] : 'axim-organization');
+                      const owner = selectedTask.repository_owner || (repoParts.length > 1 ? repoParts[0] : 'JimEllars');
                       const repo = selectedTask.repository_name || (repoParts.length > 1 ? repoParts[1] : selectedTask.repository || 'unknown');
                       // Note: We might not have prNumber directly, relying on task context/metadata if available, or just sending taskId
                       await labService.requestPrReview({ owner, repo, prNumber: selectedTask.context?.pr_number || selectedTask.pr_number, taskId: selectedTask.id });
