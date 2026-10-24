@@ -281,6 +281,24 @@ export default {
     }
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    // 1. PHP CGI Argument Injection & Path Traversal Defense
+    const suspiciousPhpPattern = /(\?-d|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode)/i;
+    if (suspiciousPhpPattern.test(url.search)) {
+      return new Response(JSON.stringify({ error: "Forbidden: Suspicious CGI argument injection detected" }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+      });
+    }
+
+    const pathTraversalPattern = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php)/i;
+    if (pathTraversalPattern.test(url.pathname)) {
+      return new Response(JSON.stringify({ error: "Forbidden: Suspicious path probe detected" }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+      });
+    }
     const startTime = Date.now();
     const envValidation = validateEnv(env);
     if (!envValidation.valid) {
@@ -712,19 +730,10 @@ export default {
                 return new Response(JSON.stringify({ error: 'Unauthorized: Missing signature' }), { status: 401, headers: { 'Content-Type': 'application/json' }});
               }
 
-              // We'll read the raw body once, sign it, and then parse it
               const rawBody = await request.clone().text();
-              const encoder = new TextEncoder();
-              const key = await crypto.subtle.importKey(
-                'raw', encoder.encode(env.GITHUB_WEBHOOK_SECRET),
-                { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-              );
+              const isVerified = await verifyHmacSignature(rawBody, signature, env.GITHUB_WEBHOOK_SECRET || env.AXIM_INTERNAL_KEY);
 
-              const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody));
-              const signatureArray = Array.from(new Uint8Array(signatureBuffer));
-              const signatureHex = 'sha256=' + signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-              if (signature !== signatureHex) {
+              if (!isVerified) {
                  return new Response(JSON.stringify({ error: 'Unauthorized: Signature mismatch' }), { status: 401, headers: { 'Content-Type': 'application/json' }});
               }
 

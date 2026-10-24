@@ -87,7 +87,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [targetRepo, setTargetRepo] = useState(() => {
-    const repo = initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'axim-organization/axim-core-api';
+    const repo = initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'JimEllars/axim-core-api';
     return repo;
   });
 
@@ -130,7 +130,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
   useEffect(() => {
     labService.getKnowledge().then(setKnowledge);
     if (initialRepo) {
-      // Ensure correct format 'axim-organization/repo-name' is set
+      // Ensure correct format 'JimEllars/repo-name' is set
       const normalizedRepo = initialRepo;
       setTargetRepo(normalizedRepo);
     }
@@ -301,7 +301,7 @@ const payloadBody = JSON.stringify({
                   className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
                   {availableRepos.map(repo => (
-                    <option key={repo.id} value={'axim-organization/' + repo.name}>
+                    <option key={repo.id} value={repo.name}>
                       {repo.name.toUpperCase()}
                     </option>
                   ))}
@@ -327,6 +327,9 @@ const payloadBody = JSON.stringify({
                 >
                   <option value="Node.js Edge">Node.js Edge</option>
                   <option value="Python Sandbox">Python Sandbox</option>
+                  <option value="Embedded C++ (ESP32-S3)">Embedded C++ (ESP32-S3)</option>
+                  <option value="ROS 2 / Python">ROS 2 / Python</option>
+                  <option value="FreeCAD / OpenUSD">FreeCAD / OpenUSD</option>
                 </select>
               </div>
               <div className="space-y-1">

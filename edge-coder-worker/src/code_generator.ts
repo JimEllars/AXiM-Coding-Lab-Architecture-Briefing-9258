@@ -178,9 +178,14 @@ export function sanitizeVulnerabilityVectors(code: string): { safe: boolean; err
 
   const phpDangerousExecution = /\b(eval|system|passthru|exec|shell_exec|popen|proc_open|assert)\s*\(/i;
   const phpSuperGlobalConcat = /(\$_(GET|POST|REQUEST|SERVER|COOKIE))\[.*?\]\s*\./i;
+  const roboticsMotorOverride = /\b(force_override|override_motor|infinite_loop|while\s*\(\s*true\s*\))\b/i;
 
   if (phpDangerousExecution.test(code) || phpSuperGlobalConcat.test(code)) {
     return { safe: false, error: 'Detected potential PHP command injection or insecure superglobal concatenation' };
+  }
+
+  if (roboticsMotorOverride.test(code)) {
+    return { safe: false, error: 'Detected ungrounded motor overrides or infinite loops in robotics firmware.' };
   }
 
   return { safe: true };
@@ -192,6 +197,8 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
   const isJSON = filePath.endsWith('.json');
   const isYamlOrToml = filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml');
   const isPHP = filePath.endsWith('.php');
+  const isMuJoCo = filePath.endsWith('.xml') || filePath.endsWith('.mjcf') || filePath.endsWith('.urdf');
+  const isEmbeddedCpp = filePath.endsWith('.cpp') || filePath.endsWith('.h') || filePath.endsWith('.ino');
 
   if (isJS) {
     const openBraces = (code.match(/\{/g) || []).length;
@@ -230,6 +237,13 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
         }
       }
     }
+    if (code.includes('import FreeCAD') || code.includes('import Part') || code.includes('import Sketcher')) {
+       const hasTabs = /^\t+/m.test(code);
+       const hasSpaces = /^ +/m.test(code);
+       if (hasTabs && hasSpaces) {
+          return { valid: false, error: 'Mixed indentation in FreeCAD python script.' };
+       }
+    }
   } else if (isJSON) {
     try {
       JSON.parse(code);
@@ -265,6 +279,24 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     if (code.trim().length > 0 && !code.includes('<?php')) {
       return { valid: false, error: 'Missing opening <?php tag in PHP file.' };
     }
+  } else if (isMuJoCo) {
+    const openTags = (code.match(/<[a-zA-Z0-9_-]+/g) || []).length;
+    const closeTags = (code.match(/<\/[a-zA-Z0-9_-]+>/g) || []).length;
+    const selfClosingTags = (code.match(/\/>/g) || []).length;
+    if (code.includes('<joint') && !code.includes('name=')) {
+        return { valid: false, error: 'MuJoCo XML joint missing name attribute.' };
+    }
+  } else if (isEmbeddedCpp) {
+    const openBraces = (code.match(/\{/g) || []).length;
+    const closeBraces = (code.match(/\}/g) || []).length;
+    const openParens = (code.match(/\(/g) || []).length;
+    const closeParens = (code.match(/\)/g) || []).length;
+    if (openBraces !== closeBraces) {
+      return { valid: false, error: `Mismatched curly braces in C++: ${openBraces} open vs ${closeBraces} close.` };
+    }
+    if (openParens !== closeParens) {
+      return { valid: false, error: `Mismatched parentheses in C++: ${openParens} open vs ${closeParens} close.` };
+    }
   }
 
   return { valid: true };
@@ -294,8 +326,8 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
   };
   const taskId = task.taskId || `auto-${Date.now()}`;
   const resolved = resolveRepoMetadata(task.project_key || task.repository_name || task.repo);
-    const owner = task.repository_owner || resolved.owner || 'JimEllars';
-    const repo = task.repository_name || task.repo || resolved.repo || 'axim-core-v1.2';
+  const owner = task.repository_owner || resolved.owner || 'JimEllars';
+  const repo = task.repository_name || task.repo || resolved.repo || 'axim-core-v1.2';
   // Attempt to parse instructions for file path if not provided
   let path = task.target_file_paths ? task.target_file_paths[0] : task.target_file_path;
   if (!path) {
