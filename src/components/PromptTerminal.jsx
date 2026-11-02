@@ -3,6 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
 
+/**
+ * Placeholder hints per runtime so the operator types a path the worker's
+ * hardware-as-code validators can actually classify (e.g. `model.py` for
+ * FreeCAD, `platformio.ini` for firmware projects).
+ */
+const RUNTIME_FILE_HINTS = {
+  'Node.js Edge': 'src/routes/auth.ts, src/utils/helpers.ts',
+  'Python Sandbox': 'scripts/etl_pipeline.py',
+  'Embedded C++ (ESP32-S3)': 'src/main.ino',
+  'PlatformIO Firmware': 'platformio.ini, src/main.cpp',
+  'ROS 2 / Python': 'nodes/telemetry_publisher.py',
+  'FreeCAD / OpenUSD': 'models/bracket.py',
+  'MuJoCo / URDF': 'robot/axim_arm.urdf, robot/scene.mjcf'
+};
+
 const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
   const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
   const [filePreview, setFilePreview] = useState(null);
@@ -328,8 +343,10 @@ const payloadBody = JSON.stringify({
                   <option value="Node.js Edge">Node.js Edge</option>
                   <option value="Python Sandbox">Python Sandbox</option>
                   <option value="Embedded C++ (ESP32-S3)">Embedded C++ (ESP32-S3)</option>
+                  <option value="PlatformIO Firmware">PlatformIO Firmware</option>
                   <option value="ROS 2 / Python">ROS 2 / Python</option>
                   <option value="FreeCAD / OpenUSD">FreeCAD / OpenUSD</option>
+                  <option value="MuJoCo / URDF">MuJoCo / URDF</option>
                 </select>
               </div>
               <div className="space-y-1">
@@ -337,7 +354,7 @@ const payloadBody = JSON.stringify({
                 <textarea
                   value={targetFiles}
                   onChange={(e) => setTargetFiles(e.target.value)}
-                  placeholder="src/routes/auth.ts, src/utils/helpers.ts"
+                  placeholder={RUNTIME_FILE_HINTS[targetRuntime] || 'src/routes/auth.ts, src/utils/helpers.ts'}
                   className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors resize-y min-h-[32px] max-h-[100px]"
                 />
               </div>

@@ -1,0 +1,17 @@
+{
+  "name": "axim-edge-coder-worker",
+  "private": true,
+  "version": "1.4.0",
+  "type": "module",
+  "description": "AXiM Coding Lab edge ingress worker (coding pipeline, HMAC zero-trust relay, fleet sweeper crons)",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "wrangler deploy --keep-vars --config wrangler.toml",
+    "deploy:dry-run": "wrangler deploy --dry-run --keep-vars --config wrangler.toml",
+    "tail": "wrangler tail --config wrangler.toml"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,65 @@
+name: CI
+
+# Every change to main and every PR runs the same battery the runbook asks for:
+# lint, unit tests, production build, worker tests, and a wrangler bundle check.
+# Until this workflow existed the repo had no remote status checks at all, so a
+# broken worker bundle (duplicate `const` in ingress.ts) merged to main unnoticed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard:
+    name: Dashboard (lint, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Production build
+        run: npx vite build
+
+  worker:
+    name: Edge worker (tests, bundle dry-run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Worker unit tests
+        run: npx vitest run edge-coder-worker/tests
+
+      - name: Wrangler bundle check (no deploy)
+        run: npx wrangler deploy --dry-run --keep-vars --config edge-coder-worker/wrangler.toml
