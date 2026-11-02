@@ -1,79 +1,105 @@
 import { expect, test, describe } from 'vitest';
-import { validateCodeSyntax, sanitizeVulnerabilityVectors } from '../src/code_generator';
+import { validateCodeSyntax, sanitizeVulnerabilityVectors, cleanSanitizedCodeBlob } from '../src/code_generator';
 
-describe('Worker Tests', () => {
-  describe('PHP Code Validation', () => {
-    test('Validates matching braces in PHP', () => {
-      const validPhp = '<?php function hello() { return true; }';
-      const result = validateCodeSyntax(validPhp, 'test.php');
-      expect(result.valid).toBe(true);
-    });
-
-    test('Catches missing <?php tag in PHP', () => {
-      const invalidPhp = 'function hello() { return true; }';
-      const result = validateCodeSyntax(invalidPhp, 'test.php');
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('Missing opening <?php tag');
-    });
-
-    test('Catches mismatched braces in PHP', () => {
-      const invalidPhp = '<?php function hello() { return true; ';
-      const result = validateCodeSyntax(invalidPhp, 'test.php');
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('Mismatched curly braces in PHP');
-    });
+describe('PHP code validation', () => {
+  test('accepts balanced PHP with an opening tag', () => {
+    const result = validateCodeSyntax('<?php function hello() { return true; }', 'test.php');
+    expect(result.valid).toBe(true);
   });
 
-  describe('PHP Sanitization', () => {
-    test('Detects shell_exec', () => {
-      const maliciousPhp = '<?php shell_exec("ls -la");';
-      const result = sanitizeVulnerabilityVectors(maliciousPhp);
-      expect(result.safe).toBe(false);
-      expect(result.error).toContain('Detected potential PHP command injection');
-    });
+  test('rejects PHP with no opening tag', () => {
+    const result = validateCodeSyntax('function hello() { return true; }', 'test.php');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Missing opening <?php tag');
+  });
 
-    test('Detects eval', () => {
-      const maliciousPhp = '<?php eval($_POST["code"]);';
-      const result = sanitizeVulnerabilityVectors(maliciousPhp);
-      expect(result.safe).toBe(false);
-    });
+  test('rejects mismatched braces in PHP', () => {
+    const result = validateCodeSyntax('<?php function hello() { return true; ', 'test.php');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Mismatched curly braces in PHP');
+  });
 
-    test('Detects insecure superglobal concatenation', () => {
-      const maliciousPhp = '<?php echo $_GET["name"] . " Hello";';
-      const result = sanitizeVulnerabilityVectors(maliciousPhp);
-      expect(result.safe).toBe(false);
-    });
-
-    test('Passes safe PHP', () => {
-      const safePhp = '<?php echo "Hello World";';
-      const result = sanitizeVulnerabilityVectors(safePhp);
-      expect(result.safe).toBe(true);
-    });
-
-  describe('Hardware-as-Code (HAC) Validation', () => {
-    test('Validates FreeCAD Python structure', () => {
-      const validFreeCAD = `import FreeCAD\nimport Part\ndef create_box():\n    box = Part.makeBox(10,10,10)\n    Part.show(box)\n`;
-      const result = validateCodeSyntax(validFreeCAD, 'model.py');
-      expect(result.valid).toBe(true);
-    });
-
-    test('Validates MuJoCo XML structure', () => {
-      const validMujoco = `<mujoco>
-    <worldbody>
-        <body name="torso" pos="0 0 1">
-            <joint name="root" type="free"/>
-        </body>
-    </worldbody>
-</mujoco>`;
-      const result = validateCodeSyntax(validMujoco, 'robot.xml');
-      expect(result.valid).toBe(true);
-    });
-
-    test('Validates Embedded C++ structure', () => {
-      const validCpp = `#include <Arduino.h>\nvoid setup() {\n  Serial.begin(115200);\n}\nvoid loop() {\n  delay(100);\n}`;
-      const result = validateCodeSyntax(validCpp, 'firmware.ino');
-      expect(result.valid).toBe(true);
-    });
+  test('rejects mismatched parentheses in PHP', () => {
+    const result = validateCodeSyntax('<?php echo htmlspecialchars($_GET["name"]; ', 'test.php');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Mismatched parentheses in PHP');
   });
 });
+
+describe('PHP dangerous-sink sanitization', () => {
+  test('detects shell_exec', () => {
+    const result = sanitizeVulnerabilityVectors('<?php shell_exec("ls -la");');
+    expect(result.safe).toBe(false);
+    expect(result.error).toContain('Detected potential PHP command injection');
+  });
+
+  test('detects eval', () => {
+    const result = sanitizeVulnerabilityVectors('<?php eval($_POST["code"]);');
+    expect(result.safe).toBe(false);
+  });
+
+  test('detects system, passthru and proc_open', () => {
+    for (const sink of ['system', 'passthru', 'proc_open', 'popen', 'assert']) {
+      const result = sanitizeVulnerabilityVectors(`<?php ${sink}($_GET['cmd']);`);
+      expect(result.safe, `${sink} should be rejected`).toBe(false);
+    }
+  });
+
+  test('detects unescaped superglobal concatenation', () => {
+    const result = sanitizeVulnerabilityVectors('<?php echo $_GET["name"] . " Hello";');
+    expect(result.safe).toBe(false);
+  });
+
+  test('detects SQL string concatenation', () => {
+    const result = sanitizeVulnerabilityVectors('<?php $q = "SELECT * FROM users WHERE id = " + $id;');
+    expect(result.safe).toBe(false);
+  });
+
+  test('detects ungrounded robotics motor overrides and infinite loops', () => {
+    expect(sanitizeVulnerabilityVectors('#include <Arduino.h>\nvoid loop() { while (true) { } }').safe).toBe(false);
+    expect(sanitizeVulnerabilityVectors('force_override(motor);').safe).toBe(false);
+  });
+
+  test('passes safe PHP', () => {
+    const result = sanitizeVulnerabilityVectors('<?php echo htmlspecialchars($name, ENT_QUOTES);');
+    expect(result.safe).toBe(true);
+  });
+});
+
+describe('JavaScript and JSON validation', () => {
+  test('accepts balanced JavaScript', () => {
+    expect(validateCodeSyntax('export const add = (a, b) => a + b;', 'src/math.js').valid).toBe(true);
+  });
+
+  test('rejects unbalanced template literals', () => {
+    const result = validateCodeSyntax('const x = `unclosed;', 'src/x.js');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Unclosed template literal');
+  });
+
+  test('accepts TypeScript with a balanced JSX component', () => {
+    const code = 'export function Badge({ label }: { label: string }) {\n  return <span className="badge">{label}</span>;\n}\n';
+    expect(validateCodeSyntax(code, 'src/Badge.tsx').valid).toBe(true);
+  });
+
+  test('rejects invalid JSON', () => {
+    const result = validateCodeSyntax('{ "a": 1, }', 'config.json');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Invalid JSON structure');
+  });
+});
+
+describe('Markdown fence cleanup', () => {
+  test('strips a fenced block', () => {
+    const raw = '```ts\nconst a = 1;\n```';
+    expect(cleanSanitizedCodeBlob(raw)).toBe('const a = 1;');
+  });
+
+  test('strips a leading fence with no closing fence', () => {
+    expect(cleanSanitizedCodeBlob('```python\nimport Part\n')).toBe('import Part');
+  });
+
+  test('leaves bare source untouched', () => {
+    expect(cleanSanitizedCodeBlob('  const a = 1;  ')).toBe('const a = 1;');
+  });
 });

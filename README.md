@@ -48,10 +48,50 @@ The Coding Lab sends the daily executive summary through EmailIt, not Cloudflare
 ## Build and deploy commands
 
 ```powershell
-npm install
-npm run build
+npm install          # single toolchain for the dashboard *and* the edge worker
+npm run build        # lint + vite build
+npm run test         # vitest: dashboard suite + edge-coder-worker suites
 npm run deploy:worker
 npm run deploy:pages
 ```
 
+`edge-coder-worker/` has its own `package.json` (`test`, `deploy`, `deploy:dry-run`,
+`tail`) but shares the repository-root `node_modules`, so a single `npm install`
+at the root covers both halves:
+
+```bash
+cd edge-coder-worker
+npm test                                        # worker suites only
+npx wrangler deploy --dry-run --config wrangler.toml   # bundle check, no deploy
+```
+
+CI (`.github/workflows/ci.yml`) runs the same battery on every PR: `npm run lint`,
+`npx vitest run`, `npx vite build`, the worker suites, and a `wrangler deploy
+--dry-run` bundle check. A worker that cannot bundle now fails the PR instead of
+reaching `main`.
+
+## Internal relay signatures (v2)
+
+Every satellite-to-satellite call signs the raw body with HMAC-SHA256 under
+`AXIM_INTERNAL_KEY` and sends `X-Axim-Timestamp` (unix seconds). The signature
+covers `${timestamp}.${body}` and is rejected when the timestamp is more than
+300 seconds away from the receiver's clock. This matches
+`AXiM-Support-System-1.1-4538`, which stops honouring body-only signatures after
+its `AXIM_SIG_LEGACY_UNTIL` sunset (default `2026-12-31`).
+
+Inbound, the worker accepts v2 and falls back to the legacy body-only signature,
+logging every fallback so the remaining migration debt is visible in
+`wrangler tail`. All outbound calls (`postSignedRelay` in
+`edge-coder-worker/src/ingress.ts`) use v2, including DLQ replays, which re-sign
+with a fresh envelope on every attempt.
+
+The only Support System endpoint the Coding Lab resolves tickets against is
+`POST https://support.axim.us.com/api/v1/tickets/:id/resolve-from-coder`.
+
 Deploy only after the secrets and variables above have been verified.
+
+## Documentation
+
+- `AGENTS_VERIFICATION.md` — what changed and the verbatim commands that prove it.
+- `DEBUGGING_NOTES.md` — root causes, decisions and known debt.
+- `CHANGELOG.md` — release-facing summary.

@@ -4,6 +4,13 @@ import { executeCodingPipeline, executeAutonomousCodingTask } from './code_gener
 import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
 import { dispatchToJulesAgent } from './jules_bridge';
 import { resolveRepoMetadata, AXiM_ECOSYSTEM_REGISTRY } from './registry';
+import {
+  constantTimeEqual,
+  generateHmacSignature,
+  generateSignedEnvelope,
+  signedHeaders,
+  verifyInternalSignature
+} from './utils/crypto';
 
 export interface KVNamespace {
   get(key: string): Promise<string | null>;
@@ -43,6 +50,40 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000'
 ];
 
+/**
+ * PHP2Shell / CGI argument-injection and path-probe signatures.
+ * Covers CVE-2024-4577 style `?-d` argument injection, `auto_prepend_file`
+ * include hijacking, and the classic WordPress reconnaissance probes.
+ *
+ * Exported so the test suite can exercise the predicate the worker actually
+ * runs rather than a hand-copied duplicate.
+ */
+export const CGI_INJECTION_PATTERN = /(\?-d|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode)/i;
+export const PATH_PROBE_PATTERN = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php)/i;
+
+/**
+ * Returns a 403 response when the request looks like a PHP2Shell / traversal
+ * probe, or null when the request may proceed. Runs before env validation and
+ * routing so hostile traffic never reaches the LLM or Supabase.
+ */
+export function screenHostileUrl(url: URL, request: Request): Response | null {
+  if (CGI_INJECTION_PATTERN.test(url.search)) {
+    return new Response(JSON.stringify({ error: "Forbidden: Suspicious CGI argument injection detected" }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+    });
+  }
+
+  if (PATH_PROBE_PATTERN.test(url.pathname) || PATH_PROBE_PATTERN.test(url.search)) {
+    return new Response(JSON.stringify({ error: "Forbidden: Suspicious path probe detected" }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+    });
+  }
+
+  return null;
+}
+
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('Origin');
   const isAllowed = origin && ALLOWED_ORIGINS.includes(origin);
@@ -52,80 +93,158 @@ function getCorsHeaders(request: Request) {
   return {
     'Access-Control-Allow-Origin': origin ? allowOrigin : '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature, Authorization, Idempotency-Key, X-GitHub-Delivery, Accept',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Axim-Signature, X-Axim-Timestamp, Authorization, Idempotency-Key, X-GitHub-Delivery, Accept',
   };
 }
 
 
+const SUPPORT_BASE_URL = 'https://support.axim.us.com';
+
+/**
+ * Zone-agnostic signature check for satellite webhooks that sign the raw body
+ * only (GitHub `sha256=…`, Jules, agent handoff). Internal AXiM relays use
+ * {@link verifyInternalRelay} instead, which enforces the v2 timestamp window.
+ */
 async function verifyHmacSignature(
   payload: string,
   signatureHex: string,
   secret: string
 ): Promise<boolean> {
   try {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-
-    const cleanSig = signatureHex.trim().toLowerCase().replace(/^sha256=/, '');
-    const sigBytes = new Uint8Array(
-      cleanSig.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || []
-    );
-
-    return await crypto.subtle.verify(
-      'HMAC',
-      key,
-      sigBytes,
-      encoder.encode(payload)
-    );
+    const result = await verifyInternalSignature(payload, signatureHex, null, secret);
+    return result.valid;
   } catch (err) {
     console.error('[HMAC_VERIFY_FAULT]', err);
     return false;
   }
 }
 
+/**
+ * Zero-trust check for `X-Axim-Signature` relay traffic.
+ * Accepts the v2 envelope (`X-Axim-Timestamp` + `ts.body` HMAC) and falls back
+ * to the legacy body-only signature, logging every v1 acceptance so the
+ * remaining migration debt is visible in the tail instead of silently rot.
+ */
+async function verifyInternalRelay(
+  request: Request,
+  payloadText: string,
+  env: Env
+): Promise<boolean> {
+  const signature = request.headers.get('X-Axim-Signature');
+  if (!signature || !env.AXIM_INTERNAL_KEY) return false;
+
+  const verdict = await verifyInternalSignature(
+    payloadText,
+    signature,
+    request.headers.get('X-Axim-Timestamp'),
+    env.AXIM_INTERNAL_KEY
+  );
+
+  if (verdict.valid && verdict.version === 'v1') {
+    console.warn('[SIGNATURE] accepted legacy v1 body-only signature; sender must migrate to v2 before the 2026-12-31 sunset.');
+  } else if (!verdict.valid) {
+    console.warn('[SIGNATURE] rejected internal relay', { reason: verdict.reason });
+  }
+
+  return verdict.valid;
+}
+
+/** Operators allowed to drive the cockpit. */
+export const SUPER_USER_EMAILS = ['james.ellars@axim.us.com', 'jrellars@gmail.com'];
+
+const TOKEN_CACHE_TTL_MS = 60_000;
+const TOKEN_CACHE_MAX_ENTRIES = 64;
+const verifiedTokenCache = new Map<string, { email: string; expiresAt: number }>();
+
+async function fingerprintToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Resolves a Supabase session token to a verified email.
+ *
+ * The previous implementation base64-decoded the JWT payload and trusted the
+ * `email` claim without checking the signature, so any caller could mint
+ * `{"email":"james.ellars@axim.us.com"}` and drive the pipeline. We now ask
+ * Supabase to validate the token (`GET /auth/v1/user`), which also catches
+ * revoked and expired sessions. Results are cached for a minute per token so
+ * ingress does not pay a round trip on every request.
+ */
+async function resolveSupabaseIdentity(token: string, env: Env): Promise<{ email?: string } | null> {
+  const cacheKey = await fingerprintToken(token);
+  const cached = verifiedTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { email: cached.email };
+  }
+
+  const serviceKey = (env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    verifiedTokenCache.delete(cacheKey);
+    return null;
+  }
+
+  const user: any = await response.json().catch(() => null);
+  const email = typeof user?.email === 'string' ? user.email : undefined;
+  if (!email) return null;
+
+  if (verifiedTokenCache.size >= TOKEN_CACHE_MAX_ENTRIES) {
+    const oldest = verifiedTokenCache.keys().next();
+    if (!oldest.done) verifiedTokenCache.delete(oldest.value);
+  }
+  verifiedTokenCache.set(cacheKey, { email, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS });
+  return { email };
+}
+
+function logUnauthorizedAttempt(email: string | undefined, env: Env): void {
+  console.warn("Unauthorized execution attempt by non-super-user:", email);
+  fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
+      'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
+    },
+    body: JSON.stringify({
+      component: 'auth',
+      message: 'UNAUTHORIZED_EXECUTION_ATTEMPT by ' + (email || 'unknown'),
+      status: 'FAILED',
+      task_id: 'auth-violation'
+    })
+  }).catch(() => {});
+}
+
 async function verifySupabaseToken(authHeader: string | null, env: Env): Promise<boolean> {
   if (!authHeader) return false;
-  const token = authHeader.replace('Bearer ', '');
-  if (token === env.AXIM_INTERNAL_KEY) return true; // allow internal key bypass
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return false;
+
+  // Service-to-service callers present the shared internal key directly.
+  if (env.AXIM_INTERNAL_KEY && constantTimeEqual(token, env.AXIM_INTERNAL_KEY)) return true;
+
+  let identity: { email?: string } | null = null;
   try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    const decoded = JSON.parse(jsonPayload);
-    const email = decoded?.email;
-    if (email !== 'james.ellars@axim.us.com' && email !== 'jrellars@gmail.com') {
-      console.warn("Unauthorized execution attempt by non-super-user:", email);
-
-      // Attempt to log to DB
-      fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks_errors`, {
-         method: 'POST',
-         headers: {
-           'Content-Type': 'application/json',
-           'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`,
-           'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
-         },
-         body: JSON.stringify({
-           component: 'auth',
-           message: 'UNAUTHORIZED_EXECUTION_ATTEMPT by ' + email,
-           status: 'FAILED',
-           task_id: 'auth-violation'
-         })
-      }).catch(e => {});
-
-      return false;
-    }
-    return true;
+    identity = await resolveSupabaseIdentity(token, env);
   } catch (e) {
+    console.error('[AUTH] Supabase token verification failed', e);
     return false;
   }
+
+  const email = identity?.email;
+  const isSuperUser = Boolean(email && SUPER_USER_EMAILS.includes(email.toLowerCase()));
+  if (!isSuperUser) {
+    logUnauthorizedAttempt(email, env);
+    return false;
+  }
+
+  return true;
 }
 
 
@@ -194,47 +313,100 @@ const dateStr = new Date().toISOString().split('T')[0];
       }
 }
 
+/**
+ * POSTs a pre-serialized body with a fresh v2 envelope. Used by DLQ replays so
+ * the exact stored bytes are what gets signed.
+ */
+async function postSignedRelayRaw(
+  url: string,
+  bodyString: string,
+  env: Env,
+  extraHeaders: Record<string, string> = {}
+): Promise<Response> {
+  const envelope = await generateSignedEnvelope(bodyString, env.AXIM_INTERNAL_KEY);
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...signedHeaders(envelope),
+      ...extraHeaders
+    },
+    body: bodyString
+  });
+}
+
+/**
+ * POSTs a v2-signed JSON payload to another AXiM satellite.
+ * Every satellite callback goes through here so the envelope can never drift.
+ */
+async function postSignedRelay(
+  url: string,
+  payload: unknown,
+  env: Env,
+  extraHeaders: Record<string, string> = {}
+): Promise<Response> {
+  return postSignedRelayRaw(url, JSON.stringify(payload), env, extraHeaders);
+}
+
+/**
+ * Replays one dead-letter entry against its owning satellite.
+ *
+ * Ticket callbacks are re-signed with a fresh v2 envelope on every attempt, so
+ * an entry that sat in the DLQ during an outage still lands inside the
+ * recipient's replay window. Returns true when the entry was delivered and can
+ * be evicted.
+ */
+async function replayDlqEntry(keyName: string, payloadStr: string, env: any): Promise<boolean> {
+  if (keyName.startsWith('dlq:ticket-callback:')) {
+    const ticketId = keyName.split(':')[2];
+    if (!ticketId) return false;
+    const response = await postSignedRelayRaw(
+      `${SUPPORT_BASE_URL}/api/v1/tickets/${encodeURIComponent(ticketId)}/resolve-from-coder`,
+      payloadStr,
+      env
+    );
+    return response.status === 200 || response.status === 202;
+  }
+
+  if (keyName.startsWith('dlq_email_') || keyName.startsWith('dlq:email:')) {
+    const emailPayload = JSON.parse(payloadStr);
+    if (emailPayload.project_key) {
+      const repoMeta = resolveRepoMetadata(emailPayload.project_key);
+      emailPayload.meta = { ...emailPayload.meta, repository: repoMeta.repo, owner: repoMeta.owner };
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const emailRes = await sendEmailItMessage(emailPayload, env, controller.signal)
+      .finally(() => clearTimeout(timeout));
+    return Boolean(emailRes);
+  }
+
+  // Unknown entry shape: nothing can deliver it, so let the sweeper evict it
+  // rather than letting undeliverable keys accumulate forever.
+  console.warn('[DLQ] evicting unrecognised entry', { key: keyName });
+  return true;
+}
+
 async function handleDlqSweeper(env: any) {
-if (env.CODER_DLQ_KV) {
-          console.log("[CRON] Starting DLQ Sweeper");
-          try {
-              const listResult = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
-              for (const key of listResult.keys) {
-                  const payloadStr = await env.CODER_DLQ_KV.get(key.name);
-                  if (payloadStr) {
-                      if (key.name.startsWith("dlq:ticket-callback:")) {
-                          const ticketId = key.name.split(':')[2];
-                          const encoder = new TextEncoder();
-                          const cryptoKey = await crypto.subtle.importKey("raw", encoder.encode(env.AXIM_INTERNAL_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-                          const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(payloadStr));
-                          const signatureHex = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
-                          const controller = new AbortController();
-                          const timeout = setTimeout(() => controller.abort(), 5000);
-                          const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${ticketId}/resolve-from-coder`, {
-                              method: "POST", headers: { "Content-Type": "application/json", "X-Axim-Signature": signatureHex }, body: payloadStr, signal: controller.signal
-                          }).finally(() => clearTimeout(timeout));
-                          if (cbResp.status === 200 || cbResp.status === 202) await env.CODER_DLQ_KV.delete(key.name);
-                      } else if (key.name.startsWith("dlq_email_") || key.name.startsWith("dlq:email:")) {
-                           try {
-                               const emailPayload = JSON.parse(payloadStr);
-                               if (emailPayload.project_key) {
-                                  const repoMeta = resolveRepoMetadata(emailPayload.project_key);
-                                  emailPayload.meta = { ...emailPayload.meta, repository: repoMeta.repo, owner: repoMeta.owner };
-                               }
-                               const controller = new AbortController();
-                               const timeout = setTimeout(() => controller.abort(), 5000);
-                               const emailRes = await sendEmailItMessage(emailPayload, env, controller.signal).finally(() => clearTimeout(timeout));
-                               if (emailRes) await env.CODER_DLQ_KV.delete(key.name);
-                           } catch (e) {
-                               console.error("[CRON] DLQ email replay failed:", e);
-                           }
-                      } else {
-                          await env.CODER_DLQ_KV.delete(key.name);
-                      }
-                  }
-              }
-          } catch (e) { console.error("[CRON] DLQ Sweep error:", e); }
+  if (!env.CODER_DLQ_KV) return;
+  console.log("[CRON] Starting DLQ Sweeper");
+  try {
+    const listResult = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+    for (const key of listResult.keys) {
+      const payloadStr = await env.CODER_DLQ_KV.get(key.name);
+      if (!payloadStr) {
+        await env.CODER_DLQ_KV.delete(key.name);
+        continue;
       }
+      try {
+        if (await replayDlqEntry(key.name, payloadStr, env)) {
+          await env.CODER_DLQ_KV.delete(key.name);
+        }
+      } catch (e) {
+        console.error("[CRON] DLQ replay failed:", key.name, e);
+      }
+    }
+  } catch (e) { console.error("[CRON] DLQ Sweep error:", e); }
 }
 
 async function handleStalePrSweeper(env: any) {
@@ -281,25 +453,54 @@ export default {
     }
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const startTime = Date.now();
+    const traceId = request.headers.get('cf-ray') || crypto.randomUUID();
     const url = new URL(request.url);
 
-    // 1. PHP CGI Argument Injection & Path Traversal Defense
-    const suspiciousPhpPattern = /(\?-d|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode)/i;
-    if (suspiciousPhpPattern.test(url.search)) {
-      return new Response(JSON.stringify({ error: "Forbidden: Suspicious CGI argument injection detected" }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-      });
-    }
+    const response = await handleRequest(request, env, ctx, url, startTime);
 
-    const pathTraversalPattern = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php)/i;
-    if (pathTraversalPattern.test(url.pathname)) {
-      return new Response(JSON.stringify({ error: "Forbidden: Suspicious path probe detected" }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-      });
+    const executionTimeMs = Date.now() - startTime;
+    console.log(JSON.stringify({
+      level: 'info',
+      trace_id: traceId,
+      method: request.method,
+      url: url.pathname,
+      status_code: response.status,
+      execution_time_ms: executionTimeMs,
+      user_agent: request.headers.get('User-Agent') || 'unknown'
+    }));
+
+    // Stamp trace headers on every response, including the early hostile-traffic
+    // and preflight returns that used to bypass this wrapper entirely.
+    const headers = new Headers(response.headers);
+    headers.set('X-Edge-Ray-Id', traceId);
+    headers.set('X-Edge-Colo', request.cf?.colo || 'ORD');
+    headers.set('X-Response-Time-Ms', executionTimeMs.toString());
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: headers
+    });
+  }
+};
+
+/**
+ * Routing core. Every path returns a Response; {@link fetch} is responsible for
+ * trace headers and access logging so no branch can skip them.
+ */
+async function handleRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  startTime: number
+): Promise<Response> {
+    // 1. PHP CGI Argument Injection & Path Traversal Defense (before env/routing)
+    const hostileResponse = screenHostileUrl(url, request);
+    if (hostileResponse) {
+      return hostileResponse;
     }
-    const startTime = Date.now();
     const envValidation = validateEnv(env);
     if (!envValidation.valid) {
       return new Response(JSON.stringify({
@@ -312,21 +513,6 @@ export default {
         headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
       });
     }
-
-    const traceId = request.headers.get('cf-ray') || crypto.randomUUID();
-    const url = new URL(request.url);
-
-    // Edge Ingress Hardening: Reject PHP CGI Argument Injection & Traversal Probes
-    const suspiciousPhpPattern = /(\?-d|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode)/i;
-    if (suspiciousPhpPattern.test(url.search)) {
-      return new Response(JSON.stringify({ error: "Forbidden: Suspicious CGI argument injection detected" }), { status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-    }
-
-    const pathTraversalPattern = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php)/i;
-    if (pathTraversalPattern.test(url.pathname)) {
-      return new Response(JSON.stringify({ error: "Forbidden: Suspicious path probe detected" }), { status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-    }
-
 
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -902,7 +1088,7 @@ export default {
               }
             }
 
-            // 2. The Zero-Trust Handshake: HMAC SHA-256 Validation
+            // 2. The Zero-Trust Handshake: HMAC SHA-256 Validation (v2 envelope preferred)
             const signature = request.headers.get('X-Axim-Signature');
             if (!signature) {
               return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature Boundary' }), {
@@ -911,7 +1097,7 @@ export default {
             }
 
             const payloadText = await request.clone().text();
-            const isVerified = await verifyHmacSignature(payloadText, signature, env.AXIM_INTERNAL_KEY);
+            const isVerified = await verifyInternalRelay(request, payloadText, env);
 
             if (!isVerified) {
               return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), {
@@ -969,18 +1155,10 @@ export default {
 
 
             // Ecosystem On-Demand Task Ingress
+            // Body integrity is already proven by the zero-trust block above; do
+            // not re-verify the same signature here.
             if (url.pathname === "/api/v1/projects/scaffold") {
               try {
-                const signature = request.headers.get("X-Axim-Signature");
-                if (!signature || !env.AXIM_INTERNAL_KEY) {
-                  return new Response(JSON.stringify({ error: "Unauthorized: Missing Signature" }), { status: 401, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) } });
-                }
-                const clonedReq = request.clone();
-                const payloadText = await clonedReq.text();
-                const isValid = await verifyHmacSignature(payloadText, signature, env.AXIM_INTERNAL_KEY);
-                if (!isValid) {
-                  return new Response(JSON.stringify({ error: "Forbidden: Invalid Signature" }), { status: 403, headers: { "Content-Type": "application/json", ...getCorsHeaders(request) } });
-                }
                 const payload: any = await request.json();
                 const taskId = `scaffold-${Date.now()}`;
                 payload.taskId = taskId;
@@ -995,21 +1173,11 @@ export default {
             }
 
             if (url.pathname === '/api/v1/tasks/dispatch') {
+              // Support System interlock. HMAC (v2 or legacy v1) over the raw body
+              // has already been proven by the zero-trust block above, so this
+              // handler trusts `payloadText` and moves straight to validation.
               try {
-                const signature = request.headers.get('X-Axim-Signature');
-                if (!signature || !env.AXIM_INTERNAL_KEY) {
-                  return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-                }
-
-                // Wait, for HMAC we need to parse body, but we need it as string
-                const clonedReq = request.clone();
-                const payloadText = await clonedReq.text();
-                const isValid = await verifyHmacSignature(payloadText, signature, env.AXIM_INTERNAL_KEY);
-                if (!isValid) {
-                  return new Response(JSON.stringify({ error: 'Forbidden: Invalid Signature' }), { status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-                }
-
-                const payload: any = await request.json();
+                const payload: any = JSON.parse(payloadText);
                 const taskId = payload.taskId || payload.ticketId;
                 if (!taskId) {
                    return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
@@ -1074,38 +1242,28 @@ export default {
                 await mergePullRequest(githubCtx, pr_number, env);
 
                 if (payload.source === "axim-support-system" && payload.ticketId) {
-                  const encoder = new TextEncoder();
-                  const cryptoKey = await crypto.subtle.importKey(
-                    "raw",
-                    encoder.encode(env.AXIM_INTERNAL_KEY),
-                    { name: "HMAC", hash: "SHA-256" },
-                    false,
-                    ["sign"]
-                  );
                   const prUrl = `https://github.com/${repository_owner}/${repository_name}/pull/${pr_number}`;
-                  const callbackPayload = JSON.stringify({
+                  const callbackPayload = {
                     ticketId: payload.ticketId,
-                    status: "completed",
+                    status: "resolved",
                     resolutionNotes: `Automated patch applied and deployed by AXiM Coder Core.\n- PR: ${prUrl}\n- Verification: All automated tests passed cleanly.`,
                     completedAt: new Date().toISOString()
-                  });
-                  const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(callbackPayload));
-                  const signatureArray = Array.from(new Uint8Array(signatureBuffer));
-                  const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, "0")).join("");
+                  };
                   try {
-                    const cbResp = await fetch(`https://support.axim.us.com/api/v1/tickets/${payload.ticketId}/resolve-from-coder`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        "X-Axim-Signature": signatureHex
-                      },
-                      body: callbackPayload
-                    });
+                    // `POST /api/v1/tickets/:id/resolve-from-coder` is the only
+                    // resolution route the Support System exposes. The previous
+                    // `/api/v1/axim-resolution` and `/patch-status` targets do not
+                    // exist upstream, which is what filled the DLQ with 404s.
+                    const cbResp = await postSignedRelay(
+                      `${SUPPORT_BASE_URL}/api/v1/tickets/${encodeURIComponent(payload.ticketId)}/resolve-from-coder`,
+                      callbackPayload,
+                      env
+                    );
                     if (!cbResp.ok) throw new Error(`Callback failed with status ${cbResp.status}`);
                   } catch (cbErr: any) {
                     console.error(`[AUTONOMOUS_CODER] Failed to dispatch resolution callback for ticket ${payload.ticketId}:`, cbErr.message);
                     if ((env as any).CODER_DLQ_KV) {
-                       await (env as any).CODER_DLQ_KV.put(`dlq:ticket-callback:${payload.ticketId}`, callbackPayload);
+                       await (env as any).CODER_DLQ_KV.put(`dlq:ticket-callback:${payload.ticketId}`, JSON.stringify(callbackPayload));
                     }
                   }
                 }
@@ -1299,33 +1457,28 @@ export default {
               try {
                 const dlqKeys = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
                 let reprocessedCount = 0;
+                let remainingCount = 0;
 
                 for (const key of dlqKeys.keys) {
                   const payloadStr = await env.CODER_DLQ_KV.get(key.name);
-                  if (payloadStr) {
-                    try {
-                      const payload = JSON.parse(payloadStr);
-                      // Try redispatching to support system
-                      const res = await fetch('https://support.axim.us.com/api/v1/axim-resolution', {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'x-axim-token': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')
-                        },
-                        body: JSON.stringify(payload)
-                      });
-
-                      if (res.ok) {
-                        await env.CODER_DLQ_KV.delete(key.name);
-                        reprocessedCount++;
-                      }
-                    } catch (e) {
-                       // Skip on failure, remains in DLQ
+                  if (!payloadStr) {
+                    await env.CODER_DLQ_KV.delete(key.name);
+                    continue;
+                  }
+                  try {
+                    if (await replayDlqEntry(key.name, payloadStr, env)) {
+                      await env.CODER_DLQ_KV.delete(key.name);
+                      reprocessedCount++;
+                    } else {
+                      remainingCount++;
                     }
+                  } catch (e) {
+                    remainingCount++;
+                    console.error('[DLQ] manual sweep replay failed', key.name, e);
                   }
                 }
 
-                return new Response(JSON.stringify({ status: "success", reprocessed: reprocessedCount }), {
+                return new Response(JSON.stringify({ status: "success", reprocessed: reprocessedCount, remaining: remainingCount }), {
                   status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               } catch (error) {
@@ -1372,12 +1525,23 @@ export default {
 
 
             // 3. Payload Extraction & Idempotency Lock
-            if (url.pathname === '/api/v1/ingress' || url.pathname === '/api/v1/tasks') {
-              const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);
-              if (!isAuth) {
-                return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-              }
+            //
+            // Only the two coding-task ingress routes fall through to here. Any
+            // other path is unknown and must 404 — previously it was parsed as a
+            // task payload, so a typo'd route returned 500 'Internal Ingress
+            // Error' (or, for GETs, an unparseable-body crash) instead of 404.
+            if (url.pathname !== '/api/v1/ingress' && url.pathname !== '/api/v1/tasks') {
+              return new Response(JSON.stringify({ error: 'Not Found', path: url.pathname }), {
+                status: 404, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+              });
             }
+
+            // Operator session is required on top of the HMAC envelope.
+            const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);
+            if (!isAuth) {
+              return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+            }
+
             try {
               const payload: any = await request.json();
               payload.cf_ray = request.headers.get('cf-ray') || 'unknown';
@@ -1596,27 +1760,5 @@ export default {
     }
 
 
-    const executionTimeMs = Date.now() - startTime;
-    console.log(JSON.stringify({
-      level: 'info',
-      trace_id: traceId,
-      method: request.method,
-      url: url.pathname,
-      status_code: response.status,
-      execution_time_ms: executionTimeMs,
-      user_agent: request.headers.get('User-Agent') || 'unknown'
-    }));
-
-    // Explicitly add telemetry headers to all responses
-    const headers = new Headers(response.headers);
-    headers.set('X-Edge-Ray-Id', traceId);
-    headers.set('X-Edge-Colo', request.cf?.colo || 'ORD');
-    headers.set('X-Response-Time-Ms', executionTimeMs.toString());
-
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: headers
-    });
-  }
-};
+    return response;
+}

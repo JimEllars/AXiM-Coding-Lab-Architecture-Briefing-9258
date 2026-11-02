@@ -178,7 +178,7 @@ export function sanitizeVulnerabilityVectors(code: string): { safe: boolean; err
 
   const phpDangerousExecution = /\b(eval|system|passthru|exec|shell_exec|popen|proc_open|assert)\s*\(/i;
   const phpSuperGlobalConcat = /(\$_(GET|POST|REQUEST|SERVER|COOKIE))\[.*?\]\s*\./i;
-  const roboticsMotorOverride = /\b(force_override|override_motor|infinite_loop|while\s*\(\s*true\s*\))\b/i;
+  const roboticsMotorOverride = /\b(force_override|override_motor|infinite_loop)\b|while\s*\(\s*true\s*\)/i;
 
   if (phpDangerousExecution.test(code) || phpSuperGlobalConcat.test(code)) {
     return { safe: false, error: 'Detected potential PHP command injection or insecure superglobal concatenation' };
@@ -191,14 +191,255 @@ export function sanitizeVulnerabilityVectors(code: string): { safe: boolean; err
   return { safe: true };
 }
 
-export function validateCodeSyntax(code: string, filePath: string): { valid: boolean; error?: string } {
-  const isPython = filePath.endsWith('.py');
-  const isJS = filePath.endsWith('.js') || filePath.endsWith('.ts') || filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
-  const isJSON = filePath.endsWith('.json');
-  const isYamlOrToml = filePath.endsWith('.toml') || filePath.endsWith('.yaml') || filePath.endsWith('.yml');
-  const isPHP = filePath.endsWith('.php');
-  const isMuJoCo = filePath.endsWith('.xml') || filePath.endsWith('.mjcf') || filePath.endsWith('.urdf');
-  const isEmbeddedCpp = filePath.endsWith('.cpp') || filePath.endsWith('.h') || filePath.endsWith('.ino');
+export interface ValidationResult {
+  valid: boolean;
+  error?: string;
+}
+
+/**
+ * FreeCAD Python scripts must import a real geometry API, call it with
+ * arguments, and actually produce output (show / recompute / export). A script
+ * that merely defines classes still satisfies a brace count, which is why the
+ * old check waved broken models through.
+ */
+export function validateFreeCadScript(code: string): ValidationResult {
+  const hasGeometryImport = /^\s*(?:import\s+(FreeCAD|Part|Sketcher|Draft|Mesh)|from\s+(FreeCAD|Part|Sketcher|Draft|Mesh)\s+import)/m.test(code);
+  if (!hasGeometryImport) {
+    return { valid: false, error: 'FreeCAD script does not import FreeCAD, Part, Sketcher, Draft or Mesh.' };
+  }
+
+  const openParens = (code.match(/\(/g) || []).length;
+  const closeParens = (code.match(/\)/g) || []).length;
+  if (openParens !== closeParens) {
+    return { valid: false, error: `Mismatched parentheses in FreeCAD script: ${openParens} open vs ${closeParens} close.` };
+  }
+
+  // Geometry primitives must be constructed with dimensions, not bare calls.
+  const barePrimitive = /\b(?:Part\.make[A-Za-z]+|Draft\.make[A-Za-z]+)\s*\(\s*\)/;
+  if (barePrimitive.test(code)) {
+    return { valid: false, error: 'FreeCAD geometry primitive called without dimensions (e.g. Part.makeBox() with no arguments).' };
+  }
+
+  const sketcherCall = /\bSketcher\.[A-Za-z]+\s*\(|Sketcher::SketchObject/;
+  if (sketcherCall.test(code) && !/\baddGeometry\s*\(|\baddConstraint\s*\(/.test(code)) {
+    return { valid: false, error: 'Sketcher used without addGeometry/addConstraint; sketch cannot produce geometry.' };
+  }
+
+  const producesOutput = /Part\.show\s*\(|\.recompute\s*\(|Part\.export[A-Za-z]*\s*\(|Mesh\.export\s*\(/.test(code);
+  if (!producesOutput) {
+    return { valid: false, error: 'FreeCAD script never shows, recomputes or exports geometry; nothing would be produced.' };
+  }
+
+  return { valid: true };
+}
+
+function countXmlTagBalance(xml: string): string | null {
+  // Strip comments, CDATA, declarations and doctypes before counting tags.
+  const stripped = xml
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
+    .replace(/<\?[\s\S]*?\?>/g, '')
+    .replace(/<!DOCTYPE[^>]*>/gi, '');
+
+  const stack: string[] = [];
+  const tagPattern = /<(\/?)([A-Za-z_][\w.:-]*)([^>]*?)(\/?)>/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(stripped)) !== null) {
+    const [, closing, name, , selfClosing] = match;
+    if (selfClosing === '/') continue;
+    if (closing === '/') {
+      const open = stack.pop();
+      if (open !== name) {
+        return `Unbalanced XML tags: expected </${open ?? 'none'}> but found </${name}>.`;
+      }
+    } else {
+      stack.push(name);
+    }
+  }
+
+  if (stack.length > 0) {
+    return `Unclosed XML tags: ${stack.join(', ')}.`;
+  }
+  return null;
+}
+
+function attributesOf(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const attrPattern = /([A-Za-z_:][-\w.:]*)\s*=\s*"([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = attrPattern.exec(tag)) !== null) {
+    attrs[match[1]] = match[2];
+  }
+  return attrs;
+}
+
+function parseNumberList(value: string | undefined): number[] | null {
+  if (typeof value !== 'string') return null;
+  const parts = value.trim().split(/\s+/).map((token) => Number(token));
+  if (parts.length === 0 || parts.some((n) => !Number.isFinite(n))) return null;
+  return parts;
+}
+
+/**
+ * Hardware-as-Code validation for MuJoCo (MJCF) and URDF models.
+ *
+ * Joint limits and inertials are what make a simulated model physically
+ * meaningful: an unconstrained hinge, or a body with no mass, loads in MuJoCo
+ * but behaves nothing like the hardware. Both are rejected here rather than
+ * discovered during a fleet run.
+ */
+export function validateMuJoCoModel(code: string, filePath: string): ValidationResult {
+  const isUrdf = filePath.toLowerCase().endsWith('.urdf') || /<robot\b/.test(code);
+
+  const balanceError = countXmlTagBalance(code);
+  if (balanceError) return { valid: false, error: balanceError };
+
+  if (isUrdf) {
+    if (!/<robot\b[^>]*name\s*=/.test(code)) {
+      return { valid: false, error: 'URDF root <robot> element is missing a name attribute.' };
+    }
+    if (!/<link\b/.test(code) || !/<joint\b/.test(code)) {
+      return { valid: false, error: 'URDF must declare at least one <link> and one <joint>.' };
+    }
+
+    const jointBlocks = code.match(/<joint\b[\s\S]*?<\/joint>/g) || [];
+    for (const block of jointBlocks) {
+      const jointType = attributesOf(block.match(/<joint\b[^>]*>/)?.[0] || '').type;
+      if (jointType === 'revolute' || jointType === 'prismatic') {
+        const limitTag = block.match(/<limit\b[^>]*\/?>/)?.[0];
+        const limitAttrs = limitTag ? attributesOf(limitTag) : {};
+        const lower = Number(limitAttrs.lower);
+        const upper = Number(limitAttrs.upper);
+        if (!Number.isFinite(lower) || !Number.isFinite(upper) || upper <= lower) {
+          return { valid: false, error: `URDF ${jointType} joint is missing valid <limit lower="…" upper="…"> bounds.` };
+        }
+      }
+    }
+
+    const inertialBlocks = code.match(/<inertial\b[\s\S]*?<\/inertial>/g) || [];
+    if (inertialBlocks.length === 0) {
+      return { valid: false, error: 'URDF model defines no <inertial> data; links would be massless.' };
+    }
+    for (const block of inertialBlocks) {
+      const mass = Number(attributesOf(block.match(/<mass\b[^>]*\/?>/)?.[0] || '').value);
+      if (!Number.isFinite(mass) || mass <= 0) {
+        return { valid: false, error: 'URDF <inertial> must carry a positive <mass value="…">.' };
+      }
+    }
+    return { valid: true };
+  }
+
+  if (!/<mujoco\b/.test(code)) {
+    return { valid: false, error: 'MuJoCo model is missing the <mujoco> root element.' };
+  }
+
+  const jointTags = code.match(/<joint\b[^>]*>/g) || [];
+  for (const tag of jointTags) {
+    const attrs = attributesOf(tag);
+    if (!attrs.name) {
+      return { valid: false, error: 'MuJoCo <joint> is missing a name attribute.' };
+    }
+    if (attrs.type === 'hinge' || attrs.type === 'slide') {
+      const range = parseNumberList(attrs.range);
+      if (!range || range.length !== 2 || range[1] <= range[0]) {
+        return { valid: false, error: `MuJoCo ${attrs.type} joint "${attrs.name}" is missing a valid range="min max" limit.` };
+      }
+      if (!parseNumberList(attrs.axis) || parseNumberList(attrs.axis)?.length !== 3) {
+        return { valid: false, error: `MuJoCo ${attrs.type} joint "${attrs.name}" is missing a three-component axis.` };
+      }
+    }
+  }
+
+  const inertialTags = code.match(/<inertial\b[^>]*>/g) || [];
+  for (const tag of inertialTags) {
+    const mass = Number(attributesOf(tag).mass);
+    if (!Number.isFinite(mass) || mass <= 0) {
+      return { valid: false, error: 'MuJoCo <inertial> must declare a positive mass attribute.' };
+    }
+    if (!parseNumberList(attributesOf(tag).pos)) {
+      return { valid: false, error: 'MuJoCo <inertial> must declare a pos="x y z" attribute.' };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * PlatformIO project config: needs a named env, a board and a framework.
+ */
+export function validatePlatformIoConfig(code: string): ValidationResult {
+  if (!/^\s*\[env:[^\]]+\]\s*$/m.test(code)) {
+    return { valid: false, error: 'platformio.ini has no [env:<name>] section.' };
+  }
+  if (!/^\s*board\s*=\s*\S+/m.test(code)) {
+    return { valid: false, error: 'platformio.ini is missing a board = <target> entry.' };
+  }
+  if (!/^\s*platform\s*=\s*\S+/m.test(code)) {
+    return { valid: false, error: 'platformio.ini is missing a platform = <vendor> entry.' };
+  }
+  if (!/^\s*framework\s*=\s*\S+/m.test(code)) {
+    return { valid: false, error: 'platformio.ini is missing a framework = <name> entry.' };
+  }
+  return { valid: true };
+}
+
+/**
+ * PlatformIO firmware source: Arduino sketches need setup() + loop(), and every
+ * translation unit needs at least one include so it links against a HAL.
+ */
+export function validatePlatformIoFirmware(code: string, filePath: string): ValidationResult {
+  const isSketch = filePath.toLowerCase().endsWith('.ino');
+
+  if (!/#include\s*[<"]/.test(code)) {
+    return { valid: false, error: 'Firmware source has no #include; it will not link against a HAL.' };
+  }
+
+  if (isSketch) {
+    if (!/\bvoid\s+setup\s*\(\s*(?:void)?\s*\)/.test(code)) {
+      return { valid: false, error: 'Arduino sketch is missing void setup().' };
+    }
+    if (!/\bvoid\s+loop\s*\(\s*(?:void)?\s*\)/.test(code)) {
+      return { valid: false, error: 'Arduino sketch is missing void loop().' };
+    }
+    if (!/#include\s*[<"]Arduino\.h[>"]/.test(code)) {
+      return { valid: false, error: 'Arduino sketch does not include <Arduino.h>.' };
+    }
+  }
+
+  return { valid: true };
+}
+
+export function isHardwareAsCodeFile(filePath: string): boolean {
+  const lowered = filePath.toLowerCase();
+  return (
+    lowered.endsWith('.py') ||
+    lowered.endsWith('.xml') ||
+    lowered.endsWith('.mjcf') ||
+    lowered.endsWith('.urdf') ||
+    lowered.endsWith('.ino') ||
+    lowered.endsWith('.cpp') ||
+    lowered.endsWith('.h') ||
+    lowered.endsWith('platformio.ini')
+  );
+}
+
+/**
+ * Routes a generated file to the right structural/AST validator.
+ *
+ * Returned errors are fed straight back into the one-shot LLM retry, so each
+ * message has to name the exact defect.
+ */
+export function validateCodeSyntax(code: string, filePath: string): ValidationResult {
+  const loweredPath = filePath.toLowerCase();
+  const isPython = loweredPath.endsWith('.py');
+  const isJS = /\.[jt]sx?$/.test(loweredPath);
+  const isJSON = loweredPath.endsWith('.json');
+  const isPlatformIoConfig = loweredPath.endsWith('platformio.ini');
+  const isYamlOrToml = loweredPath.endsWith('.toml') || loweredPath.endsWith('.yaml') || loweredPath.endsWith('.yml') ||
+    (loweredPath.endsWith('.ini') && !isPlatformIoConfig);
+  const isPHP = loweredPath.endsWith('.php');
+  const isMuJoCo = loweredPath.endsWith('.xml') || loweredPath.endsWith('.mjcf') || loweredPath.endsWith('.urdf');
+  const isEmbeddedCpp = ['.cpp', '.h', '.ino', '.cc'].some((ext) => loweredPath.endsWith(ext));
 
   if (isJS) {
     const openBraces = (code.match(/\{/g) || []).length;
@@ -207,10 +448,10 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     const closeParens = (code.match(/\)/g) || []).length;
 
     if (openBraces !== closeBraces) {
-      return { valid: false, error: `Mismatched curly braces: ${openBraces} open vs${closeBraces} close.` };
+      return { valid: false, error: `Mismatched curly braces: ${openBraces} open vs ${closeBraces} close.` };
     }
     if (openParens !== closeParens) {
-      return { valid: false, error: `Mismatched parentheses: ${openParens} open vs${closeParens} close.` };
+      return { valid: false, error: `Mismatched parentheses: ${openParens} open vs ${closeParens} close.` };
     }
 
     const backticks = (code.match(/`/g) || []).length;
@@ -237,12 +478,11 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
         }
       }
     }
-    if (code.includes('import FreeCAD') || code.includes('import Part') || code.includes('import Sketcher')) {
-       const hasTabs = /^\t+/m.test(code);
-       const hasSpaces = /^ +/m.test(code);
-       if (hasTabs && hasSpaces) {
-          return { valid: false, error: 'Mixed indentation in FreeCAD python script.' };
-       }
+
+    const lookFreeCad = /^\s*(?:import|from)\s+(FreeCAD|Part|Sketcher|Draft|Mesh)\b/m.test(code);
+    if (lookFreeCad) {
+      const freeCadResult = validateFreeCadScript(code);
+      if (!freeCadResult.valid) return freeCadResult;
     }
   } else if (isJSON) {
     try {
@@ -250,6 +490,8 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     } catch (err: any) {
       return { valid: false, error: `Invalid JSON structure: ${err.message}` };
     }
+  } else if (isPlatformIoConfig) {
+    return validatePlatformIoConfig(code);
   } else if (isYamlOrToml) {
     const openBrackets = (code.match(/\[/g) || []).length;
     const closeBrackets = (code.match(/\]/g) || []).length;
@@ -280,12 +522,7 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
       return { valid: false, error: 'Missing opening <?php tag in PHP file.' };
     }
   } else if (isMuJoCo) {
-    const openTags = (code.match(/<[a-zA-Z0-9_-]+/g) || []).length;
-    const closeTags = (code.match(/<\/[a-zA-Z0-9_-]+>/g) || []).length;
-    const selfClosingTags = (code.match(/\/>/g) || []).length;
-    if (code.includes('<joint') && !code.includes('name=')) {
-        return { valid: false, error: 'MuJoCo XML joint missing name attribute.' };
-    }
+    return validateMuJoCoModel(code, filePath);
   } else if (isEmbeddedCpp) {
     const openBraces = (code.match(/\{/g) || []).length;
     const closeBraces = (code.match(/\}/g) || []).length;
@@ -297,6 +534,7 @@ export function validateCodeSyntax(code: string, filePath: string): { valid: boo
     if (openParens !== closeParens) {
       return { valid: false, error: `Mismatched parentheses in C++: ${openParens} open vs ${closeParens} close.` };
     }
+    return validatePlatformIoFirmware(code, filePath);
   }
 
   return { valid: true };
@@ -383,7 +621,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     }
 
     await sendEvent('reasoning_step', JSON.stringify({ step: 4, title: '[AST_CHECK]', content: 'Validating structural syntax of the generated code...', status: 'complete' }));
-    const syntaxCheck = validateCodeSyntax(modifiedCode, path);
+    let syntaxCheck = validateCodeSyntax(modifiedCode, path);
     if (!syntaxCheck.valid) {
       console.warn(`[AUTONOMOUS_CODER] Syntax Error Detected: ${syntaxCheck.error}. Triggering 1-shot retry.`);
       const retryPrompt = `${task.instructions}\n\nThe generated code had a syntax error: ${syntaxCheck.error}\nPlease provide the fixed raw source code without markdown.`;
@@ -396,16 +634,20 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
         active_model
       );
       modifiedCode = retryResult.code;
+      // The retry gets the same gate: a second bad generation must not reach Git.
+      syntaxCheck = validateCodeSyntax(modifiedCode, path);
+      if (!syntaxCheck.valid) {
+        throw new Error(`Generated code still fails structural validation after retry: ${syntaxCheck.error}`);
+      }
     }
 
-
-    if (task.origin_source === 'Asguard_WAF') {
-      await sendEvent('reasoning_step', JSON.stringify({ step: 4.5, title: '[SEC_SWEEP]', content: 'Executing pre-commit vulnerability sanitization...', status: 'complete' }));
-      const secCheck = sanitizeVulnerabilityVectors(modifiedCode);
-      if (!secCheck.safe) {
-        console.warn(`[AUTONOMOUS_CODER] Security vulnerability detected in generated code: ${secCheck.error}`);
-        throw new Error(`Pre-commit security validation failed: ${secCheck.error}`);
-      }
+    // Dangerous-sink screening is a generation invariant, not an Asguard-only
+    // courtesy: any origin can be handed a PHP file with eval()/exec() in it.
+    await sendEvent('reasoning_step', JSON.stringify({ step: 4.5, title: '[SEC_SWEEP]', content: 'Executing pre-commit vulnerability sanitization...', status: 'complete' }));
+    const secCheck = sanitizeVulnerabilityVectors(modifiedCode);
+    if (!secCheck.safe) {
+      console.warn(`[AUTONOMOUS_CODER] Security vulnerability detected in generated code: ${secCheck.error}`);
+      throw new Error(`Pre-commit security validation failed: ${secCheck.error}`);
     }
 
     const branchName = `axim-bot/ticket-${taskId.substring(0,8)}`;

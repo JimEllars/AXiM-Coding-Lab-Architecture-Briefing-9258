@@ -1,5 +1,11 @@
 # Verification Appendix
 
+> **Status:** historical table for sprints up to 1.3.
+> The canonical, append-only verification log is now
+> [`AGENTS_VERIFICATION.md`](./AGENTS_VERIFICATION.md) — see the 2026-11-02
+> sprint 1.4 entry for the current battery and verbatim command output.
+> Root causes and known debt live in [`DEBUGGING_NOTES.md`](./DEBUGGING_NOTES.md).
+
 | Target File & Line Range | Exact Change Snippet | Proving Test Name |
 | :--- | :--- | :--- |
 | `edge-coder-worker/src/code_generator.ts` (L1-164) | Moved `cleanSanitizedCodeBlob` up and replaced `validateCodeSyntax` logic. Removed legacy `requestCognitiveCodeGeneration`. | Wrangler Deployment Dry Run Passes |
