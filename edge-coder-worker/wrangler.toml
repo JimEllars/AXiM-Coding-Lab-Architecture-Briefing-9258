@@ -19,6 +19,25 @@ binding = "TASK_LOCKS"
 id = "f399b6d9a6e7425aa3cb648e742ab4b8"
 
 # -----------------------------------------------------------------------------
+# Swarm queue (optional, off by default)
+# -----------------------------------------------------------------------------
+# Without this binding, multi-file tasks run inline via `ctx.waitUntil`.
+# Enable both halves together: a producer with no consumer acks work at the edge
+# and drops it, which is what `queue()` in src/ingress.ts now prevents if the
+# consumer block below is uncommented as well.
+#
+#   npx wrangler queues create axim-swarm-queue
+#
+# [[queues.producers]]
+# binding = "SWARM_QUEUE"
+# queue = "axim-swarm-queue"
+#
+# [[queues.consumers]]
+# queue = "axim-swarm-queue"
+# max_batch_size = 5
+# max_retries = 3
+
+# -----------------------------------------------------------------------------
 # SECRET VAULTING INSTRUCTIONS (Execute via Cloudflare CLI, do not hardcode):
 # -----------------------------------------------------------------------------
 # 1. wrangler secret put AXIM_INTERNAL_KEY

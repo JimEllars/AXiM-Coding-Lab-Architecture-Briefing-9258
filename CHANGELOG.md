@@ -1,5 +1,102 @@
 # AXiM Coding Lab — Changelog
 
+## [1.5.0] — 2026-11-03
+
+Sprint 1.5: close the human-approval trust boundary, make the operator session
+the console credential, unify task leases, and remove the fabricated numbers
+from the telemetry and briefing surfaces.
+
+### Security
+- **`GET /api/v1/pr/action` merged pull requests for anyone who could guess a
+  token string.** The handler treated any token that was not literally
+  `consumed` as authorised — including tokens that were never minted — and took
+  the merge target from the query string. A request such as
+  `?token=anything&decision=merge&owner=<org>&repo=<repo>&pr=<n>` merged an
+  arbitrary pull request with the worker's GitHub token. Approval tokens must
+  now exist in KV, are bound to one PR at mint time, are single-use, and the
+  merge coordinates come from the stored record, with the owner pinned back to
+  `JimEllars`. Tokens are handed back if GitHub refuses the merge, so a
+  transient `422`/`5xx` does not burn the operator's link.
+- **Approval links no longer mutate state on GET.** Mail clients and link
+  scanners prefetch GET links, and the old endpoint merged on that prefetch. GET
+  now renders a confirmation page (`Cache-Control: no-store`,
+  `X-Frame-Options: DENY`); POST performs the decision.
+- **The operator session is now a first-class credential.** The dashboard
+  signed task dispatches in the browser with
+  `import.meta.env.VITE_AXIM_INTERNAL_KEY`: with the key unset it sent a
+  `development-key` signature that the edge rejected with 403, and with the key
+  set it inlined the shared internal key into the public bundle — the exact
+  thing `README.md` forbids. Relay routes now accept *either* a verified
+  Supabase operator session *or* a valid relay signature (`src/services/labService.js`
+  sends only the session). A signature that is present is still always verified
+  and never downgraded, so a tampered body fails even with a valid session.
+- Removed the hand-rolled body-only HMAC verifier in `/api/v1/dlq/sweep`. It
+  could not accept a v2 `timestamp.body` envelope, so a v2-signed satellite
+  could not sweep the queue. The route now uses the shared verifier, runs before
+  the blanket zero-trust block, and accepts an operator session.
+- `sanitizeVulnerabilityVectors()` covered `eval`/`exec`/`system` and superglobal
+  *concatenation* only. It now also rejects request-driven `include`/`require`
+  (LFI/RFI), `call_user_func`/`create_function`/`unserialize`/`extract`/
+  `parse_str`, backtick shell execution and `$$` indirection in files that read
+  request input.
+
+### Fixed
+- **Two dashboard endpoints were dead code.** `/api/v1/dlq/stats` and
+  `/api/v1/github/tree` were defined *after* the `request.method !== 'POST'`
+  guard, so every dashboard GET returned 405 and the cockpit rendered a zero
+  queue depth and an empty file browser. Both are matched before the guard,
+  authenticate with the operator session, and pin the repository owner.
+- **Task leases meant three different things.** `/api/v1/ingress` wrote
+  `active`, `/api/v1/tasks/dispatch` wrote `in_progress` and only treated
+  `in_progress` as busy, so a Support retry of an in-flight `/api/v1/ingress`
+  task started a second pipeline and a second PR. All lease handling now goes
+  through `edge-coder-worker/src/locks.ts`, where any value at `lock:<taskId>`
+  is busy. A successful run records `pr-open:<taskId>` and releases the lease,
+  so a retry is answered `202 ignored` with the existing `pr_url` instead of
+  regenerating the patch.
+- **A failed `SWARM_QUEUE.send()` stranded the task.** The send was awaited
+  unguarded after the lease was claimed, so a queue error escaped as a 500 while
+  the lease stayed held for an hour — the caller's retry was told "already
+  processing" and the task never ran. Sends are now guarded (missing binding,
+  oversized payload over the 128 KiB limit, or a throw) and fall back to the
+  inline pipeline with `transport: "inline"`. Added the `queue()` consumer that
+  was missing entirely: a producer with no consumer acked work at the edge and
+  dropped it.
+- **Edge metrics reported numbers nothing ever measured** —
+  `requestCounts.total: 100`, `kvCacheHits: 95`, a 42MB heap. `roundTripLatencyMs`
+  subtracted a `Date.now()` epoch from a `performance.now()` origin, producing a
+  large negative latency. Values are now measured or `null`, and `/api/telemetry/stats`
+  no longer 500s on an unbound namespace or returns `NaN` for average latency.
+- **The daily executive briefing was fabricated.** It reported
+  `prsOpened: 12, prsReviewed: 10, prsMerged: 8, tokenCost: '$12.50'` every day
+  and offered an approve button for one hard-coded "CRITICAL HOTFIX" that did not
+  exist. It now reports measured task/failure counts, real DLQ depth and the
+  pull requests actually awaiting approval, and says `n/a` when a value cannot be
+  read. Recipients match `README.md` (operator, BCC `jrellars@gmail.com`).
+- `logUnauthorizedAttempt()` wrote `message` into `coding_tasks_errors` instead
+  of `error_message`, so auth violations landed in a column the schema does not
+  have.
+
+### Added
+- `edge-coder-worker/src/locks.ts` — `acquireTaskLock`, `releaseTaskLock`,
+  `recordOpenPullRequest`, `readOpenPullRequest`, `clearTaskState`.
+- `edge-coder-worker/tests/trust_boundary.test.ts` — 31 tests covering the
+  approval gate, DLQ sweep auth, lease unification, queue fallback and consumer,
+  telemetry honesty and the resurrected console GETs.
+- `mintApprovalToken()` and the approval-record helpers.
+- `clear_pr: true` on `POST /api/v1/force-unlock` for the rare case where the
+  operator really does want a ticket regenerated after its PR was abandoned.
+- `[[queues.producers]]` / `[[queues.consumers]]` guidance in `wrangler.toml`.
+
+### Changed
+- `POST /api/v1/deploy-action` with `action: "REJECTED"` now clears the open-PR
+  marker as well as the lease; a rejection means "generate again" and the old
+  behaviour would have refused the next dispatch as a duplicate.
+- The GitHub webhook `pull_request.closed` handler clears both keys via
+  `clearTaskState()`.
+
+---
+
 ## [1.4.0] — 2026-11-02
 
 Sprint 1.4: repair the broken worker build, replace self-referential tests with

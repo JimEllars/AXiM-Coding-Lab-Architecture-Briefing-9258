@@ -64,6 +64,33 @@ describe('PHP dangerous-sink sanitization', () => {
     const result = sanitizeVulnerabilityVectors('<?php echo htmlspecialchars($name, ENT_QUOTES);');
     expect(result.safe).toBe(true);
   });
+
+  // The sink list above only covers direct execution, and the superglobal rule
+  // only fires on concatenation. A web shell needs neither.
+  test('detects request-driven file inclusion (LFI/RFI)', () => {
+    expect(sanitizeVulnerabilityVectors("<?php include $_GET['f']; ?>").safe).toBe(false);
+    expect(sanitizeVulnerabilityVectors('<?php require_once($_POST["tpl"]); ?>').safe).toBe(false);
+  });
+
+  test('detects dynamic dispatch and deserialization sinks next to request input', () => {
+    expect(sanitizeVulnerabilityVectors("<?php call_user_func($_GET['cb'], 1); ?>").safe).toBe(false);
+    expect(sanitizeVulnerabilityVectors("<?php $o = unserialize($_COOKIE['session']); ?>").safe).toBe(false);
+    expect(sanitizeVulnerabilityVectors('<?php extract($_POST); ?>').safe).toBe(false);
+  });
+
+  test('detects backtick shell execution and variable-variable indirection', () => {
+    expect(sanitizeVulnerabilityVectors('<?php $out = `id`; echo $_GET[\'x\']; ?>').safe).toBe(false);
+    expect(sanitizeVulnerabilityVectors('<?php $$name = $_POST[\'v\']; ?>').safe).toBe(false);
+  });
+
+  test('leaves ordinary PHP that merely reads a superglobal alone', () => {
+    expect(sanitizeVulnerabilityVectors('<?php echo htmlspecialchars($_GET["q"], ENT_QUOTES); ?>').safe).toBe(true);
+    expect(sanitizeVulnerabilityVectors('<?php $rows = $db->query("SELECT * FROM t"); ?>').safe).toBe(true);
+  });
+
+  test('backticks in JavaScript template literals are not a PHP shell', () => {
+    expect(sanitizeVulnerabilityVectors('const label = `total: ${count}`;').safe).toBe(true);
+  });
 });
 
 describe('JavaScript and JSON validation', () => {

@@ -5,6 +5,12 @@ import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPu
 import { dispatchToJulesAgent } from './jules_bridge';
 import { resolveRepoMetadata, AXiM_ECOSYSTEM_REGISTRY } from './registry';
 import {
+  acquireTaskLock,
+  clearTaskState,
+  readOpenPullRequest,
+  releaseTaskLock
+} from './locks';
+import {
   constantTimeEqual,
   generateHmacSignature,
   generateSignedEnvelope,
@@ -26,12 +32,18 @@ export interface AnalyticsEngineDataset {
   writeDataPoint(data: { doubles?: number[]; blobs?: string[]; indexes?: string[] }): void;
 }
 
+export interface MessageQueue {
+  send(message: unknown, options?: { contentType?: string }): Promise<void>;
+}
+
 export interface Env {
   LAB_STATE: KVNamespace;
   TASK_LOCKS: KVNamespace;
   TELEMETRY_KV: KVNamespace;
   CODER_DLQ_KV: KVNamespace;
   axim_coder_metrics: AnalyticsEngineDataset;
+  /** Optional: when unbound, multi-file tasks run inline instead of queueing. */
+  SWARM_QUEUE?: MessageQueue;
   AXIM_INTERNAL_KEY: string;
   GITHUB_TOKEN: string;
   GITHUB_WEBHOOK_SECRET?: string;
@@ -152,6 +164,148 @@ async function verifyInternalRelay(
 /** Operators allowed to drive the cockpit. */
 export const SUPER_USER_EMAILS = ['james.ellars@axim.us.com', 'jrellars@gmail.com'];
 
+const APPROVAL_TOKEN_PREFIX = 'pr_token_';
+const APPROVAL_TOKEN_TTL_SECONDS = 86_400;
+
+/**
+ * What a human-approval link is allowed to merge. The merge coordinates are
+ * stored server-side at mint time; the URL carries only the opaque token.
+ */
+export interface PrApprovalRecord {
+  owner: string;
+  repo: string;
+  pr: number;
+  taskId?: string;
+  title?: string;
+  branch?: string;
+}
+
+/** Mints a single-use HITL approval token for one pull request. */
+export async function mintApprovalToken(
+  taskLocks: KVNamespace,
+  record: PrApprovalRecord
+): Promise<string> {
+  const token = crypto.randomUUID();
+  await taskLocks.put(`${APPROVAL_TOKEN_PREFIX}${token}`, JSON.stringify(record), {
+    expirationTtl: APPROVAL_TOKEN_TTL_SECONDS
+  });
+  return token;
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return '&#39;';
+    }
+  });
+}
+
+interface GatePageOptions {
+  heading: string;
+  detail?: string;
+  status: number;
+  /** Present only when the visitor may still confirm the action. */
+  confirmAction?: string;
+  token?: string;
+  decision?: string;
+}
+
+/**
+ * Renders the human-gate page. GET only ever renders; the merge is a POST.
+ * Mail clients and link scanners prefetch GET links, and this endpoint used to
+ * merge a pull request on that prefetch.
+ */
+function renderGatePage({ heading, detail, status, confirmAction, token, decision }: GatePageOptions): Response {
+  const form = confirmAction && token
+    ? `<form method="POST" action="${escapeHtml(confirmAction)}">
+    <input type="hidden" name="token" value="${escapeHtml(token)}" />
+    <input type="hidden" name="decision" value="${escapeHtml(decision ?? 'merge')}" />
+    <button type="submit" class="approve">${decision === 'revise' ? 'Confirm: Request Revision' : 'Confirm: Approve &amp; Merge'}</button>
+  </form>`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>${escapeHtml(heading)}</title>
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .card { background-color: #1e293b; padding: 2rem; border-radius: 0.5rem; border: 1px solid #334155; text-align: center; max-width: 32rem; }
+    h1 { margin-top: 0; font-size: 1.35rem; color: #38bdf8; }
+    p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; }
+    button { background-color: #10b981; color: #06231a; border: 0; padding: 0.75rem 1.25rem; border-radius: 0.375rem; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${escapeHtml(heading)}</h1>
+    ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+    ${form}
+  </div>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'no-referrer',
+      'X-Robots-Tag': 'noindex, nofollow'
+    }
+  });
+}
+
+/**
+ * Reads and validates a minted approval token.
+ *
+ * The previous handler treated *any* token that was not literally the string
+ * `consumed` as authorised — including tokens that were never minted — and then
+ * took the merge target from the query string, so
+ * `?token=x&decision=merge&owner=…&repo=…&pr=N` merged an arbitrary pull
+ * request in an arbitrary repository with the worker's GitHub token.
+ */
+async function readApprovalRecord(
+  taskLocks: KVNamespace,
+  token: string | null
+): Promise<{ record: PrApprovalRecord } | { error: string; status: number }> {
+  if (!token) {
+    return { error: 'Missing approval token.', status: 400 };
+  }
+
+  const raw = await taskLocks.get(`${APPROVAL_TOKEN_PREFIX}${token}`);
+  if (raw === null) {
+    return { error: 'Unknown or expired approval token.', status: 403 };
+  }
+  if (raw === 'consumed') {
+    return { error: 'This approval link has already been used.', status: 409 };
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: 'Approval token is not actionable.', status: 409 };
+  }
+
+  const pr = Number(parsed?.pr);
+  const repo = typeof parsed?.repo === 'string' ? parsed.repo : '';
+  if (!repo || !Number.isInteger(pr) || pr <= 0) {
+    return { error: 'Approval token is not bound to a pull request.', status: 409 };
+  }
+
+  const owner = resolveRepoMetadata(parsed.owner ? `${parsed.owner}/${repo}` : repo).owner;
+  return { record: { ...parsed, owner, repo, pr } };
+}
+
 const TOKEN_CACHE_TTL_MS = 60_000;
 const TOKEN_CACHE_MAX_ENTRIES = 64;
 const verifiedTokenCache = new Map<string, { email: string; expiresAt: number }>();
@@ -214,7 +368,7 @@ function logUnauthorizedAttempt(email: string | undefined, env: Env): void {
     },
     body: JSON.stringify({
       component: 'auth',
-      message: 'UNAUTHORIZED_EXECUTION_ATTEMPT by ' + (email || 'unknown'),
+      error_message: 'UNAUTHORIZED_EXECUTION_ATTEMPT by ' + (email || 'unknown'),
       status: 'FAILED',
       task_id: 'auth-violation'
     })
@@ -271,46 +425,139 @@ export function validateEnv(env: Env): { valid: boolean; missing: string[] } {
 }
 
 
+/** Public host the approval links in the briefing email point at. */
+const BRIEFING_WORKER_DOMAIN = 'lab-worker.axim.us.com';
+
+interface BriefingPullRequest {
+  owner: string;
+  repo: string;
+  pr: number;
+  title: string;
+  branch: string;
+}
+
+/**
+ * Counts rows matching a PostgREST filter, or returns `null` when the query
+ * cannot be answered. `null` is rendered as "n/a" in the briefing: an
+ * unavailable number is not the same thing as a flattering number.
+ */
+async function countSupabaseRows(env: any, table: string, query: string): Promise<number | null> {
+  const serviceKey = (env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
+  if (!env.SUPABASE_URL || !serviceKey) return null;
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}?${query}&select=id`, {
+      headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` }
+    });
+    if (!response.ok) return null;
+    const rows = await response.json();
+    return Array.isArray(rows) ? rows.length : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Collects the pull requests actually awaiting a human, across the registry.
+ * The briefing used to render one hard-coded "CRITICAL HOTFIX" row against
+ * `CORE` every single day, with an approve link that merged nothing real.
+ */
+async function collectOpenPullRequests(env: any, limit = 5): Promise<BriefingPullRequest[]> {
+  const collected: BriefingPullRequest[] = [];
+  for (const repoDef of Object.values(AXiM_ECOSYSTEM_REGISTRY)) {
+    if (collected.length >= limit) break;
+    try {
+      const prs = await fetchOpenPullRequests({ owner: repoDef.owner, repo: repoDef.repo, path: '' }, env);
+      for (const pr of prs) {
+        if (collected.length >= limit) break;
+        if (pr?.draft) continue;
+        collected.push({
+          owner: repoDef.owner,
+          repo: repoDef.repo,
+          pr: Number(pr.number),
+          title: String(pr.title ?? '(untitled)'),
+          branch: String(pr.head?.ref ?? 'unknown')
+        });
+      }
+    } catch (e) {
+      console.warn(`[BRIEFING] could not list pull requests for ${repoDef.repo}`, e);
+    }
+  }
+  return collected.filter((pr) => Number.isInteger(pr.pr) && pr.pr > 0);
+}
+
 async function handleDailyExecutiveBriefing(env: any) {
-const dateStr = new Date().toISOString().split('T')[0];
-      const metrics = {
-        prsOpened: 12, prsReviewed: 10, prsMerged: 8,
-        hotfixesIngested: 2, tokenCost: '$12.50', computeDebt: 'Low'
-      };
-      const prMeta = resolveRepoMetadata('CORE');
-      const pendingPRs = [{
-          id: 'task-123', title: 'CRITICAL HOTFIX: Sanitize inbound parameters',
-          repo: prMeta.repo, owner: prMeta.owner, branch: 'hotfix/sanitize-inbound'
-      }];
-      let pendingHtml = '';
-      for (const pr of pendingPRs) {
-        const token = crypto.randomUUID();
-        await env.TASK_LOCKS.put(`pr_token_${token}`, JSON.stringify(pr), { expirationTtl: 86400 });
-        const workerDomain = 'lab-worker.axim.us.com';
-        pendingHtml += `
-          <div style="background-color: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a2a3e;">
-            <h4 style="color: #fff; margin-top: 0;">${pr.title}</h4>
-            <p style="color: #a0a0b0; font-size: 14px;">Repository: ${pr.repo} | Branch: ${pr.branch}</p>
-            <div style="margin-top: 15px; display: flex; gap: 10px;">
-              <a href="https://${workerDomain}/api/v1/pr/action?token=${token}&decision=merge&owner=${pr.owner}&repo=${pr.repo}" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Approve & Merge</a>
-            </div>
-          </div>
-        `;
-      }
-      const htmlBody = `
-        <div style="font-family: monospace; max-width: 600px; margin: 0 auto; background-color: #0a0f1c; color: #fff; padding: 20px; border: 1px solid #1f2937;">
-          <h2 style="color: #60a5fa; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">[AXiM] Daily Engineering Summary - ${dateStr}</h2>
-          ${pendingHtml}
+  const generatedAt = new Date();
+  const dateStr = generatedAt.toISOString().split('T')[0];
+  const since = new Date(generatedAt.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+  const pendingPRs = await collectOpenPullRequests(env);
+
+  let dlqDepth: number | null = null;
+  try {
+    if (env.CODER_DLQ_KV) {
+      const list = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+      dlqDepth = list.keys.length;
+    }
+  } catch (e) {
+    console.warn('[BRIEFING] DLQ depth unavailable', e);
+  }
+
+  const tasks24h = await countSupabaseRows(env, 'coding_tasks', `created_at=gte.${encodeURIComponent(since)}`);
+  const errors24h = await countSupabaseRows(env, 'coding_tasks_errors', `created_at=gte.${encodeURIComponent(since)}`);
+
+  const metric = (value: number | null) => (value === null ? 'n/a' : String(value));
+  const metricRows: [string, string][] = [
+    ['Tasks created (24h)', metric(tasks24h)],
+    ['Failures logged (24h)', metric(errors24h)],
+    ['Pull requests awaiting approval', String(pendingPRs.length)],
+    ['Dead-letter queue depth', metric(dlqDepth)]
+  ];
+
+  let pendingHtml = '';
+  for (const pr of pendingPRs) {
+    const token = await mintApprovalToken(env.TASK_LOCKS, {
+      owner: pr.owner,
+      repo: pr.repo,
+      pr: pr.pr,
+      title: pr.title,
+      branch: pr.branch
+    });
+    pendingHtml += `
+      <div style="background-color: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a2a3e;">
+        <h4 style="color: #fff; margin-top: 0;">${escapeHtml(pr.title)}</h4>
+        <p style="color: #a0a0b0; font-size: 14px;">${escapeHtml(pr.owner)}/${escapeHtml(pr.repo)} #${pr.pr} | Branch: ${escapeHtml(pr.branch)}</p>
+        <div style="margin-top: 15px;">
+          <a href="https://${BRIEFING_WORKER_DOMAIN}/api/v1/pr/action?token=${token}&decision=merge" style="background-color: #10b981; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px;">Review &amp; Approve</a>
         </div>
-      `;
-      if (env.EMAILIT_API_KEY) {
-         const emailPayload = {
-             to: "engineering@axim.us.com",
-             subject: `[AXiM] Daily Engineering Summary - ${dateStr}`,
-             html: htmlBody
-         };
-         await sendEmailItMessage(emailPayload, env);
-      }
+      </div>
+    `;
+  }
+  if (!pendingHtml) {
+    pendingHtml = '<p style="color: #a0a0b0; font-size: 14px;">No pull requests are awaiting approval.</p>';
+  }
+
+  const metricsHtml = metricRows
+    .map(([label, value]) => `<tr><td style="color: #a0a0b0; padding: 4px 12px 4px 0;">${escapeHtml(label)}</td><td style="color: #fff;">${escapeHtml(value)}</td></tr>`)
+    .join('');
+
+  const htmlBody = `
+    <div style="font-family: monospace; max-width: 640px; margin: 0 auto; background-color: #0a0f1c; color: #fff; padding: 20px; border: 1px solid #1f2937;">
+      <h2 style="color: #60a5fa; border-bottom: 1px solid #1f2937; padding-bottom: 10px;">[AXiM] Daily Engineering Summary - ${dateStr}</h2>
+      <table style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">${metricsHtml}</table>
+      <p style="color: #64748b; font-size: 11px;">Measured at ${escapeHtml(generatedAt.toISOString())}. Values shown as n/a could not be read at generation time.</p>
+      <h3 style="color: #94a3b8; font-size: 14px; margin-top: 24px;">Awaiting human approval</h3>
+      ${pendingHtml}
+    </div>
+  `;
+
+  if (env.EMAILIT_API_KEY) {
+    await sendEmailItMessage({
+      to: 'james.ellars@axim.us.com',
+      bcc: 'jrellars@gmail.com',
+      subject: `[AXiM] Daily Engineering Summary - ${dateStr}`,
+      html: htmlBody
+    }, env);
+  }
 }
 
 /**
@@ -356,6 +603,76 @@ async function postSignedRelay(
  * recipient's replay window. Returns true when the entry was delivered and can
  * be evicted.
  */
+/** Cloudflare Queues caps a single message at 128 KiB. */
+export const SWARM_QUEUE_MAX_MESSAGE_BYTES = 128 * 1024;
+
+/**
+ * Hands a multi-file task to the swarm queue.
+ *
+ * Returns `false` whenever the task could not be enqueued — no binding, an
+ * oversized payload, or a `send()` that throws — so the caller can run the
+ * pipeline inline. The previous code awaited `SWARM_QUEUE.send()` unguarded
+ * after claiming the task lease: a failed send escaped to the route's catch
+ * block as a 500 while the lease stayed held for an hour, so the caller's retry
+ * was answered with "already processing" and the task was never run at all.
+ */
+export async function enqueueSwarmTask(env: any, payload: any, taskIdentifier: string): Promise<boolean> {
+  const queue = env.SWARM_QUEUE;
+  if (!queue || typeof queue.send !== 'function') {
+    return false;
+  }
+
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(payload);
+  } catch (e) {
+    console.error('[SWARM_QUEUE] payload is not serializable; running inline', taskIdentifier, e);
+    return false;
+  }
+
+  if (new TextEncoder().encode(serialized).length > SWARM_QUEUE_MAX_MESSAGE_BYTES) {
+    console.warn('[SWARM_QUEUE] payload exceeds the 128 KiB message limit; running inline', taskIdentifier);
+    return false;
+  }
+
+  try {
+    await queue.send(payload);
+    return true;
+  } catch (e) {
+    console.error('[SWARM_QUEUE] send failed; falling back to inline pipeline', taskIdentifier, e);
+    return false;
+  }
+}
+
+/**
+ * Queue consumer for `[[queues.consumers]]`.
+ *
+ * A producer binding with no consumer is a black hole: the task is acked at the
+ * edge, the lease expires an hour later and nothing was ever generated. When
+ * the `swarm-queue` binding is enabled in `wrangler.toml`, this handler is what
+ * drains it.
+ */
+export async function consumeSwarmQueue(
+  batch: { messages: { body: any; ack?: () => void; retry?: () => void }[] },
+  env: Env,
+  ctx: ExecutionContext
+): Promise<void> {
+  for (const message of batch.messages) {
+    const payload = message.body;
+    const taskIdentifier =
+      payload?.task_id || payload?.incident_hash || payload?.ticketId || payload?.taskId || 'unknown';
+    try {
+      await executeCodingPipeline(payload, env, undefined, ctx);
+      message.ack?.();
+    } catch (e) {
+      // `executeAutonomousCodingTask` releases the lease in its own finally, so
+      // a retry starts from a clean state instead of being refused as busy.
+      console.error('[SWARM_QUEUE] consumer failed', taskIdentifier, e);
+      message.retry?.();
+    }
+  }
+}
+
 async function replayDlqEntry(keyName: string, payloadStr: string, env: any): Promise<boolean> {
   if (keyName.startsWith('dlq:ticket-callback:')) {
     const ticketId = keyName.split(':')[2];
@@ -409,6 +726,162 @@ async function handleDlqSweeper(env: any) {
   } catch (e) { console.error("[CRON] DLQ Sweep error:", e); }
 }
 
+/** Credential check shared by the read-only console endpoints. */
+async function authoriseConsoleRequest(request: Request, env: Env, payloadText: string): Promise<boolean> {
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader && await verifySupabaseToken(authHeader, env)) return true;
+  if (request.headers.get('X-Axim-Signature')) {
+    return verifyInternalRelay(request, payloadText, env);
+  }
+  return false;
+}
+
+/**
+ * GET /api/v1/github/tree — repository tree for the dashboard file browser.
+ *
+ * This handler used to sit *after* the `request.method !== 'POST'` guard, so a
+ * GET could never reach it and the file browser always received 405. It now
+ * runs before that guard and authenticates with the operator session.
+ */
+export async function handleGithubTreeRequest(request: Request, env: Env, payloadText: string): Promise<Response> {
+  const cors = { 'Content-Type': 'application/json', ...getCorsHeaders(request) };
+  if (!(await authoriseConsoleRequest(request, env, payloadText))) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors });
+  }
+
+  const url = new URL(request.url);
+  const owner = url.searchParams.get('owner');
+  const repo = url.searchParams.get('repo');
+  if (!owner || !repo) {
+    return new Response(JSON.stringify({ error: 'Missing owner or repo' }), { status: 400, headers: cors });
+  }
+
+  // Pin the owner. The worker reads and merges with its own GitHub token, so it
+  // must never be pointed outside the canonical fleet.
+  const resolved = resolveRepoMetadata(`${owner}/${repo}`);
+  const githubHeaders = {
+    'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'AXiM-Coding-Lab',
+    'Accept': 'application/vnd.github.v3+json'
+  };
+
+  try {
+    const metaResp = await fetch(`https://api.github.com/repos/${resolved.owner}/${resolved.repo}`, { headers: githubHeaders });
+    if (!metaResp.ok) {
+      return new Response(JSON.stringify({ error: 'GitHub API error', status: metaResp.status }), { status: 502, headers: cors });
+    }
+    const metaData: any = await metaResp.json();
+    const defaultBranch = metaData.default_branch || 'main';
+
+    const ghResponse = await fetch(
+      `https://api.github.com/repos/${resolved.owner}/${resolved.repo}/git/trees/${defaultBranch}?recursive=1`,
+      { headers: githubHeaders }
+    );
+    const ghData: any = await ghResponse.json();
+    if (!ghResponse.ok) {
+      return new Response(JSON.stringify({ error: 'GitHub API error', details: ghData }), { status: ghResponse.status, headers: cors });
+    }
+    return new Response(JSON.stringify(ghData), { status: 200, headers: cors });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: cors });
+  }
+}
+
+/**
+ * GET /api/v1/dlq/stats — dead-letter queue depth for the cockpit.
+ * Same dead-code story: it was defined behind the POST-only guard, so the
+ * dashboard read a 405 and rendered zero.
+ */
+export async function handleDlqStatsRequest(request: Request, env: Env, payloadText: string): Promise<Response> {
+  const cors = { 'Content-Type': 'application/json', ...getCorsHeaders(request) };
+  if (!(await authoriseConsoleRequest(request, env, payloadText))) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors });
+  }
+
+  let dlqPendingCount = 0;
+  try {
+    if (env.CODER_DLQ_KV) {
+      dlqPendingCount = (await env.CODER_DLQ_KV.list({ prefix: 'dlq:' })).keys.length;
+    } else if (env.LAB_STATE) {
+      dlqPendingCount = (await env.LAB_STATE.list({ prefix: 'dlq:' })).keys.length;
+    }
+  } catch (e) {
+    console.error('Failed to fetch DLQ stats', e);
+  }
+
+  return new Response(JSON.stringify({
+    status: 'success',
+    pending_count: dlqPendingCount,
+    timestamp: new Date().toISOString()
+  }), { status: 200, headers: cors });
+}
+
+/**
+ * POST /api/v1/dlq/sweep — replay everything parked in the dead-letter queue.
+ *
+ * Authorised by either an operator session (Supabase-verified bearer) or a
+ * signed relay envelope. It runs *before* the blanket zero-trust block because
+ * the operator console must be able to sweep without holding
+ * `AXIM_INTERNAL_KEY`: `VITE_*` values are compiled into the public bundle, so
+ * signing in the browser either fails (no key configured) or ships the shared
+ * secret to every visitor.
+ */
+export async function handleDlqSweepRequest(request: Request, env: Env, payloadText: string): Promise<Response> {
+  const cors = { 'Content-Type': 'application/json', ...getCorsHeaders(request) };
+
+  const authHeader = request.headers.get('Authorization');
+  const isOperator = authHeader ? await verifySupabaseToken(authHeader, env) : false;
+  const isRelay = !isOperator && request.headers.get('X-Axim-Signature')
+    ? await verifyInternalRelay(request, payloadText, env)
+    : false;
+
+  if (!isOperator && !isRelay) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors });
+  }
+
+  if (!env.CODER_DLQ_KV) {
+    return new Response(JSON.stringify({
+      status: 'skipped',
+      reprocessed: 0,
+      remaining: 0,
+      reason: 'CODER_DLQ_KV binding is not configured'
+    }), { status: 200, headers: cors });
+  }
+
+  try {
+    const dlqKeys = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
+    let reprocessedCount = 0;
+    let remainingCount = 0;
+
+    for (const key of dlqKeys.keys) {
+      const payloadStr = await env.CODER_DLQ_KV.get(key.name);
+      if (!payloadStr) {
+        await env.CODER_DLQ_KV.delete(key.name);
+        continue;
+      }
+      try {
+        if (await replayDlqEntry(key.name, payloadStr, env)) {
+          await env.CODER_DLQ_KV.delete(key.name);
+          reprocessedCount++;
+        } else {
+          remainingCount++;
+        }
+      } catch (e) {
+        remainingCount++;
+        console.error('[DLQ] manual sweep replay failed', key.name, e);
+      }
+    }
+
+    return new Response(JSON.stringify({ status: 'success', reprocessed: reprocessedCount, remaining: remainingCount }), {
+      status: 200, headers: cors
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Internal Error processing DLQ sweep' }), {
+      status: 500, headers: cors
+    });
+  }
+}
+
 async function handleStalePrSweeper(env: any) {
 console.log("[CRON] Running PR Review & Static Analysis Sweeper");
       try {
@@ -451,6 +924,9 @@ export default {
     } else if (event.cron === "0 */6 * * *") {
       await handleStalePrSweeper(env);
     }
+  },
+  async queue(batch: { messages: { body: any; ack?: () => void; retry?: () => void }[] }, env: Env, ctx: ExecutionContext) {
+    await consumeSwarmQueue(batch, env, ctx);
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const startTime = Date.now();
@@ -550,30 +1026,44 @@ async function handleRequest(
 
     if (request.method === 'GET' && url.pathname === '/api/telemetry/edge-metrics') {
       try {
-        let dlq_pending_count = 0;
-        if (env.CODER_DLQ_KV) {
-          const dlqList = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
-          dlq_pending_count = dlqList.keys.length;
+        // Every value below is measured or explicitly `null`. This endpoint used
+        // to answer `requestCounts.total: 100`, `kvCacheHits: 95` and a 42MB
+        // heap no worker ever reported, which the dashboard rendered as live
+        // telemetry. `startTime` is epoch millis, so it is paired with
+        // `Date.now()` — mixing in `performance.now()` produced a large
+        // negative latency.
+        let dlqPendingCount: number | null = null;
+        try {
+          if (env.CODER_DLQ_KV) {
+            dlqPendingCount = (await env.CODER_DLQ_KV.list({ prefix: 'dlq:' })).keys.length;
+          }
+        } catch (e) {
+          console.warn('[TELEMETRY] DLQ depth unavailable', e);
         }
 
-        const latencyMs = performance.now() - startTime;
-        let upstreamHealth = 'DEGRADED';
-        if (env.SUPABASE_URL) {
-           upstreamHealth = 'ONLINE';
+        let telemetryEventCount: number | null = null;
+        try {
+          if (env.TELEMETRY_KV) {
+            telemetryEventCount = (await env.TELEMETRY_KV.list({ prefix: 'telemetry:' })).keys.length;
+          }
+        } catch (e) {
+          console.warn('[TELEMETRY] event count unavailable', e);
         }
+
+        const upstreamHealth = env.SUPABASE_URL ? 'ONLINE' : 'DEGRADED';
 
         const stats = {
-          requestCounts: { total: 100 },
-          roundTripLatencyMs: latencyMs,
+          roundTripLatencyMs: Date.now() - startTime,
+          requestCount: null,
+          telemetryEventCount,
+          kvCacheHits: null,
+          workerMemory: null,
           agentExecutionStatus: 'Nominal',
-          workerMemory: {
-             heapUsed: '42MB',
-             heapTotal: '64MB'
-          },
-          kvCacheHits: 95,
-          upstreamHealth: upstreamHealth,
-          dlqPendingCount: dlq_pending_count,
-          cloudflareColo: request.cf?.colo || 'ORD'
+          upstreamHealth,
+          dlqPendingCount,
+          cloudflareColo: request.cf?.colo || 'ORD',
+          metricsSource: 'edge-worker',
+          sampledAt: new Date().toISOString()
         };
 
         return new Response(JSON.stringify(stats), {
@@ -588,38 +1078,51 @@ async function handleRequest(
 
     if (request.method === 'GET' && url.pathname === '/api/telemetry/stats') {
       try {
-        let dlq_pending_count = 0;
-        if (env.CODER_DLQ_KV) {
-          const dlqList = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
-          dlq_pending_count = dlqList.keys.length;
+        // Bindings are optional in `wrangler.toml`; reading them unguarded turned
+        // a missing namespace into a 500 instead of an empty series.
+        let dlqPendingCount: number | null = null;
+        try {
+          if (env.CODER_DLQ_KV) {
+            dlqPendingCount = (await env.CODER_DLQ_KV.list({ prefix: 'dlq:' })).keys.length;
+          }
+        } catch (e) {
+          console.warn('[TELEMETRY] DLQ depth unavailable', e);
         }
-        const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+
+        const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 500);
         const agentFilter = url.searchParams.get("agentId");
 
-        const listParams = { limit: limit, prefix: agentFilter ? `telemetry:${agentFilter}:` : 'telemetry:' };
-        const listResult = await (env.TELEMETRY_KV).list(listParams);
-        const events = [];
+        const events: any[] = [];
+        if (env.TELEMETRY_KV) {
+          const listParams = { limit: limit, prefix: agentFilter ? `telemetry:${agentFilter}:` : 'telemetry:' };
+          const listResult = await env.TELEMETRY_KV.list(listParams);
 
-        for (const key of listResult.keys) {
-          const data = await env.TELEMETRY_KV.get(key.name);
-          if (data) {
-            events.push(JSON.parse(data));
+          for (const key of listResult.keys) {
+            const data = await env.TELEMETRY_KV.get(key.name);
+            if (data) {
+              events.push(JSON.parse(data));
+            }
           }
         }
 
         events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-        const dlqList = await (env.CODER_DLQ_KV).list({ prefix: 'dlq:' });
+        const latencies = events
+          .map((event) => Number(event?.latencyMs))
+          .filter((value) => Number.isFinite(value));
+
         const stats = {
           events,
           total_events: events.length,
-          average_latency: events.length > 0 ? (events.reduce((sum, e) => sum + e.latencyMs, 0) / events.length) : 0,
-          total_tokens: events.reduce((sum, e) => sum + (e.tokensUsed || 0), 0),
-          worker_uptime: Date.now() - startTime,
-          memory_execution_markers: { heap_used: "42MB", heap_total: "64MB" },
-          dlq_pending_count,
+          average_latency: latencies.length > 0
+            ? latencies.reduce((sum, value) => sum + value, 0) / latencies.length
+            : null,
+          total_tokens: events.reduce((sum, event) => sum + (Number(event?.tokensUsed) || 0), 0),
+          worker_uptime: null,
+          memory_execution_markers: null,
+          dlq_pending_count: dlqPendingCount,
           cloudflare_colo: request.cf?.colo || 'ORD',
-
+          sampledAt: new Date().toISOString()
         };
 
         return new Response(JSON.stringify(stats), {
@@ -816,88 +1319,116 @@ async function handleRequest(
               }
             }
 
-            if (request.method === 'GET' && url.pathname === '/api/v1/pr/action') {
-              const token = url.searchParams.get('token');
-              const decision = url.searchParams.get('decision');
+            // Human-in-the-loop pull request gate.
+            //
+            // GET renders a confirmation page and never mutates anything: mail
+            // clients and link scanners prefetch GET links, and this endpoint
+            // used to merge a pull request on that prefetch. POST performs the
+            // decision, and the merge coordinates come from the server-side
+            // token record — never from the query string.
+            if (url.pathname === '/api/v1/pr/action') {
+              // A POST carries the decision in a form body; a GET may only ever
+              // ask for the confirmation page, so its decision stays advisory.
+              const form = request.method === 'POST'
+                ? await request.clone().formData().catch(() => null)
+                : null;
 
-              const renderHtml = (message) => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${message}</title>
-  <style>
-    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-    .card { background-color: #1e293b; padding: 2rem; border-radius: 0.5rem; border: 1px solid #334155; text-align: center; }
-    h1 { margin-top: 0; font-size: 1.5rem; color: #38bdf8; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>${message}</h1>
-  </div>
-</body>
-</html>`;
+              const formDecision = form?.get('decision');
+              const rawDecision = typeof formDecision === 'string' && formDecision.length > 0
+                ? formDecision
+                : url.searchParams.get('decision');
+              const decision = rawDecision ?? 'merge';
 
-              if (!token || await env.TASK_LOCKS.get('pr_token_' + token) === 'consumed') {
-                return new Response(renderHtml("Action Already Processed"), {
-                  status: 409,
-                  headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+              if (decision !== 'merge' && decision !== 'revise') {
+                return renderGatePage({ heading: 'Invalid Decision', status: 400 });
+              }
+
+              const formToken = form?.get('token');
+              const token = typeof formToken === 'string' && formToken.length > 0
+                ? formToken
+                : url.searchParams.get('token');
+
+              const resolvedToken = await readApprovalRecord(env.TASK_LOCKS, token);
+              if ('error' in resolvedToken) {
+                return renderGatePage({ heading: 'Approval Rejected', detail: resolvedToken.error, status: resolvedToken.status });
+              }
+              const { record } = resolvedToken;
+              const prUrl = `https://github.com/${record.owner}/${record.repo}/pull/${record.pr}`;
+
+              if (request.method !== 'POST') {
+                return renderGatePage({
+                  heading: decision === 'revise' ? 'Request Revision' : 'Approve & Merge',
+                  detail: `${record.title ? record.title + ' — ' : ''}${record.owner}/${record.repo}#${record.pr}. Nothing has been merged yet; confirm below.`,
+                  status: 200,
+                  confirmAction: '/api/v1/pr/action',
+                  token: token as string,
+                  decision
                 });
               }
 
-              if (decision === 'merge') {
+              // Single-use: consume before the side effect so a double submit
+              // (or a retried POST) cannot merge twice.
+              await env.TASK_LOCKS.put(`${APPROVAL_TOKEN_PREFIX}${token}`, 'consumed', {
+                expirationTtl: APPROVAL_TOKEN_TTL_SECONDS
+              });
+
+              if (decision === 'revise') {
+                if (record.taskId) {
+                  await releaseTaskLock(env.TASK_LOCKS, record.taskId);
+                }
+                return renderGatePage({ heading: 'Revision Requested', detail: `#${record.pr} was not merged. The task lease was released.`, status: 200 });
+              }
+
+              try {
+                await mergePullRequest({ owner: record.owner, repo: record.repo, path: '' }, record.pr, env);
+              } catch (e: any) {
+                // GitHub refused the merge (conflict, failing checks, transient
+                // 5xx). Give the approval link back so the operator can retry
+                // once the branch is healthy instead of waiting for tomorrow's
+                // briefing to mint a new one.
+                await env.TASK_LOCKS.put(`${APPROVAL_TOKEN_PREFIX}${token}`, JSON.stringify(record), {
+                  expirationTtl: APPROVAL_TOKEN_TTL_SECONDS
+                });
+                return renderGatePage({ heading: 'Error Merging PR', detail: e?.message ?? 'GitHub rejected the merge.', status: 502 });
+              }
+
+              await dispatchCallbackWebhook('support', { ticket_id: record.taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: record.branch || 'main', commit_sha: 'merged' }, env);
+              await dispatchCallbackWebhook('asguard', { incident_hash: record.taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: record.branch || 'main' }, env);
+
+              if (record.taskId) {
+                await clearTaskState(env.TASK_LOCKS, record.taskId);
                 try {
-                  const targetOwner = url.searchParams.get('owner') || 'JimEllars';
-                  const targetRepo = url.searchParams.get('repo') || 'axim-core-v1.2';
-                  const githubCtx = { owner: targetOwner, repo: targetRepo };
-                  const prNumber = parseInt(url.searchParams.get('pr') || '0', 10);
-                  const taskId = url.searchParams.get('task_id');
-
-                  if (prNumber > 0) {
-                    await mergePullRequest(githubCtx, prNumber, env);
-
-                    // Webhook Callbacks
-                    const prUrl = `https://github.com/${targetOwner}/${targetRepo}/pull/${prNumber}`;
-                    await dispatchCallbackWebhook('support', { ticket_id: taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: 'main', commit_sha: 'merged' }, env);
-                    await dispatchCallbackWebhook('asguard', { incident_hash: taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: 'main' }, env);
-
-                    if (taskId && env.SUPABASE_URL && ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')) {
-                       await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${taskId}`, {
-                         method: 'PATCH',
-                         headers: {
-                           'Content-Type': 'application/json',
-                           'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
-                           'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
-                         },
-                         body: JSON.stringify({ status: 'MERGED' })
-                       });
-                    }
-                  }
-
-                  await env.TASK_LOCKS.put('pr_token_' + token, 'consumed', { expirationTtl: 86400 });
-                  return new Response(renderHtml("PR Successfully Approved & Merged"), {
-                    status: 200,
-                    headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+                  await fetch(`${env.SUPABASE_URL}/rest/v1/coding_tasks?id=eq.${encodeURIComponent(record.taskId)}`, {
+                    method: 'PATCH',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'apikey': ((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || ''),
+                      'Authorization': `Bearer ${((env as any).SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '')}`
+                    },
+                    body: JSON.stringify({ status: 'MERGED' })
                   });
                 } catch (e) {
-                  return new Response(renderHtml("Error Merging PR"), {
-                    status: 500,
-                    headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
-                  });
+                  console.error('[HITL] failed to mark task MERGED', record.taskId, e);
                 }
-              } else if (decision === 'revise') {
-                await env.TASK_LOCKS.put('pr_token_' + token, 'consumed', { expirationTtl: 86400 });
-                return new Response(renderHtml("Revision Requested"), {
-                  status: 200,
-                  headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
-                });
-              } else {
-                return new Response(renderHtml("Invalid Decision"), {
-                  status: 400,
-                  headers: { 'Content-Type': 'text/html', ...getCorsHeaders(request) }
+              }
+
+              return renderGatePage({ heading: 'PR Successfully Approved & Merged', detail: prUrl, status: 200 });
+            }
+
+            // 0. Read-only console routes.
+            //
+            // These are GETs, so they have to be matched before the POST-only
+            // protocol restriction below. Both handlers authenticate with the
+            // operator session (or a relay signature).
+            if (url.pathname === '/api/v1/dlq/stats' || url.pathname === '/api/v1/github/tree') {
+              if (request.method !== 'GET') {
+                return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+                  status: 405, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               }
+              return url.pathname === '/api/v1/dlq/stats'
+                ? await handleDlqStatsRequest(request, env, '')
+                : await handleGithubTreeRequest(request, env, '');
             }
 
             // 1. Protocol Restriction
@@ -961,8 +1492,9 @@ async function handleRequest(
                         body: JSON.stringify({ status: newStatus })
                       });
 
-                      // Clear KV Lock
-                      await env.TASK_LOCKS.delete(`lock:${taskId}`);
+                      // Clear the run lease and the open-PR marker: the pull
+                      // request is closed, so the task is no longer in flight.
+                      await clearTaskState(env.TASK_LOCKS, taskId);
                     }
                   }
                 }
@@ -1088,21 +1620,54 @@ async function handleRequest(
               }
             }
 
-            // 2. The Zero-Trust Handshake: HMAC SHA-256 Validation (v2 envelope preferred)
-            const signature = request.headers.get('X-Axim-Signature');
-            if (!signature) {
-              return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature Boundary' }), {
-                status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-              });
+            // Operator- or relay-authorised maintenance routes. These verify
+            // their own credentials, so they must run before the blanket
+            // zero-trust block below.
+            if (request.method === 'POST' && url.pathname === '/api/v1/dlq/sweep') {
+              return await handleDlqSweepRequest(request, env, await request.clone().text());
             }
 
-            const payloadText = await request.clone().text();
-            const isVerified = await verifyInternalRelay(request, payloadText, env);
 
-            if (!isVerified) {
-              return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), {
-                status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-              });
+            // 2. The Zero-Trust Handshake
+            //
+            // Two accepted proofs of identity:
+            //
+            //   * a satellite relay signature — v2 `timestamp.body` HMAC, with a
+            //     logged fallback to the legacy body-only form; or
+            //   * a verified Supabase operator session.
+            //
+            // A session-verified operator has to be enough on its own. The
+            // dashboard used to sign every task dispatch in the browser with
+            // `import.meta.env.VITE_AXIM_INTERNAL_KEY`, which Vite inlines into
+            // the public bundle: either no key was configured and the signature
+            // was garbage (403 on every dispatch), or the shared internal key
+            // shipped to every visitor. `README.md` forbids the latter, so the
+            // session is the operator's proof and the HMAC stays the service
+            // credential.
+            //
+            // A signature that is *present* is always verified and never
+            // downgraded to the session path — a tampered body must fail.
+            const signature = request.headers.get('X-Axim-Signature');
+            const payloadText = await request.clone().text();
+
+            if (signature) {
+              const isVerified = await verifyInternalRelay(request, payloadText, env);
+
+              if (!isVerified) {
+                return new Response(JSON.stringify({ error: 'Unauthorized: Cryptographic Verification Failed' }), {
+                  status: 403, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+            } else {
+              const hasOperatorSession = await verifySupabaseToken(request.headers.get('Authorization'), env);
+
+              if (!hasOperatorSession) {
+                return new Response(JSON.stringify({ error: 'Unauthorized: Missing Signature Boundary' }), {
+                  status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+                });
+              }
+
+              console.log('[AUTH] relay request authorised by operator session', { path: url.pathname });
             }
 
 
@@ -1117,8 +1682,16 @@ async function handleRequest(
                   });
                 }
 
-                // Evict lock
-                await env.TASK_LOCKS.delete("lock:" + taskId);
+                // Evict the run lease. The open-PR marker is deliberately kept:
+                // dropping it would let the same ticket produce a second pull
+                // request. Pass `clear_pr: true` when the operator really does
+                // want the ticket regenerated from scratch.
+                const openPrUrl = await readOpenPullRequest(env.TASK_LOCKS, taskId);
+                if (payload.clear_pr === true) {
+                  await clearTaskState(env.TASK_LOCKS, taskId);
+                } else {
+                  await releaseTaskLock(env.TASK_LOCKS, taskId);
+                }
 
                 // Log eviction metrics
                 try {
@@ -1143,7 +1716,12 @@ async function handleRequest(
                   console.error('[CORE_LOGGING_CRASH] Failed to record post-mortem audit', logErr);
                 }
 
-                return new Response(JSON.stringify({ status: 'success', message: 'Lock evicted' }), {
+                return new Response(JSON.stringify({
+                  status: 'success',
+                  message: 'Lock evicted',
+                  open_pull_request: openPrUrl,
+                  cleared_pull_request_marker: payload.clear_pr === true
+                }), {
                   status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               } catch (error) {
@@ -1183,13 +1761,17 @@ async function handleRequest(
                    return new Response(JSON.stringify({ error: 'Bad Request: Missing Task Identifier' }), { status: 400, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
                 }
 
-                const existingLock = await env.TASK_LOCKS.get(`lock:${taskId}`);
-                if (existingLock === 'in_progress') {
-                  return new Response(JSON.stringify({ status: 'ignored', message: 'Task actively processing' }), { status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
+                const lease = await acquireTaskLock(env.TASK_LOCKS, taskId);
+                if (!lease.acquired) {
+                  return new Response(JSON.stringify({
+                    status: 'ignored',
+                    message: lease.reason === 'pr-open'
+                      ? 'This ticket already has an open pull request awaiting review.'
+                      : 'Task actively processing',
+                    reason: lease.reason,
+                    ...(lease.reason === 'pr-open' ? { pr_url: lease.prUrl } : {})
+                  }), { status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
                 }
-
-
-                await env.TASK_LOCKS.put(`lock:${taskId}`, 'in_progress', { expirationTtl: 3600 });
 
                 ctx.waitUntil(executeAutonomousCodingTask(payload, env));
 
@@ -1218,10 +1800,13 @@ async function handleRequest(
                 }
 
                 if (action === 'REJECTED') {
-                   await env.TASK_LOCKS.delete(`lock:${taskIdentifier}`);
+                   // A rejection means "generate again": drop both the lease and the
+                   // open-PR marker, otherwise the next dispatch is refused as a
+                   // duplicate of the patch that was just rejected.
+                   await clearTaskState(env.TASK_LOCKS, taskIdentifier);
                    return new Response(JSON.stringify({
                      status: 'accepted',
-                     message: 'Patch rejected, task unlocked.'
+                     message: 'Patch rejected, task unlocked and pull request marker cleared.'
                    }), {
                      status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                    });
@@ -1353,141 +1938,6 @@ async function handleRequest(
 
 
 
-            // DLQ Sweep endpoint
-
-            if (url.pathname === "/api/v1/github/tree" && request.method === "GET") {
-              const owner = url.searchParams.get("owner");
-              const repo = url.searchParams.get("repo");
-              if (!owner || !repo) {
-                return new Response(JSON.stringify({ error: "Missing owner or repo" }), {
-                  status: 400,
-                  headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
-                });
-              }
-              try {
-                const metaResp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-                  headers: {
-                    "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
-                    "User-Agent": "AXiM-Coding-Lab",
-                    "Accept": "application/vnd.github.v3+json"
-                  }
-                });
-                const metaData: any = await metaResp.json();
-                const defaultBranch = metaData.default_branch || 'main';
-
-                const ghResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, {
-                  headers: {
-                    "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
-                    "User-Agent": "AXiM-Coding-Lab",
-                    "Accept": "application/vnd.github.v3+json"
-                  }
-                });
-                const ghData = await ghResponse.json();
-                if (!ghResponse.ok) {
-                  return new Response(JSON.stringify({ error: "GitHub API error", details: ghData }), {
-                    status: ghResponse.status,
-                    headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
-                  });
-                }
-                return new Response(JSON.stringify(ghData), {
-                  status: 200,
-                  headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
-                });
-              } catch (e: any) {
-                return new Response(JSON.stringify({ error: e.message }), {
-                  status: 500,
-                  headers: { "Content-Type": "application/json", ...getCorsHeaders(request) }
-                });
-              }
-            }
-
-            if (url.pathname === "/api/v1/dlq/stats" && request.method === "GET") {
-              let dlq_pending_count = 0;
-              try {
-                if (env.CODER_DLQ_KV) {
-                  const dlqList = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
-                  dlq_pending_count = dlqList.keys.length;
-                } else if (env.LAB_STATE) {
-                  const dlqList = await env.LAB_STATE.list({ prefix: 'dlq:' });
-                  dlq_pending_count = dlqList.keys.length;
-                }
-              } catch (e) {
-                console.error("Failed to fetch DLQ stats", e);
-              }
-              return new Response(JSON.stringify({
-                status: "success",
-                pending_count: dlq_pending_count,
-                timestamp: new Date().toISOString()
-              }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-              });
-            }
-
-            if (url.pathname === "/api/v1/dlq/sweep" && request.method === "POST") {
-              const authHeader = request.headers.get('Authorization');
-              const sigHeader = request.headers.get('X-Axim-Signature');
-              let isAuth = false;
-
-              if (authHeader) {
-                isAuth = await verifySupabaseToken(authHeader, env);
-              } else if (sigHeader && env.AXIM_INTERNAL_KEY) {
-                try {
-                  const bodyText = await request.clone().text();
-                  const encoder = new TextEncoder();
-                  const keyMaterial = await crypto.subtle.importKey(
-                    'raw',
-                    encoder.encode(env.AXIM_INTERNAL_KEY),
-                    { name: 'HMAC', hash: 'SHA-256' },
-                    false,
-                    ['verify']
-                  );
-                  const sigHex = sigHeader.trim();
-                  const sigBytes = new Uint8Array(sigHex.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
-                  isAuth = await crypto.subtle.verify('HMAC', keyMaterial, sigBytes, encoder.encode(bodyText));
-                } catch (e) {
-                  isAuth = false;
-                }
-              }
-
-              if (!isAuth) {
-                return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
-              }
-
-              try {
-                const dlqKeys = await env.CODER_DLQ_KV.list({ prefix: 'dlq:' });
-                let reprocessedCount = 0;
-                let remainingCount = 0;
-
-                for (const key of dlqKeys.keys) {
-                  const payloadStr = await env.CODER_DLQ_KV.get(key.name);
-                  if (!payloadStr) {
-                    await env.CODER_DLQ_KV.delete(key.name);
-                    continue;
-                  }
-                  try {
-                    if (await replayDlqEntry(key.name, payloadStr, env)) {
-                      await env.CODER_DLQ_KV.delete(key.name);
-                      reprocessedCount++;
-                    } else {
-                      remainingCount++;
-                    }
-                  } catch (e) {
-                    remainingCount++;
-                    console.error('[DLQ] manual sweep replay failed', key.name, e);
-                  }
-                }
-
-                return new Response(JSON.stringify({ status: "success", reprocessed: reprocessedCount, remaining: remainingCount }), {
-                  status: 200, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-                });
-              } catch (error) {
-                return new Response(JSON.stringify({ error: 'Internal Error processing DLQ sweep' }), {
-                  status: 500, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
-                });
-              }
-            }
-
             // Telemetry endpoints
             if (url.pathname === "/api/telemetry/events" && request.method === "POST") {
               try {
@@ -1502,7 +1952,9 @@ async function handleRequest(
 
                 // Store event in KV for fast recent querying
                 const eventId = `telemetry:${agentId}:${timestamp}`;
-                await env.TELEMETRY_KV.put(eventId, JSON.stringify(payload), { expirationTtl: 86400 * 7 }); // 7 days retention
+                if (env.TELEMETRY_KV) {
+                  await env.TELEMETRY_KV.put(eventId, JSON.stringify(payload), { expirationTtl: 86400 * 7 }); // 7 days retention
+                }
 
                 // Write to Analytics Engine
                 if (env.axim_coder_metrics) {
@@ -1536,7 +1988,9 @@ async function handleRequest(
               });
             }
 
-            // Operator session is required on top of the HMAC envelope.
+            // The relay handshake above admits either a satellite signature or a
+            // verified operator session; these task routes additionally require
+            // the operator session, so a signature alone cannot drive generation.
             const isAuth = await verifySupabaseToken(request.headers.get('Authorization'), env);
             if (!isAuth) {
               return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) } });
@@ -1602,38 +2056,46 @@ async function handleRequest(
               const taskIdentifier = payload.task_id || payload.incident_hash || payload.ticketId || payload.taskId;
 
 
-              // Query KV to ensure this specific bug/feature isn't already being coded by the swarm
-              let activeLock;
+              // Claim the run lease. Any value already at `lock:<id>` means the
+              // task is busy — see `locks.ts` for why this used to differ
+              // between the two ingress routes.
+              let lease: Awaited<ReturnType<typeof acquireTaskLock>>;
               try {
-                activeLock = await env.TASK_LOCKS.get(`lock:${taskIdentifier}`);
+                lease = await acquireTaskLock(env.TASK_LOCKS, taskIdentifier);
               } catch (kvError) {
                 return new Response(JSON.stringify({ error: "Edge memory capacity exceeded. Try again in a few moments." }), {
                   status: 429, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               }
-              if (activeLock) {
+              if (!lease.acquired) {
                 return new Response(JSON.stringify({
                   status: 'ignored',
-                  message: 'Task is currently locked and actively processing in the Lab.'
+                  message: lease.reason === 'pr-open'
+                    ? 'This task already has an open pull request awaiting review.'
+                    : 'Task is currently locked and actively processing in the Lab.',
+                  reason: lease.reason,
+                  ...(lease.reason === 'pr-open' ? { pr_url: lease.prUrl } : {})
                 }), {
                   status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });
               }
 
-              // Establish a 1-hour active lock for the generation cycle
-              await env.TASK_LOCKS.put(`lock:${taskIdentifier}`, "active", { expirationTtl: 3600 });
-
               if (payload.target_file_paths && payload.target_file_paths.length > 1) {
                 // Task exceeds safe V8 CPU time limits for standard fetch event. Offload to Queue.
-                if ((env as any).SWARM_QUEUE) {
-                  await (env as any).SWARM_QUEUE.send(payload);
-                } else {
+                const enqueued = await enqueueSwarmTask(env, payload, taskIdentifier);
+                if (!enqueued) {
+                  // The lease was already claimed; hand the work to waitUntil so
+                  // the caller still gets a 202 instead of a 500 over a queue
+                  // binding that is absent, misconfigured or full.
                   ctx.waitUntil(executeCodingPipeline(payload, env, null, ctx));
                 }
                 return new Response(JSON.stringify({
                   status: 'accepted',
-                  message: 'Payload verified. Heavy task dispatched to Swarm Queue.',
-                  task_id: taskIdentifier
+                  message: enqueued
+                    ? 'Payload verified. Heavy task dispatched to Swarm Queue.'
+                    : 'Payload verified. Swarm queue unavailable; running the task inline.',
+                  task_id: taskIdentifier,
+                  transport: enqueued ? 'queue' : 'inline'
                 }), {
                   status: 202, headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
                 });

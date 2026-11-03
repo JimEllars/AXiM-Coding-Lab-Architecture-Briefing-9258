@@ -10,6 +10,124 @@ Companion documents:
 
 ---
 
+## 2026-11-03 — Sprint 1.5: approval-gate trust boundary, session credentials, lease unification
+
+Branch `feat/coding-lab-sprint-1.5-hitl-trust-boundary`.
+Base `c0b8c7b` (origin/main). No human commits in the previous 24h; the only
+upstream movement was two Dependabot patches (#152, #153).
+
+Baseline on the base commit was green, so no repair gate was triggered:
+`npm run lint` clean, `npx vitest run` 94 passed, `npx vite build` built,
+worker suite 93 passed, `wrangler deploy --dry-run` bundled.
+
+### 1. P0 — `GET /api/v1/pr/action` merged pull requests without authentication
+
+`readApprovalRecord()` replaces the old `token in KV !== 'consumed'` test. The
+old check let *any* unminted token through, and the merge target came from
+`url.searchParams`, so `?token=x&decision=merge&owner=…&repo=…&pr=N` merged an
+arbitrary PR with the worker's GitHub token.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 168–208 | `PrApprovalRecord`, `mintApprovalToken()` — tokens are bound to one `owner/repo/pr` at mint time. |
+| `edge-coder-worker/src/ingress.ts` | 209–330 | `escapeHtml()`, `renderGatePage()`, `readApprovalRecord()` — unknown/expired token → 403, consumed → 409, unbound → 409. |
+| `edge-coder-worker/src/ingress.ts` | 1322–1416 | Handler: GET renders confirmation only; POST consumes the token then merges the *stored* coordinates. Owner pinned via `resolveRepoMetadata`. Token restored if GitHub refuses the merge. |
+
+### 2. P0 — DLQ sweep could not accept a v2 envelope
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 829–890 | `handleDlqSweepRequest()` — operator session **or** `verifyInternalRelay()` (v2 + logged v1 fallback); missing `CODER_DLQ_KV` answers `skipped` instead of 500. |
+| `edge-coder-worker/src/ingress.ts` | 1607–1612 | Route matched before the zero-trust block so a session is enough. |
+
+### 3. P1 — task leases meant three different things
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/locks.ts` | 1–103 | New module: `acquireTaskLock`, `releaseTaskLock`, `recordOpenPullRequest`, `readOpenPullRequest`, `clearTaskState`. Any value at `lock:<id>` is busy. |
+| `edge-coder-worker/src/ingress.ts` | 1748–1770 | `/api/v1/ingress` uses `acquireTaskLock`; refusals carry `reason` and `pr_url`. |
+| `edge-coder-worker/src/ingress.ts` | 1764–1780 | `/api/v1/tasks/dispatch` uses the same helper (`in_progress` still written for dashboard readability). |
+| `edge-coder-worker/src/code_generator.ts` | 697–702 | On success: `recordOpenPullRequest()` writes `pr-open:<taskId>` and releases the lease. |
+| `edge-coder-worker/src/code_generator.ts` | 706–712 | `finally` releases via the helper. |
+| `edge-coder-worker/src/ingress.ts` | 1738–1748 | `deploy-action` `REJECTED` clears both keys. |
+| `edge-coder-worker/src/ingress.ts` | 1573–1585 | `force-unlock` keeps the PR marker unless `clear_pr: true`. |
+| `edge-coder-worker/src/ingress.ts` | 1857–1859 | GitHub `pull_request.closed` clears both keys. |
+
+### 4. P1 — queue send failures stranded the task
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 606–648 | `enqueueSwarmTask()` — no binding, oversized payload (>128 KiB) or a throwing `send()` all return `false`. |
+| `edge-coder-worker/src/ingress.ts` | 649–680 | `consumeSwarmQueue()` — acks on success, retries on failure. Exported as `queue()` in the default export. |
+| `edge-coder-worker/src/ingress.ts` | 1958–1980 | `/api/v1/ingress` falls back to `ctx.waitUntil(executeCodingPipeline(...))` with `transport: "inline"`. |
+| `edge-coder-worker/wrangler.toml` | 12–27 | Producer/consumer binding guidance. |
+
+### 5. P1 — telemetry and briefing authenticity
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 1013–1070 | `edge-metrics`: measured DLQ depth and telemetry count, `null` for unmeasurable values, `Date.now() - startTime` latency, `metricsSource`, `sampledAt`. |
+| `edge-coder-worker/src/ingress.ts` | 1072–1120 | `telemetry/stats`: binding guards, `average_latency` over finite samples only, no fabricated heap. |
+| `edge-coder-worker/src/ingress.ts` | 423–560 | `collectOpenPullRequests()` + rewritten `handleDailyExecutiveBriefing()` — real counts, `n/a` when unreadable, real PR approval links. |
+| `edge-coder-worker/src/ingress.ts` | 375–392 | `logUnauthorizedAttempt()` writes `error_message`. |
+
+### 6. P1 — dead console endpoints and browser-held keys
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 727–820 | `handleGithubTreeRequest()` / `handleDlqStatsRequest()` extracted and matched before the POST-only guard (they were unreachable, so the dashboard always saw 405). Owner pinned to `JimEllars`. |
+| `edge-coder-worker/src/ingress.ts` | 1418–1432 | Read-only console routes matched before `request.method !== 'POST'`. |
+| `edge-coder-worker/src/ingress.ts` | 1631–1680 | Zero-trust block: relay signature **or** verified operator session; a present-but-invalid signature is still 403 with no downgrade. |
+| `src/services/labService.js` | 484–560 | `triggerTask` sends the session bearer only. |
+| `src/services/labService.js` | 428–455 | `scaffoldProject` sends the session bearer only. |
+| `src/services/labService.js` | 890–900 | `fetchRepositoryTree` sends the session bearer. |
+| `src/services/labService.js` | 944–975 | `fetchDlqStats` and `triggerDlqSweep` send the session bearer. |
+
+### 7. P1 — PHP sink coverage
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/code_generator.ts` | 164–215 | Request-input-gated rejection of `include`/`require`, dynamic dispatch and deserialization sinks, backtick execution and `$$` indirection. |
+| `edge-coder-worker/tests/worker.test.ts` | 63–88 | Five new cases, including two that must stay `safe: true` (ordinary superglobal read, JS template literal). |
+
+### Verification battery (verbatim, this branch)
+
+```
+$ npm run lint
+> quest-react-starter@0.0.0 lint
+> eslint .
+(no output — 0 errors, 0 warnings)
+
+$ npx vitest run
+ ✓ src/services/supportGateway.test.js (1 test) 320ms
+ ✓ edge-coder-worker/tests/trust_boundary.test.ts (31 tests)
+ ✓ edge-coder-worker/tests/hardening.test.ts (30 tests)
+ ✓ edge-coder-worker/tests/hac.test.ts (30 tests)
+ ✓ edge-coder-worker/tests/worker.test.ts (23 tests)
+ ✓ edge-coder-worker/tests/registry.test.ts (15 tests)
+ Test Files  6 passed (6)
+      Tests  130 passed (130)
+
+$ npm run build
+dist/index.html                     1.16 kB │ gzip:     0.57 kB
+dist/assets/index-B_aKVMxT.css  2,075.80 kB │ gzip: 1,373.44 kB
+dist/assets/index-DfSKrvj8.js   1,852.93 kB │ gzip:   560.24 kB │ map: 9,179.76 kB
+✓ built in 12m 29s
+
+$ cd edge-coder-worker && npx vitest run
+ Test Files  5 passed (5)
+      Tests  129 passed (129)
+
+$ cd edge-coder-worker && npx wrangler deploy --dry-run --keep-vars --config wrangler.toml
+Total Upload: 132.92 KiB / gzip: 29.58 KiB
+--dry-run: exiting now.
+```
+
+Test deltas: worker 93 → 129 (+36: 31 in `trust_boundary.test.ts`, 5 in
+`worker.test.ts`). Root 94 → 130.
+
+---
+
 ## 2026-11-02 — Sprint 1.4: build repair, hardware-as-code gates, v2 interlock
 
 Branch `feat/coding-lab-sprint-1.4-build-repair-and-v2-interlock`.

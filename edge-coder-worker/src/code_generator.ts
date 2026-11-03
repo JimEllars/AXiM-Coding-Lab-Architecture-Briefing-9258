@@ -2,6 +2,7 @@ import { Env } from './ingress';
 import { fetchCurrentFileState, fetchRepositoryDependencies, createTaskBranch, commitGeneratedCode, openPullRequest, GithubContext } from './github_bridge';
 import { dispatchCallbackWebhook } from './callback_dispatcher';
 import { reportGreenMachineTelemetry } from './telemetry';
+import { recordOpenPullRequest, releaseTaskLock } from './locks';
 
 let step_count = 0;
 let tokens_consumed = 0;
@@ -182,6 +183,29 @@ export function sanitizeVulnerabilityVectors(code: string): { safe: boolean; err
 
   if (phpDangerousExecution.test(code) || phpSuperGlobalConcat.test(code)) {
     return { safe: false, error: 'Detected potential PHP command injection or insecure superglobal concatenation' };
+  }
+
+  // The sink list above only covers direct code execution, and the superglobal
+  // rule above only fires on concatenation. A web shell does not need either:
+  // `<?php include $_GET['f']; ?>` never concatenates anything and never calls
+  // eval, and `$x = $_POST['c']; $x();` is a variable-function call. Guard the
+  // remaining PHP sinks, but only inside files that actually read request input
+  // — that keeps the backtick and variable-variable rules from firing on
+  // JavaScript template literals.
+  const phpRequestInput = /\$_(GET|POST|REQUEST|COOKIE|FILES|SERVER|ENV)\b/;
+  if (phpRequestInput.test(code)) {
+    if (/\b(include|include_once|require|require_once)\s*[\s(]/i.test(code)) {
+      return { safe: false, error: 'Detected potential PHP file inclusion (LFI/RFI) driven by request input.' };
+    }
+    if (/\b(call_user_func|call_user_func_array|create_function|forward_static_call|unserialize|extract|parse_str|preg_replace)\s*\(/i.test(code)) {
+      return { safe: false, error: 'Detected potential PHP dynamic dispatch or deserialization sink reachable from request input.' };
+    }
+    if (/`[^`\n]+`/.test(code)) {
+      return { safe: false, error: 'Detected potential PHP backtick shell execution.' };
+    }
+    if (/\$\$[A-Za-z_]/.test(code)) {
+      return { safe: false, error: 'Detected potential PHP variable-variable indirection in a request-handling file.' };
+    }
   }
 
   if (roboticsMotorOverride.test(code)) {
@@ -670,6 +694,10 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     await dispatchCallbackWebhook('asguard', { incident_hash: taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: branchName }, env);
 
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} PR opened at ${prUrl}`);
+    // Remember the pull request and drop the run lease. The lease used to be
+    // left to expire after an hour on success, which answered every Support
+    // System retry with "already processing" even though nothing was running.
+    await recordOpenPullRequest(env.TASK_LOCKS, taskId, prUrl);
     step_count++;
     tokens_consumed += 1500; // Approximated tokens
     exit_code = 0;
@@ -691,7 +719,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     throw error;
   } finally {
     if (!pipelineSucceeded) {
-      await env.TASK_LOCKS.delete(`lock:${taskId}`).catch(() => {});
+      await releaseTaskLock(env.TASK_LOCKS, taskId).catch(() => {});
     }
   }
 }
