@@ -5,6 +5,128 @@ obvious from the diff, and debt that is knowingly deferred.
 
 ---
 
+## 2026-11-03 — Sprint 1.5
+
+### Root cause: an approval link that merged anything
+
+`/api/v1/pr/action` asked one question — "is this token the literal string
+`consumed`?" — and then merged whatever `owner`, `repo` and `pr` the query
+string named, using `GITHUB_TOKEN`. An unminted token is not `consumed`, so the
+endpoint was effectively unauthenticated. Two further problems hid inside it:
+
+1. **The token record was never consulted.** The briefing stored
+   `JSON.stringify(pr)` under `pr_token_<uuid>`, and the handler only ever read
+   it to look for the word "consumed". Nothing bound a token to a PR.
+2. **A GET mutated state.** Approval links land in an inbox; Gmail and Outlook
+   both prefetch URLs. A prefetch was enough to merge.
+
+The fix keeps the workflow the operator asked for (one click from the email) and
+moves the confirmation one step later: GET renders a page, the button POSTs, and
+the merge target comes from the token record rather than the URL. Tests assert
+the GET merges nothing and that a forged token cannot name its own target.
+
+### Decision: the operator session is the console credential, not a bundled HMAC key
+
+Three call sites in `labService.js` signed payloads with
+`import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key'`. `README.md`
+already says not to set that variable, because Vite inlines `VITE_*` values into
+the public bundle. So the code was in one of two states:
+
+| State | Consequence |
+| :--- | :--- |
+| Key not set at build time | Every dispatch was signed with `development-key`, the edge rejected it, and the Prompt Terminal could not start a task at all. |
+| Key set at build time | The shared internal key shipped to every visitor of the dashboard. |
+
+Options considered:
+
+| Option | Verdict |
+| :--- | :--- |
+| Move signing to a server-side signer (Support proxy) | Architecturally right for the *satellite* path and already how `dispatchSupportTask` works, but it cannot cover a Support outage — which is exactly when the dashboard is the only console. |
+| Keep HMAC and set the key anyway | Publishes the master secret. Rejected. |
+| Accept a verified Supabase operator session as an alternative to the signature | Chosen. The session is already verified against `GET /auth/v1/user` and restricted to `SUPER_USER_EMAILS`; the HMAC stays the service credential. |
+
+A signature that is *present* is still always verified — the session path is only
+for requests that carry no signature at all — so a tampered body cannot ride in on
+a valid session. Every session-authorised relay request is logged.
+
+**Trade-off:** a stolen operator session can now drive the same routes that used
+to require the shared key. That session already grants dashboard access to the
+same pipeline, and it expires and is revocable, which the static key is not.
+
+### Decision: `lock:` and `pr-open:` instead of a longer lease
+
+The lease used to be the only dedupe mechanism, so it could not be released on
+success — and it only lasted an hour, after which a Support retry regenerated the
+patch and opened a second PR. Now the lease covers the *run* and a separate
+`pr-open:<taskId>` marker covers the *outcome* for 24 hours. The pipeline
+releases the lease as soon as it has a PR URL, and a retry receives
+`202 { status: 'ignored', reason: 'pr-open', pr_url }`.
+
+Two paths deliberately clear the marker: `deploy-action` with
+`action: "REJECTED"` (a rejection means regenerate) and GitHub's
+`pull_request.closed` webhook (the outcome is settled either way). `force-unlock`
+keeps it unless the operator passes `clear_pr: true`, so an operator cannot
+accidentally spawn duplicate PRs while unsticking a task.
+
+### Decision: guard the queue send instead of trusting the binding
+
+`SWARM_QUEUE.send()` was awaited after the lease was claimed and had no
+`try`. Three failure modes shared one symptom — a task that never ran:
+
+- no binding (`wrangler.toml` declares none), so `send` on `undefined` threw;
+- a payload over the 128 KiB message limit;
+- a transient queue error.
+
+All three now fall through to `ctx.waitUntil(executeCodingPipeline(...))` and the
+caller still receives `202` with `transport: "inline"`. Separately, a producer
+binding with no `queue()` consumer is a black hole — work is acked at the edge
+and dropped — so `consumeSwarmQueue()` now exists and `wrangler.toml` documents
+both halves together.
+
+### Root cause: telemetry that was never telemetry
+
+`/api/telemetry/edge-metrics` answered `requestCounts.total: 100`,
+`kvCacheHits: 95` and a 42MB/64MB heap on every request. `roundTripLatencyMs`
+subtracted a `Date.now()` epoch from a `performance.now()` origin, so the
+dashboard's "P99 <N>ms" badge was reading roughly −1.7×10¹² and clamping it to the
+hard-coded floor of 85ms in `Telemetry.jsx`.
+
+Values are now measured where a measurement exists (DLQ depth, telemetry event
+count, request duration) and `null` where the runtime cannot produce one (memory,
+and request totals without an Analytics Engine query). The dashboard reads
+`upstreamHealth` and `roundTripLatencyMs`, both of which are still present.
+
+The same rot was in the daily briefing: `prsOpened: 12, prsReviewed: 10,
+prsMerged: 8, tokenCost: '$12.50'` plus a hard-coded "CRITICAL HOTFIX" rows with
+an approve link that merged nothing. It now counts real rows, lists real PRs, and
+prints `n/a` rather than a plausible number.
+
+### Known debt (not addressed today)
+
+1. **TypeScript is not linted.** `eslint.config.js` only covers
+   `**/*.{js,jsx}`. Everything under `edge-coder-worker/src` is unchecked by
+   `npm run lint` and there is no `tsc --noEmit` in CI, so type errors surface
+   only if esbuild trips over syntax. Adding `typescript-eslint` is a dependency
+   change and belongs in a deliberate toolchain PR.
+2. **`src/services/supportGateway.js` still signs in the browser** on its
+   fallback path, with `VITE_AXIM_INTERNAL_KEY || localStorage.axim_internal_key`.
+   The primary path (Support proxy) is correct; the fallback needs a server-side
+   signer on the Support side before the key can be removed entirely. The worker
+   now accepts a session there too, so the fallback could drop the signature
+   today — left alone this sprint to keep one behaviour change per surface.
+3. **`TELEMETRY_KV` and `CODER_DLQ_KV` are not declared in `wrangler.toml`.**
+   Both are guarded everywhere they are read, but until the namespaces are bound
+   the DLQ, DLQ stats and telemetry event endpoints all no-op. Binding them needs
+   real namespace IDs.
+4. **Dependabot PRs #149/#150/#131/#130** bump `vite`/`vitest`/`wrangler` and are
+   open against `main`. They were triaged but not merged: a toolchain major bump
+   is a bad co-tenant for a security sprint, and #131/#130 are superseded by #150.
+5. **147 stale remote branches.** Each sprint leaves its feature branch behind.
+   Safe to prune `feat/coding-lab-sprint-*` older than 30 days, but that is an
+   operator call, not an automation one.
+
+---
+
 ## 2026-11-02 — Sprint 1.4
 
 ### Root cause: why `main` shipped a worker that cannot bundle

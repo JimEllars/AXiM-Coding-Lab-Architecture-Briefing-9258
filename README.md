@@ -37,6 +37,10 @@ npx wrangler secret put EMAILIT_API_KEY
 
 Do not set `VITE_AXIM_INTERNAL_KEY`: Vite exposes `VITE_*` values to every browser user. The dashboard requires `VITE_SUPPORT_API_URL=https://support.axim.us.com` and sends its Passport `axim_session` cookie to the AXiM Support task-dispatch proxy. That proxy must authorize the operator, then HMAC-sign and forward `TASK_DISPATCH`, `DEPLOY_ACTION`, and `FORCE_UNLOCK` operations to the corresponding Coding Lab Worker endpoints.
 
+The dashboard no longer signs anything in the browser. When it calls the Worker directly — task dispatch, project scaffold, repository tree, DLQ stats and sweep — it sends the operator's Supabase session as a bearer token, and the Worker accepts a verified operator session as an alternative to a relay signature on those routes. A signature that *is* present is still always verified, so a tampered body fails even with a valid session. See `DEBUGGING_NOTES.md` (2026-11-03) for why the bundled-key approach was removed.
+
+The human approval links in the daily briefing are single-use and bound to one pull request. The link opens a confirmation page; the merge happens on the POST, never on the GET, because mail clients prefetch links.
+
 Cloudflare Email Sending has no enabled sender domain. Enable the approved AXiM sender domain before adding operational email notifications:
 
 ```powershell
@@ -69,6 +73,21 @@ CI (`.github/workflows/ci.yml`) runs the same battery on every PR: `npm run lint
 `npx vitest run`, `npx vite build`, the worker suites, and a `wrangler deploy
 --dry-run` bundle check. A worker that cannot bundle now fails the PR instead of
 reaching `main`.
+
+`edge-coder-worker/src/locks.ts` owns task lifecycle state. `lock:<taskId>` is a
+run lease (any value means busy) and `pr-open:<taskId>` remembers the pull
+request a task already produced, so a Support retry is answered
+`202 ignored` with the existing `pr_url` instead of generating a second patch.
+
+Multi-file tasks are handed to `SWARM_QUEUE` when that binding exists. Without
+it — or if the payload exceeds the 128 KiB queue limit, or the send throws — the
+task runs inline and answers `202` with `transport: "inline"`. If you enable the
+binding, enable `[[queues.consumers]]` with it: a producer with no consumer acks
+work at the edge and drops it.
+
+`TELEMETRY_KV` and `CODER_DLQ_KV` are read behind optional guards, so the Worker
+deploys without them, but the dead-letter queue and telemetry history are
+no-ops until both namespaces are bound in `wrangler.toml` with real IDs.
 
 ## Internal relay signatures (v2)
 

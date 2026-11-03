@@ -4,7 +4,6 @@ import { dispatchSupportTask } from './supportGateway';
  * Orchestrates the "Organizational Brain", Multi-Agent Swarms, and Knowledge Injection.
  */
 import { supabase } from './supabaseClient';
-import { generateHmacSignature } from '../utils/crypto';
 
 const listeners = new Set();
 const broadcast = (event) => listeners.forEach(l => l(event));
@@ -432,20 +431,20 @@ export const labService = {
       requirements,
       origin_source: 'Manual_Dev_Cockpit'
     });
-    const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || "development-key";
-    const signature = await generateHmacSignature(payloadBody, internalKey);
     const ingressUrl = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace("/api/v1/ingress", "/api/v1/projects/scaffold") : "http://localhost:8787/api/v1/projects/scaffold";
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token || '';
+    if (!token) {
+      return { success: false, error: 'Operator session required to scaffold a project.' };
+    }
 
     try {
       const response = await fetch(ingressUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-          "X-Axim-Signature": signature
+          "Authorization": `Bearer ${token}`
         },
         body: payloadBody
       });
@@ -542,12 +541,16 @@ export const labService = {
           assigned_model: payload.assigned_model
         });
 
-      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
-      const signature = await generateHmacSignature(payloadBody, internalKey);
-
+      // The operator's verified Supabase session is the credential for this
+      // call. There is deliberately no client-side HMAC: VITE_* values are
+      // inlined into the public bundle, so signing here would either fail or
+      // publish the shared internal key. Satellite services sign server-side.
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData?.session;
       const token = session?.access_token || '';
+      if (!token) {
+        throw new Error('Operator session required to dispatch a coding task.');
+      }
 
 
       const targetUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
@@ -563,9 +566,8 @@ export const labService = {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-Axim-Signature': signature,
               'Accept': 'text/event-stream',
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              Authorization: `Bearer ${token}`
             },
             body: payloadBody,
             signal: controller.signal
@@ -889,7 +891,11 @@ export const labService = {
   fetchRepositoryTree: async (owner, repo) => {
     try {
       const workerBase = import.meta.env.VITE_INGRESS_URL ? import.meta.env.VITE_INGRESS_URL.replace("/api/v1/ingress", "") : "";
-      const response = await fetch(`${workerBase}/api/v1/github/tree?owner=${owner}&repo=${repo}`);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+      const response = await fetch(`${workerBase}/api/v1/github/tree?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       if (!response.ok) throw new Error("Failed to fetch tree");
       const data = await response.json();
       return data.tree || [];
@@ -940,10 +946,14 @@ export const labService = {
       const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
       const statsUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/dlq/stats');
 
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
       const response = await fetch(statsUrl, {
         method: 'GET',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         }
       });
 
@@ -962,15 +972,22 @@ export const labService = {
     try {
       const ingressUrl = import.meta.env.VITE_INGRESS_URL || '/api/v1/ingress';
       const actionUrl = ingressUrl.replace('/api/v1/ingress', '/api/v1/dlq/sweep');
-      const internalKey = import.meta.env.VITE_AXIM_INTERNAL_KEY || 'development-key';
+
+      // The sweep is authorised by the operator's Supabase session. Signing it
+      // in the browser would require VITE_AXIM_INTERNAL_KEY, which Vite inlines
+      // into the public bundle for every visitor — so it is never read here.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Operator session required to sweep the dead-letter queue.');
+      }
+
       const payloadBody = JSON.stringify({ action: 'sweep', timestamp: Date.now() });
-      const signature = await generateHmacSignature(payloadBody, internalKey);
 
       const response = await fetch(actionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Axim-Signature': signature
+          Authorization: `Bearer ${session.access_token}`
         },
         body: payloadBody
       });
