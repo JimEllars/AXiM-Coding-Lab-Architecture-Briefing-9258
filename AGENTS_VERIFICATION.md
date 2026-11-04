@@ -10,6 +10,214 @@ Companion documents:
 
 ---
 
+## 2026-11-04 — Sprint 1.6: cockpit render integrity, render-test harness, wider PHP2Shell screen
+
+Branch `feat/coding-lab-sprint-1.6-cockpit-render-integrity`.
+Base `ec1e84d` (origin/main). Upstream audit: `git log origin/main --since="24 hours ago"`
+returned exactly one commit — `ec1e84d feat(coder): authenticate the HITL merge gate,
+unify leases, kill fabricated telemetry (#154)` — and no open human-authored PRs.
+Open PRs were four Dependabot branches only (#130, #131, #149, #150); see
+"Open work" below.
+
+Baseline on the base commit was green, so the repair gate was not triggered:
+`npm run lint` clean, `npx vitest run` 130 passed (6 files), `npx vite build`
+built, worker suite 129 passed, `wrangler deploy --dry-run` bundled.
+
+### 1. P0 — the cockpit could not render at all: `PromptTerminal` TDZ `ReferenceError`
+
+`src/components/PromptTerminal.jsx` declared `targetRepo`/`targetFiles` *after*
+the file-preview `useEffect` whose dependency array reads them. A `const` in its
+temporal dead zone throws when read during render, so the first mount raised
+`ReferenceError: Cannot access 'targetFiles' before initialization`. The
+component sits inside `Cockpit`, which is inside the layout's
+`<ErrorBoundary><Outlet /></ErrorBoundary>`, so the whole cockpit content area
+was replaced by "[SYSTEM_ANOMALY] Component Render Interrupted" — **no operator
+could dispatch a task from the dashboard.**
+
+Nothing in CI could see it: `vite build` only parses and bundles, and the repo
+had zero React tests. Verified before the fix with a throwaway SSR render:
+
+```
+FAIL src/components/scratch_smoke.test.jsx > renders without throwing
+AssertionError: expected [Function] to not throw an error but
+  'ReferenceError: Cannot access \'targetFiles\' before initialization' was thrown.
+```
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/components/PromptTerminal.jsx` | 23–53 | All `useState` declarations moved above the first effect, grouped under a `// ---- State` banner. |
+| `src/components/PromptTerminal.jsx` | 55–64 | New `// ---- Derived` block: `previewCoordinates`, `selectedRepoName`, `targetFilePaths`, `runtimeMismatches`. |
+| `src/components/PromptTerminal.jsx` | 66–152 | `// ---- Effects` block. Duplicate `sessionStorage` effect for `prompt` removed; ordering comments retained. |
+
+### 2. P0 — `Telemetry` page: same defect, `timeWindow`
+
+`src/pages/Telemetry.jsx` declared `const [timeWindow, setTimeWindow]` nine lines
+*below* an effect that lists `timeWindow` in its dependency array. Same
+`ReferenceError`, same blanked page.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/pages/Telemetry.jsx` | 9–26 | State block hoisted above the agent-count effect; effect order preserved. |
+
+### 3. P1 — a render smoke suite, so this class of bug cannot merge again
+
+The repo had no React test. Added `jsdom` (dev-only) and a mount suite covering
+every routed page and shared component.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/components/render-smoke.test.jsx` | 1–112 (new) | 20 cases: `@vitest-environment jsdom`, `createRoot` + `act`, `MemoryRouter`, stubbed `fetch`, per-case `props` / `allowsEmptyRender`, 120 s timeout. Asserts no throw and non-empty DOM. |
+| `src/test/domShims.js` | 1–23 (new) | `Element.prototype.scrollTo` / `scrollIntoView` no-ops. Without them `SwarmLogConsole`'s `requestAnimationFrame` scroll throws after the test ends and Vitest fails the run on an unhandled error. |
+| `package.json` | 40 | `jsdom ^30.1.3` devDependency. |
+| `eslint.config.js` | 12 | `ecmaVersion` 2020 → 2022 (numeric separators, optional chaining in test files). |
+| `eslint.config.js` | 36–44 | `no-use-before-define` (`variables: true`, `functions: false`) — the static half of the guard. |
+
+Four pre-existing `no-use-before-define` hits were hoisted so the rule could be
+enabled at zero-tolerance rather than diluted:
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/pages/Cockpit.jsx` | 12–20 | State block (incl. `supportProxyHealth`) moved above the first effect. |
+| `src/components/layout/DashboardLayout.jsx` | 150–158 | `updateLockCount` declared before `fetchTasks`. |
+| `src/pages/AgentRegistry.jsx` | 22–46 | `updateAgentStatus` declared before `fetchTasks`. |
+| `src/services/labService.js` | 245–265 | `startPolling` declared before `startStream` (only reachable from its error path). |
+
+### 4. P1 — fleet registry drift between dashboard and worker
+
+`labService.js` carried an inline `STATIC_REGISTRY` literal that had drifted from
+the worker's authoritative `edge-coder-worker/src/registry.ts`:
+
+| Key | Dashboard (before) | Worker (authority) | Result |
+| :--- | :--- | :--- | :--- |
+| `ROBOTICS` | `axim-robotics-lab` | `AXiM-Robotics-Lab-Program-4198` | `GET /repos/JimEllars/axim-robotics-lab` → **404**; phantom repository in the fleet list. |
+| `ASGUARD` | `axim-asguard-system-app-1` | `AXiM-Asguard-System-App-1` | Resolves case-insensitively via the API, but not for `raw.githubusercontent.com` previews or audit forensics. |
+
+Both were confirmed against the live API (`gh api repos/JimEllars/<name>`; the
+robotics slug returned `404 Not Found`).
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/lib/fleetRegistry.js` | 1–106 (new) | `FLEET_REGISTRY` (11 entries, canonical spelling), `resolveFleetCoordinates()`, `RUNTIME_EXPECTED_EXTENSIONS`, `findRuntimeMismatches()`. |
+| `src/lib/fleetRegistry.test.js` | 1–120 (new) | Imports the worker's `AXiM_ECOSYSTEM_REGISTRY` and asserts key parity, per-key repo/owner/branch equality, case-exact repo names, plus resolver and runtime-mismatch behaviour. 14 tests. |
+| `src/services/labService.js` | 6 | Imports `FLEET_REGISTRY`. |
+| `src/services/labService.js` | 657–659 | 1,758-character inline literal replaced with the shared table. |
+
+### 5. P1 — file preview asked for a repository that does not exist
+
+The preview effect computed a `repoName` alias from the project key and then
+never used it, sending `targetRepo.split('/')[0]` as the **owner**. For a
+key-selected project (`CORE`) it requested `raw.githubusercontent.com/CORE/CORE/...`;
+the default `targetRepo` was `JimEllars/axim-core-api`, also a 404. The repo
+`<select>` was bound to `targetRepo` while its options are bare repo names, so a
+`owner/repo` slug from the cockpit left the dropdown blank.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/components/PromptTerminal.jsx` | 76–110 | Preview resolves `resolveFleetCoordinates(targetRepo)` → `fetchFilePreview(owner, repo, path, defaultBranch)`. Dead alias block and the `// Use default owner "axim-dev"` comment removed. |
+| `src/components/PromptTerminal.jsx` | 41 | Default target repo `JimEllars/axim-core-api` → `FLEET_REGISTRY.CORE.repo`. |
+| `src/components/PromptTerminal.jsx` | 317–322 | `<select value={selectedRepoName}>` so a slug or key still matches an option. |
+| `src/components/PromptTerminal.jsx` | 185–192 | Dispatch payload uses `previewCoordinates.repo` / `targetFilePaths` (was `targetRepo` / an inline re-split). |
+
+### 6. P2 — runtime/file-path mismatch hint (hardware-as-code coupling)
+
+`validateCodeSyntax()` routes on the file extension, so `MuJoCo / URDF` +
+`src/app.ts` burns an LLM run and then fails `[AST_CHECK]`. The terminal now
+warns before dispatch, using the same extension table.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/components/PromptTerminal.jsx` | 362–379 | Amber `RUNTIME/PATH MISMATCH` hint under the File Path field; border colour follows. Advisory only — the worker remains the authority. |
+
+### 7. P2 — `RepositoryDetail` rendered a blank page
+
+`if (!repo) return null` covered both "still loading" and "unknown id", and
+`getRepositories()` returns `[]` on a Supabase error, so the route could stay
+empty forever with no recovery affordance.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/pages/RepositoryDetail.jsx` | 63–92 | Explicit not-found/empty panel naming the id, with **Back to repositories** and **Open cockpit** actions. |
+
+### 8. P1 — PHP2Shell screen defeated by encodings
+
+`CGI_INJECTION_PATTERN` matched the literal `?-d` and `PATH_PROBE_PATTERN` matched
+`%2e%2e` only, against the raw target. `?%2Dd`, `..%5C`, `shell%00.jpg`,
+`php://filter` and double-encoded `%252e%252e` all passed the screen.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 68–84 | Patterns widened; added `PHP_STREAM_WRAPPER_PATTERN`; query-parameter argument injection generalised from `?-d` to `[?&;]-[a-z]` (CVE-2012-1823 / CVE-2024-4577 family). |
+| `edge-coder-worker/src/ingress.ts` | 86–105 | `decodeForScreening()` — two guarded `decodeURIComponent` passes; survives malformed sequences such as `?f=100%`. |
+| `edge-coder-worker/src/ingress.ts` | 107–140 | `screenHostileUrl()` evaluates CGI, wrapper and path rules against raw **and** decoded query/path. |
+| `edge-coder-worker/tests/hardening.test.ts` | 5 | Imports `decodeForScreening`. |
+| `edge-coder-worker/tests/hardening.test.ts` | 45–110 | 12 new hostile cases, 6 benign-traffic cases (the dashboard's own routes), and a decode unit test. |
+
+### Verification battery (run 2026-11-04, this branch)
+
+Environment note: this workspace exports `NODE_ENV=production`, which makes
+`npm install`/`npm ci` silently omit every devDependency. Use
+`NODE_ENV=development npm ci`.
+
+```
+$ npm run lint
+> quest-react-starter@0.0.0 lint
+> eslint .
+
+(no output — 0 errors, 0 warnings)
+
+$ npx vitest run
+ ✓ edge-coder-worker/tests/trust_boundary.test.ts (31 tests)
+ ✓ edge-coder-worker/tests/hardening.test.ts (48 tests)
+ ✓ edge-coder-worker/tests/hac.test.ts (30 tests)
+ ✓ edge-coder-worker/tests/worker.test.ts (23 tests)
+ ✓ src/lib/fleetRegistry.test.js (14 tests)
+ ✓ edge-coder-worker/tests/registry.test.ts (15 tests)
+ ✓ src/services/supportGateway.test.js (1 test)
+ ✓ src/components/render-smoke.test.jsx (20 tests)
+
+ Test Files  8 passed (8)
+      Tests  182 passed (182)
+
+$ npx vite build
+dist/index.html                     1.16 kB │ gzip:     0.57 kB
+dist/assets/index-B4hlFYPN.css  2,076.40 kB │ gzip: 1,373.56 kB
+dist/assets/index-58HlIzTS.js   2,211.95 kB │ gzip:   642.11 kB │ map: 10,613.69 kB
+✓ built in 12m 12s
+
+$ cd edge-coder-worker && npx vitest run tests
+ Test Files  5 passed (5)
+      Tests  147 passed (147)
+
+$ npx wrangler deploy --dry-run --keep-vars --config wrangler.toml
+Total Upload: 132.92 KiB / gzip: 29.58 KiB
+env.LAB_STATE (afc3219e3592439b8d3ae6fcb2f40004)            KV Namespace
+env.TASK_LOCKS (f399b6d9a6e7425aa3cb648e742ab4b8)            KV Namespace
+env.ENVIRONMENT ("production")                              Environment Variable
+env.SUPABASE_URL ("https://pvbcdndqjguzqeafhwhw.supabase...") Environment Variable
+env.SUPABASE_LLM_PROXY_URL (...)                            Environment Variable
+--dry-run: exiting now.
+```
+
+Delta vs. the base commit: `npx vitest run` 130 → 182 tests (6 → 8 files);
+worker suite 129 → 147.
+
+### Open work reviewed this run
+
+- `feat/coding-lab-sprint-1.4-build-repair-and-v2-interlock` and
+  `feat/coding-lab-sprint-1.5-hitl-trust-boundary` are both fully merged
+  (`git cherry origin/main <branch>` reports `-` for every commit); left in place
+  as local history, nothing to button up.
+- `#149` (undici + wrangler) is green and mergeable on its own.
+- `#130`, `#131`, `#150` are all red for one reason: `vitest@5` peer-requires
+  `vite@^6.4||^7||^8`, while the root project pins `vite@^5.4.2` and
+  `@vitejs/plugin-react@^4.3.1` (peer `vite <= 7`). They cannot go green
+  individually. Deferred as a single coordinated upgrade — see
+  `DEBUGGING_NOTES.md`.
+- No scratch files, patch scripts or build artifacts were left untracked
+  (`git status --porcelain` reports only this sprint's files).
+
+---
+
 ## 2026-11-03 — Sprint 1.5: approval-gate trust boundary, session credentials, lease unification
 
 Branch `feat/coding-lab-sprint-1.5-hitl-trust-boundary`.

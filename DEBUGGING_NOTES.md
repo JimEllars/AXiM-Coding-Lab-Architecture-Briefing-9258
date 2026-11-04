@@ -5,6 +5,125 @@ obvious from the diff, and debt that is knowingly deferred.
 
 ---
 
+## 2026-11-04 — Sprint 1.6
+
+### Root cause: a render-phase temporal dead zone, invisible to every check we ran
+
+Both P0s are the same mistake with different variables:
+
+```jsx
+const [filePreview, setFilePreview] = useState(null);   // …
+useEffect(() => { /* … */ }, [targetFiles, targetRepo]); // ← read here
+const [targetRepo, setTargetRepo] = useState(/* … */);   // ← declared here
+```
+
+A dependency array is evaluated **during render**, in source order. Reading a
+`const` before its declaration is not hoisting — it is a temporal dead zone
+reference, and it throws. Inside a React component the throw propagates to the
+nearest error boundary; the layout wraps `<Outlet />`, so the entire page body
+collapsed into the fallback, not just the terminal.
+
+Why the existing battery was blind to it:
+
+| Check | Why it passed |
+| :--- | :--- |
+| `vite build` | Parses and bundles. It never calls a component function. |
+| `vitest` (before this sprint) | Zero React tests — the suite covered services and the worker only. |
+| `npm run lint` | `no-use-before-define` was off, so nothing objected to the order. |
+| Manual smoke | The terminal is the *second* thing you see; a reviewer reading the diff sees two `useState` blocks, not their ordering relative to an effect. |
+
+The fix is three lines of movement. The *guard* is the interesting part:
+
+1. **Runtime:** `src/components/render-smoke.test.jsx` mounts every routed page
+   and shared component in jsdom. It asserts no throw and non-empty DOM. Two
+   escape hatches exist and both are explicit: per-case `props` (a closed
+   command palette renders `null` by design) and `allowsEmptyRender`.
+2. **Static:** `no-use-before-define` with `variables: true`. The TDZ bug is a
+   *static* pattern, so it should not need a DOM to catch. Four pre-existing
+   hits were hoisted — three were harmless (called from a deferred callback) but
+   the rule cannot distinguish "called later" from "read now", and a rule kept at
+   zero findings is a rule people keep.
+
+### Decision: jsdom as a devDependency, not a new test framework
+
+`@testing-library/react` would add three packages for `render()` and `screen`.
+`react-dom/client` + `act` from `react-dom/test-utils` is already installed and
+is enough for a mount/assert/unmount net. Interaction behaviour, when it is
+written, can migrate to Testing Library (or to a real Playwright run against
+`vite preview`) without rewriting this file's purpose.
+
+`src/test/domShims.js` exists because jsdom implements the DOM tree but not
+layout: `Element.prototype.scrollTo` is missing, so `SwarmLogConsole`'s
+`requestAnimationFrame` autoscroll throws *after* the test completed, which
+Vitest reports as an unhandled error and fails the run on. The shims are inert
+no-ops, deliberately — anything asserting on layout belongs in a real browser.
+
+### Decision: two registry copies, pinned by a parity test
+
+The dashboard needs `owner/repo` for previews and the fleet list; the worker needs
+the same table to route. Importing `edge-coder-worker/src/registry.ts` into the
+browser bundle would give one source of truth and couple `src/` to the worker
+tree, so the dashboard keeps its own copy — with `fleetRegistry.test.js`
+importing the worker's table and failing on any divergence (keys, repo, owner,
+branch, and case-exact repo spelling). Two copies that cannot drift silently is
+a better trade than one copy that drags worker code into the CDN bundle.
+
+Recorded debt: the *right* end state is a single generated module (or a shared
+`fleet-registry.json` consumed by both), so the parity test becomes a proof
+rather than a detector. Cheap to do during a quiet sprint; not during a render
+outage.
+
+### Note: `NODE_ENV=production` is exported in this workspace
+
+`npm ci` and `npm install` silently omit **all** devDependencies here, which
+wipes `vitest`, `vite`, `eslint` and produces a 169-package `node_modules`
+instead of ~449. This bit during this sprint: a routine `npm install --save-dev
+jsdom` left `npx vitest` resolving a fetcher-cached `vitest@5` and the repo
+appearing to have lost its toolchain. Recovery:
+
+```
+NODE_ENV=development npm ci
+```
+
+It also explains an apparent bundle-size jump (+359 kB on the JS chunk): the
+first build of the day ran against the pre-existing hand-installed
+`node_modules`, the later ones against the lockfile-exact tree that `npm ci`
+produces — which is what CI has always used. The lockfile was not changed beyond
+jsdom's own dependency tree.
+
+### Open debt: the Dependabot PRs cannot be merged one at a time
+
+`#130`, `#131` and `#150` are red for the same reason:
+
+| PR | Bumps | Peer conflict |
+| :--- | :--- | :--- |
+| #130, #131 | `vitest@5` | vitest 5 peer-requires `vite@^6.4 \|\| ^7 \|\| ^8`; project has `vite@^5.4.2` |
+| #150 | `vite@8` + `vitest@5` | `@vitejs/plugin-react@4.7.0` peer-requires `vite@^4 \|\| ^5 \|\| ^6 \|\| ^7` |
+
+They are not independently mergeable and no amount of re-running will change
+that. The coordinated path is `vite@7` + `vitest@5` + `@vitejs/plugin-react@5`,
+verified on one branch (the dashboard build is ~12 minutes on this runner, and
+`vite@8` needs Node ≥ 20.19 — `.nvmrc` says 20). #149 (undici + wrangler) is
+green and independent. Deliberately not bundled into a render-outage sprint.
+
+Also observed: build wall time is 12–13 minutes and the full `vitest` suite is
+3–6 minutes depending on machine load; the CI workflow allows 20 minutes per
+job, so there is headroom but not much. If it becomes a problem, the CSS chunk
+(2.07 MB) and the single 2.2 MB JS chunk are the first things to attack via
+`manualChunks`.
+
+### Next priorities
+
+1. Coordinated toolchain upgrade (`vite@7` / `vitest@5` / `plugin-react@5`) to
+   clear #130, #131, #150 in one merge.
+2. `resolveFleetCoordinates()` is now the single dashboard resolver — route the
+   remaining hardcoded repo strings in `src/pages/*.jsx` through it.
+3. Interaction tests for the Prompt Terminal dispatch path (runtime selector →
+   payload), which today is covered only by "it mounts".
+4. Prune the ~40 stale `feat/*` remote branches; every one of them is merged.
+
+---
+
 ## 2026-11-03 — Sprint 1.5
 
 ### Root cause: an approval link that merged anything

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SafeIcon from '@/common/SafeIcon';
 import { labService } from '../services/labService';
+import { FLEET_REGISTRY, RUNTIME_EXPECTED_EXTENSIONS, findRuntimeMismatches, resolveFleetCoordinates } from '../lib/fleetRegistry';
 
 /**
  * Placeholder hints per runtime so the operator types a path the worker's
@@ -19,6 +20,14 @@ const RUNTIME_FILE_HINTS = {
 };
 
 const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
+  // ---- State -----------------------------------------------------------------
+  // Every hook lives above the first effect that reads it. The previous layout
+  // declared `targetRepo`/`targetFiles` *after* the preview effect's dependency
+  // array, so the first render threw `ReferenceError: Cannot access
+  // 'targetFiles' before initialization` (a temporal dead zone read during
+  // render, not a render-phase hook error) and the whole cockpit fell back to
+  // the layout ErrorBoundary. `render-smoke.test.jsx` now mounts this component
+  // so the ordering cannot regress silently.
   const [prompt, setPrompt] = useState(initialPrompt || sessionStorage.getItem('axim_terminal_prompt') || '');
   const [filePreview, setFilePreview] = useState(null);
   const [fileContent, setFileContent] = useState(null);
@@ -26,7 +35,35 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [availableRepos, setAvailableRepos] = useState([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [targetRepo, setTargetRepo] = useState(() => {
+    const repo = initialRepo || sessionStorage.getItem('axim_terminal_repo') || FLEET_REGISTRY.CORE.repo;
+    return repo;
+  });
+  const [targetFiles, setTargetFiles] = useState(
+    initialFiles?.length > 0
+      ? initialFiles.join(', ')
+      : sessionStorage.getItem('axim_terminal_file') || ''
+  );
+  const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
+  const [executionEngine, setExecutionEngine] = useState(sessionStorage.getItem('axim_terminal_engine') || 'AXiM Swarm (In-House)');
+  const [knowledge, setKnowledge] = useState([]);
+  const [selectedContext, setSelectedContext] = useState([]);
+  const [warningMessage, setWarningMessage] = useState(null);
 
+  // ---- Derived ---------------------------------------------------------------
+  // The cockpit passes `JimEllars/<repo>`; the repo dropdown lists bare repo
+  // names. Resolving both through the fleet registry keeps the select bound to
+  // an option and keeps the preview pointed at a repository that exists.
+  const previewCoordinates = resolveFleetCoordinates(targetRepo);
+  const selectedRepoName = previewCoordinates.repo;
+  const targetFilePaths = targetFiles.split(',').map((file) => file.trim()).filter(Boolean);
+  const runtimeMismatches = findRuntimeMismatches(targetRuntime, targetFilePaths);
+  const userRole = localStorage.getItem('axim_user_role') || 'engineer';
+  const isSuperUser = userRole === 'super_user';
+
+  // ---- Effects ---------------------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Cmd/Ctrl + L to clear console
@@ -46,10 +83,14 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Debounced file preview fetcher
+  // Debounced file preview fetcher. The owner/repo pair comes from the fleet
+  // registry: the old code computed a `repoName` alias from the project key and
+  // then never used it, sending `CORE` as both owner and repository, so every
+  // preview for a key-selected project requested a repository that does not
+  // exist.
   useEffect(() => {
-    const primaryFile = targetFiles?.split(',')[0]?.trim();
-    if (!primaryFile || !targetRepo) {
+    const primaryFile = targetFilePaths[0];
+    if (!primaryFile) {
       setFilePreview(null);
       setPreviewError(null);
       setShowPreview(false);
@@ -61,19 +102,8 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
       setIsLoadingFile(true);
       setPreviewError(null);
       try {
-        let repoName = targetRepo;
-        if (targetRepo === 'CORE') repoName = 'axim-core-v1.2';
-        if (targetRepo === 'SUPPORT') repoName = 'AXiM-Support-System-1.1-4538';
-        if (targetRepo === 'SPEEDREPORT') repoName = 'SpeedReport.org-Speed-Test-App-9642';
-        if (targetRepo === 'ONYX') repoName = 'onyx_mk3';
-        if (targetRepo === 'ELLARS') repoName = 'ELLARS.us.com-Frontend-Site-1.1-1974';
-        if (targetRepo === 'DEMAND_LETTER') repoName = 'Decentralized-Demand-Letter-Generator-Development-8155';
-
-        // Use default owner "axim-dev" for now, or assume it's part of the repo string logic if we had one. We'll use JimEllars or axim-dev. The task says:
-        // calls the GitHub contents API or a proxy endpoint. labService uses raw.githubusercontent.com/{owner}/{repo}
-        const owner = 'JimEllars'; // Or whatever org it is, but we'll try JimEllars or just hardcode JimEllars since it's the target repo owner.
-
-        const text = await labService.fetchFilePreview(targetRepo.split('/')[0] || 'axim', targetRepo.split('/')[1] || targetRepo, primaryFile);
+        const { owner, repo, defaultBranch } = resolveFleetCoordinates(targetRepo);
+        const text = await labService.fetchFilePreview(owner, repo, primaryFile, defaultBranch);
         setFileContent(text);
         setIsLoadingFile(false);
         if (text && text.startsWith('Error loading file preview')) {
@@ -91,40 +121,13 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
     }, 750); // 750ms debounce
 
     return () => clearTimeout(timer);
+    // `targetFiles` is a string; `targetFilePaths` is derived from it each
+    // render, so the string is the correct dependency identity here.
   }, [targetFiles, targetRepo]);
-
-
-
-  useEffect(() => {
-    sessionStorage.setItem('axim_terminal_prompt', prompt);
-  }, [prompt]);
-  const [availableRepos, setAvailableRepos] = useState([]);
-
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [targetRepo, setTargetRepo] = useState(() => {
-    const repo = initialRepo || sessionStorage.getItem('axim_terminal_repo') || 'JimEllars/axim-core-api';
-    return repo;
-  });
-
-  const [targetFiles, setTargetFiles] = useState(
-    initialFiles?.length > 0
-      ? initialFiles.join(', ')
-      : sessionStorage.getItem('axim_terminal_file') || ''
-  );
-  const [targetRuntime, setTargetRuntime] = useState('Node.js Edge');
-  const [executionEngine, setExecutionEngine] = useState(sessionStorage.getItem('axim_terminal_engine') || 'AXiM Swarm (In-House)');
-  const [knowledge, setKnowledge] = useState([]);
-  const [selectedContext, setSelectedContext] = useState([]);
 
   useEffect(() => {
     labService.getRepositories().then(setAvailableRepos);
   }, []);
-
-
-  const userRole = localStorage.getItem('axim_user_role') || 'engineer';
-  const isSuperUser = userRole === 'super_user';
-  const [warningMessage, setWarningMessage] = useState(null);
-
 
   useEffect(() => {
     sessionStorage.setItem('axim_terminal_prompt', prompt);
@@ -171,11 +174,11 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
           if (prefs.model) selectedModel = prefs.model;
         } catch (e) { console.error(e); }
       }
-const payloadBody = JSON.stringify({
+      const payloadBody = JSON.stringify({
         instruction_prompt: prompt,
-        repository_name: targetRepo,
-        project_key: targetRepo,
-        target_file_paths: targetFiles.split(',').map(f => f.trim()).filter(Boolean),
+        repository_name: previewCoordinates.repo,
+        project_key: previewCoordinates.repo,
+        target_file_paths: targetFilePaths,
         origin_source: 'Manual_Dev_Cockpit',
         contextIds: selectedContext,
         task_id: taskId,
@@ -311,10 +314,12 @@ const payloadBody = JSON.stringify({
               <div className="space-y-1">
                 <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Repository</span>
                 <select 
-                  value={targetRepo}
+                  value={selectedRepoName}
                   onChange={(e) => setTargetRepo(e.target.value)}
                   className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
                 >
+                  {/* `selectedRepoName` keeps the select bound to an option when the
+                      cockpit hands in a `owner/repo` slug or a project key. */}
                   {availableRepos.map(repo => (
                     <option key={repo.id} value={repo.name}>
                       {repo.name.toUpperCase()}
@@ -355,10 +360,22 @@ const payloadBody = JSON.stringify({
                   value={targetFiles}
                   onChange={(e) => setTargetFiles(e.target.value)}
                   placeholder={RUNTIME_FILE_HINTS[targetRuntime] || 'src/routes/auth.ts, src/utils/helpers.ts'}
-                  className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors resize-y min-h-[32px] max-h-[100px]"
+                  className={`block w-48 bg-[#111827] border text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono transition-colors resize-y min-h-[32px] max-h-[100px] ${
+                    runtimeMismatches.length > 0 ? 'border-amber-600/70' : 'border-gray-700 hover:border-gray-600'
+                  }`}
                 />
               </div>
             </div>
+            {/* Pre-flight hint. `validateCodeSyntax()` in the worker routes on the
+                file extension, so a runtime/path mismatch burns an LLM run and
+                then fails [AST_CHECK]. Warn, do not block: the worker stays the
+                authority. */}
+            {runtimeMismatches.length > 0 && (
+              <p className="text-[9px] font-mono text-amber-500/90 max-w-md leading-snug">
+                RUNTIME/PATH MISMATCH: {runtimeMismatches.join(', ')} — {targetRuntime} expects{' '}
+                {(RUNTIME_EXPECTED_EXTENSIONS[targetRuntime] || []).join(' ') || 'a known extension'}.
+              </p>
+            )}
             <button 
               onClick={handleDeploy}
               disabled={isGenerating || !prompt.trim() || !isSuperUser}
