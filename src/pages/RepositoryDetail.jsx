@@ -60,7 +60,35 @@ const RepositoryDetail = () => {
     }});
   };
 
-  if (!repo) return null;
+  if (!repo) {
+    // A blank page is not a loading state. `getRepositories()` returns an empty
+    // array on a Supabase error, so this branch used to leave the whole route
+    // visually empty with no way to tell "still loading" from "no such repo".
+    return (
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-[#0a0f1c] border border-gray-800 rounded-2xl p-10 text-center space-y-4">
+          <SafeIcon name="Database" className="text-3xl text-gray-600" />
+          <p className="text-xs font-mono text-gray-500 uppercase tracking-widest">
+            Repository “{id}” is not in the fleet registry or the task history yet.
+          </p>
+          <div className="flex items-center justify-center gap-4">
+            <Link
+              to="/repositories"
+              className="px-4 py-2 rounded-lg border border-gray-700 text-xs font-mono text-gray-300 hover:border-gray-500 transition-colors"
+            >
+              BACK TO REPOSITORIES
+            </Link>
+            <button
+              onClick={() => navigate('/')}
+              className="px-4 py-2 rounded-lg border border-[#FDD023]/40 text-xs font-mono text-[#FDD023] hover:bg-[#FDD023]/10 transition-colors"
+            >
+              OPEN COCKPIT
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">

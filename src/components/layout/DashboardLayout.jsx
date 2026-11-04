@@ -147,14 +147,14 @@ const DashboardLayout = () => {
 
 
   useEffect(() => {
-    const fetchTasks = async () => {
-      const tasks = await labService.getTasks();
-      updateLockCount(tasks);
-    };
-
     const updateLockCount = (tasks) => {
       const lockCount = tasks.filter(t => ['Generating', 'Committing', 'Review Gate'].includes(t.status)).length;
       setActiveLocks(lockCount);
+    };
+
+    const fetchTasks = async () => {
+      const tasks = await labService.getTasks();
+      updateLockCount(tasks);
     };
 
     fetchTasks();

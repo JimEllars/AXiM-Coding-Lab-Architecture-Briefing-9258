@@ -10,9 +10,14 @@ import ErrorBoundary from '../common/ErrorBoundary';
 
 const Cockpit = () => {
   const navigate = useNavigate();
+  // All state is declared before the first effect so no effect body or
+  // dependency array can read a `const` binding inside its temporal dead zone.
   const [activeNodes, setActiveNodes] = useState(0);
   const [totalNodes, setTotalNodes] = useState(8);
   const [supportTickets, setSupportTickets] = useState([]);
+  const [isPatching, setIsPatching] = useState(false);
+  const [supportProxyHealth, setSupportProxyHealth] = useState(null);
+  const [patchStatus, setPatchStatus] = useState('UNRESOLVED');
 
   useEffect(() => {
     const fetchNodes = async () => {
@@ -43,10 +48,6 @@ const Cockpit = () => {
 
   const location = useLocation();
   const state = location.state;
-
-  const [isPatching, setIsPatching] = useState(false);
-  const [supportProxyHealth, setSupportProxyHealth] = useState(null);
-  const [patchStatus, setPatchStatus] = useState('UNRESOLVED');
 
   const handleAutoPatch = async () => {
     if (isPatching) return; // Prevent double dispatch

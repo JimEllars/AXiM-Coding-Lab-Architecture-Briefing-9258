@@ -9,7 +9,7 @@ export default [
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
-      ecmaVersion: 2020,
+      ecmaVersion: 2022,
       globals: {
         ...globals.browser,
         ...globals.node,
@@ -34,7 +34,14 @@ export default [
       'react-refresh/only-export-components': 'off',
       'no-unused-vars': 'off',
       'no-case-declarations': 'off',
-      'no-useless-catch': 'off'
+      'no-useless-catch': 'off',
+      // Sprint 1.6 shipped two components (PromptTerminal, Telemetry) that read a
+      // `const` in its temporal dead zone from an effect dependency array, which
+      // throws on the first render and blanks the page. `vite build` and
+      // `vitest` both accept it, so this rule is the static half of the guard —
+      // `src/components/render-smoke.test.jsx` is the runtime half.
+      // `functions: false` keeps the usual hoisted-helper pattern legal.
+      'no-use-before-define': ['error', { functions: false, classes: false, variables: true, allowNamedExports: false }]
     },
   }
 ];

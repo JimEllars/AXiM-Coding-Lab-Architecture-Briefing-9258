@@ -1,5 +1,62 @@
 # AXiM Coding Lab — Changelog
 
+## [1.6.0] — 2026-11-04
+
+Sprint 1.6: make the cockpit render again, add the React test harness the repo
+never had, re-point the dashboard at the real fleet, and close the
+percent-encoding holes in the PHP2Shell screen.
+
+### Fixed
+- **The cockpit could not render.** `PromptTerminal` read `targetFiles` and
+  `targetRepo` from a `useEffect` dependency array declared *above* their
+  `useState` declarations, so the first render threw
+  `ReferenceError: Cannot access 'targetFiles' before initialization`. The
+  component lives inside the layout's `ErrorBoundary`, so the whole cockpit body
+  became "[SYSTEM_ANOMALY] Component Render Interrupted" — dispatching a task
+  from the dashboard was impossible. `Telemetry` had the identical defect on
+  `timeWindow`. Both are reordered; the guard is
+  `src/components/render-smoke.test.jsx` plus the `no-use-before-define` ESLint
+  rule.
+- **No React test existed to catch a render crash.** Added a jsdom mount suite
+  covering all 12 routed pages and the 8 shared components (20 cases). `npm run
+  lint`, `vitest` and `vite build` now all fail if a component throws while
+  mounting.
+- **The fleet list contained a repository that does not exist.** The dashboard's
+  inline registry sent `ROBOTICS` to `axim-robotics-lab` (GitHub: 404) and
+  spelled `ASGUARD` differently from the worker's table. Coordinates now live in
+  `src/lib/fleetRegistry.js`, and `fleetRegistry.test.js` asserts key-by-key
+  parity with `edge-coder-worker/src/registry.ts` in both directions.
+- **The file preview requested the wrong repository.** The effect computed a
+  project-key alias and then discarded it, passing the project key as the
+  *owner*, so `CORE` previewed `CORE/CORE/...`. The default target was
+  `JimEllars/axim-core-api` (404). Previews now resolve through the fleet
+  registry, and the repo `<select>` stays bound to an option when the cockpit
+  hands in an `owner/repo` slug.
+- **`RepositoryDetail` rendered an empty page** for an unknown id or an empty
+  task history, with no way back. It now names the id and offers both
+  navigation actions.
+- **PHP2Shell screening was encoding-blind.** The screen matched the literal
+  `?-d` and `%2e%2e` only, so `?%2Dd`, `..%5C`, `shell%00.jpg`, `php://filter`
+  and double-encoded `%252e%252e` passed. Query-parameter argument injection is
+  now generalised to `[?&;]-[a-z]` (CVE-2012-1823 / CVE-2024-4577 family), a
+  stream-wrapper rule was added, and every rule is evaluated against the raw
+  target plus two URL-decoded passes. Twelve new hostile cases and six benign
+  dashboard routes are covered by tests.
+
+### Added
+- `RUNTIME/PATH MISMATCH` pre-flight hint in the Prompt Terminal: the file-path
+  field warns when the selected runtime and the target extension disagree, using
+  the same extension table the worker's `validateCodeSyntax()` routes on. It is
+  advisory — the worker stays authoritative — but it stops an LLM run that would
+  fail `[AST_CHECK]`.
+- `src/lib/fleetRegistry.js`: `FLEET_REGISTRY`, `resolveFleetCoordinates()`,
+  `RUNTIME_EXPECTED_EXTENSIONS`, `findRuntimeMismatches()`.
+- `jsdom` (dev-only) so the dashboard has a DOM to mount into.
+
+### Changed
+- ESLint: `ecmaVersion` 2020 → 2022; `no-use-before-define` (variables) enabled.
+  Four pre-existing uses were hoisted rather than the rule being weakened.
+
 ## [1.5.0] — 2026-11-03
 
 Sprint 1.5: close the human-approval trust boundary, make the operator session

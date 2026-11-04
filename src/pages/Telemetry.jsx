@@ -6,9 +6,20 @@ import { supabase } from '../services/supabaseClient';
 import { labService } from '../services/labService';
 
 const Telemetry = () => {
+  // All state first. The agent-count effect below used to sit *above* the
+  // `timeWindow` declaration, so its dependency array read a `const` binding in
+  // its temporal dead zone during render and threw
+  // `ReferenceError: Cannot access 'timeWindow' before initialization` — the
+  // page never mounted. Caught by `src/components/render-smoke.test.jsx`.
   const [data, setData] = useState(null);
   const [supportProxyHealth, setSupportProxyHealth] = useState(null);
   const [activeAgentCount, setActiveAgentCount] = useState(4);
+  const [error, setError] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('OPERATING NORMALLY / CACHED');
+  const [liveLogs, setLiveLogs] = useState([]);
+  const [timeWindow, setTimeWindow] = useState('7d');
+  const [edgeStats, setEdgeStats] = useState(null);
+  const [edgeMetrics, setEdgeMetrics] = useState(null);
 
   useEffect(() => {
     labService.getAgents().then(agents => {
@@ -16,13 +27,6 @@ const Telemetry = () => {
       setActiveAgentCount(active);
     });
   }, [timeWindow]);
-
-  const [error, setError] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('OPERATING NORMALLY / CACHED');
-  const [liveLogs, setLiveLogs] = useState([]);
-  const [timeWindow, setTimeWindow] = useState('7d');
-  const [edgeStats, setEdgeStats] = useState(null);
-  const [edgeMetrics, setEdgeMetrics] = useState(null);
 
   useEffect(() => {
     let active = true;

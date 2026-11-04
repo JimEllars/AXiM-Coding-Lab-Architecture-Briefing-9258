@@ -69,9 +69,38 @@ const ALLOWED_ORIGINS = [
  *
  * Exported so the test suite can exercise the predicate the worker actually
  * runs rather than a hand-copied duplicate.
+ *
+ * Sprint 1.6 widened the table. The old rules matched the literal string `?-d`
+ * and `%2e%2e` only, so `?%2Dd` (percent-encoded dash), `..%5C` (backslash
+ * traversal) and `php://filter` wrappers walked straight past; every rule is now
+ * evaluated against the raw target *and* two URL-decoded passes (see
+ * {@link decodeForScreening}).
  */
-export const CGI_INJECTION_PATTERN = /(\?-d|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode)/i;
-export const PATH_PROBE_PATTERN = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php)/i;
+export const CGI_INJECTION_PATTERN = /(?:[?&;]-[a-z]|auto_prepend_file|auto_append_file|allow_url_include|disable_functions|safe_mode|php_value|php_admin_value|env_path_info|open_basedir)/i;
+export const PATH_PROBE_PATTERN = /(\.\.|%2e%2e|%5c|%00|\.php|\/wp-admin|\/wp-login\.php|xmlrpc\.php|cgi-bin|\/etc\/passwd|\/proc\/self\/environ|\/\.env|\/\.git\/)/i;
+export const PHP_STREAM_WRAPPER_PATTERN = /(php:\/\/|phar:\/\/|data:\/\/|expect:\/\/|zip:\/\/|glob:\/\/)/i;
+
+/**
+ * Percent-decodes a request target for screening, twice, guarding against the
+ * malformed sequences that make `decodeURIComponent` throw (`?f=100%` is a
+ * legitimate query string).
+ *
+ * Decoding is screening-only: the worker never routes on the decoded value, it
+ * just refuses to be evaded by `%2D` / `%252e%252e` spellings.
+ */
+export function decodeForScreening(value: string): string {
+  let decoded = value;
+  for (let pass = 0; pass < 2; pass++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded;
+}
 
 /**
  * Returns a 403 response when the request looks like a PHP2Shell / traversal
@@ -79,14 +108,28 @@ export const PATH_PROBE_PATTERN = /(\.\.|%2e%2e|\.php|\/wp-admin|\/wp-login\.php
  * routing so hostile traffic never reaches the LLM or Supabase.
  */
 export function screenHostileUrl(url: URL, request: Request): Response | null {
-  if (CGI_INJECTION_PATTERN.test(url.search)) {
+  const targets = [
+    url.search,
+    decodeForScreening(url.search),
+    url.pathname,
+    decodeForScreening(url.pathname)
+  ];
+
+  if (CGI_INJECTION_PATTERN.test(url.search) || CGI_INJECTION_PATTERN.test(targets[1])) {
     return new Response(JSON.stringify({ error: "Forbidden: Suspicious CGI argument injection detected" }), {
       status: 403,
       headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
     });
   }
 
-  if (PATH_PROBE_PATTERN.test(url.pathname) || PATH_PROBE_PATTERN.test(url.search)) {
+  if (PHP_STREAM_WRAPPER_PATTERN.test(url.search) || PHP_STREAM_WRAPPER_PATTERN.test(targets[1])) {
+    return new Response(JSON.stringify({ error: "Forbidden: Suspicious PHP stream wrapper detected" }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }
+    });
+  }
+
+  if (targets.some((target) => PATH_PROBE_PATTERN.test(target))) {
     return new Response(JSON.stringify({ error: "Forbidden: Suspicious path probe detected" }), {
       status: 403,
       headers: { 'Content-Type': 'application/json', ...getCorsHeaders(request) }

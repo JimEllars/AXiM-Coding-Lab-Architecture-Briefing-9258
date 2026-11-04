@@ -19,11 +19,6 @@ const AgentRegistry = () => {
     });
     labService.getOrgStats().then(setStats);
 
-    const fetchTasks = async () => {
-      const tasks = await labService.getTasks();
-      updateAgentStatus(tasks);
-    };
-
     const updateAgentStatus = (tasks) => {
       setAgents(prevAgents => {
         return prevAgents.map(agent => {
@@ -39,6 +34,11 @@ const AgentRegistry = () => {
           };
         });
       });
+    };
+
+    const fetchTasks = async () => {
+      const tasks = await labService.getTasks();
+      updateAgentStatus(tasks);
     };
 
     fetchTasks();

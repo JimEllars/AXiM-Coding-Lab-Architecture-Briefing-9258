@@ -9,7 +9,7 @@ vi.mock('../src/code_generator', () => ({
   executeAutonomousCodingTask: (...args: unknown[]) => executeAutonomousCodingTask(...(args as []))
 }));
 
-import worker, { screenHostileUrl } from '../src/ingress';
+import worker, { screenHostileUrl, decodeForScreening } from '../src/ingress';
 import {
   createMockCtx,
   createMockEnv,
@@ -54,7 +54,19 @@ describe('PHP2Shell / CGI ingress defense (real worker)', () => {
     '/xmlrpc.php',
     // Local-file-inclusion traversal survives URL normalization only in the query
     // string, which is exactly how an LFI probe reaches a PHP host.
-    '/api/v1/tasks/dispatch?file=../../etc/passwd'
+    '/api/v1/tasks/dispatch?file=../../etc/passwd',
+    // Sprint 1.6: spellings the original literal rules missed.
+    '/api/v1/tasks/dispatch?%2Dd+allow_url_include%3D1', // percent-encoded dash
+    '/api/v1/tasks/dispatch?file=..%5c..%5cwindows%5cwin.ini', // backslash traversal
+    '/api/v1/tasks/dispatch?file=shell%00.jpg', // null-byte truncation
+    '/api/v1/tasks/dispatch?file=php%3A%2F%2Ffilter%2Fconvert', // stream wrapper
+    '/api/v1/tasks/dispatch?file=phar://payload.phar',
+    '/cgi-bin/php.cgi',
+    '/.env',
+    '/.git/config',
+    '/api/v1/tasks/dispatch?file=/etc/passwd',
+    '/api/v1/tasks/dispatch?f=%252e%252e%252fetc', // double-encoded traversal
+    '/api/v1/tasks/dispatch?php_value=auto_prepend_file=1'
   ];
 
   for (const hostileUrl of hostileUrls) {
@@ -65,6 +77,31 @@ describe('PHP2Shell / CGI ingress defense (real worker)', () => {
       expect(String(body.error)).toMatch(/Forbidden/);
     });
   }
+
+  // The dashboard's own routes carry dots, dashes and slashes; screening must
+  // stay signature-driven instead of refusing the traffic the fleet sends.
+  const benignUrls = [
+    '/api/v1/tasks/dispatch',
+    '/api/v1/github/tree?owner=JimEllars&repo=axim-core-v1.2',
+    '/api/telemetry/stats?limit=50&agentId=AXIM-CODER-01',
+    '/api/v1/dlq/stats?prefix=dlq%3A',
+    '/api/v1/health/integrations',
+    '/healthz'
+  ];
+
+  for (const benignUrl of benignUrls) {
+    test(`allows ${benignUrl}`, async () => {
+      const request = makeRequest(benignUrl, { method: 'POST', body: '{}' });
+      expect(screenHostileUrl(new URL(request.url), request)).toBeNull();
+    });
+  }
+
+  test('decodes percent-encoding twice without throwing on malformed sequences', () => {
+    expect(decodeForScreening('%2Dd')).toBe('-d');
+    expect(decodeForScreening('%252e%252e')).toBe('..');
+    expect(decodeForScreening('?f=100%')).toBe('?f=100%');
+    expect(decodeForScreening('')).toBe('');
+  });
 
   test('screening runs before env validation, so probes never learn about config', async () => {
     const brokenEnv = createMockEnv({ AXIM_INTERNAL_KEY: '' });
