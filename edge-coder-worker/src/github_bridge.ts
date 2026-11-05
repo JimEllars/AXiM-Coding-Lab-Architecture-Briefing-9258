@@ -146,6 +146,10 @@ export async function createTaskBranch(
 
 /**
  * STEP 3: Commit the LLM-generated code to the newly created branch.
+ *
+ * Returns the commit SHA GitHub created, or `null` when the response carried
+ * none. Callers put this on the Support System notification, which used to
+ * read the literal string `"pending"` because the bridge discarded the SHA.
  */
 export async function commitGeneratedCode(
   ctx: GithubContext,
@@ -154,7 +158,7 @@ export async function commitGeneratedCode(
   fileSha: string,
   commitMessage: string,
   env: Env
-): Promise<void> {
+): Promise<string | null> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/${ctx.path}`;
   const encodedContent = encodeBase64Unicode(newContent);
 
@@ -171,6 +175,14 @@ export async function commitGeneratedCode(
 
   if (!response.ok) {
     throw new Error(`[VCS_ERROR] Failed to commit code: ${response.statusText}`);
+  }
+
+  try {
+    const data: any = await response.json();
+    const sha = data?.commit?.sha;
+    return typeof sha === 'string' && sha.length > 0 ? sha : null;
+  } catch {
+    return null;
   }
 }
 
@@ -207,12 +219,16 @@ export async function openPullRequest(
 }
 /**
  * STEP 5: Merge a Pull Request.
+ *
+ * Returns the merge commit SHA when GitHub reports one (`{ "sha": … }` is part
+ * of the merge API's documented response), so the resolution callback can name
+ * the commit that actually landed instead of inventing a value.
  */
 export async function mergePullRequest(
   ctx: GithubContext,
   prNumber: number,
   env: Env
-): Promise<void> {
+): Promise<{ sha: string | null }> {
   const url = `https://api.github.com/repos/${ctx.owner}/${ctx.repo}/pulls/${prNumber}/merge`;
 
   const response = await fetchWithRetry(url, {
@@ -235,6 +251,15 @@ export async function mergePullRequest(
       // Ignore
     }
     if (response.status === 409) { throw new Error(`Merge Conflict: PR #${prNumber} cannot be merged (409). Detail: ${errorDetail}`); } if (response.status === 422) { throw new Error(`Unprocessable Entity: PR #${prNumber} failed checks or protection (422). Detail: ${errorDetail}`); } throw new Error(`Failed to merge PR #${prNumber}: [${response.status}] ${errorDetail}`);
+  }
+
+  try {
+    const data: any = await response.json();
+    const sha = data?.sha;
+    return { sha: typeof sha === 'string' && sha.length > 0 ? sha : null };
+  } catch {
+    // A 200 with an unparseable body still means the merge landed.
+    return { sha: null };
   }
 }
 

@@ -81,8 +81,8 @@ export function resolveFleetCoordinates(value) {
 export const RUNTIME_EXPECTED_EXTENSIONS = {
   'Node.js Edge': ['.ts', '.tsx', '.js', '.jsx', '.json'],
   'Python Sandbox': ['.py'],
-  'Embedded C++ (ESP32-S3)': ['.ino', '.cpp', '.h', '.cc'],
-  'PlatformIO Firmware': ['.ini', '.cpp', '.h', '.ino'],
+  'Embedded C++ (ESP32-S3)': ['.ino', '.cpp', '.cc', '.h', '.hpp', '.hh'],
+  'PlatformIO Firmware': ['.ini', '.cpp', '.cc', '.h', '.hpp', '.hh', '.ino'],
   'ROS 2 / Python': ['.py', '.xml', '.yaml', '.yml', '.toml'],
   'FreeCAD / OpenUSD': ['.py', '.usd', '.usda'],
   'MuJoCo / URDF': ['.xml', '.mjcf', '.urdf'],

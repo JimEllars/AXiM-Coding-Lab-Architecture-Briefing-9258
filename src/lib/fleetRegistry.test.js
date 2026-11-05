@@ -16,8 +16,10 @@ import {
   CANONICAL_OWNER,
   resolveFleetCoordinates,
   findRuntimeMismatches,
+  RUNTIME_EXPECTED_EXTENSIONS,
 } from './fleetRegistry';
 import { AXiM_ECOSYSTEM_REGISTRY, CANONICAL_OWNER as WORKER_OWNER } from '../../edge-coder-worker/src/registry';
+import { isHardwareAsCodeFile } from '../../edge-coder-worker/src/code_generator';
 
 describe('fleet registry parity with the edge worker', () => {
   it('pins the same canonical owner as the worker', () => {
@@ -116,5 +118,30 @@ describe('findRuntimeMismatches', () => {
 
   it('returns nothing for an unknown runtime so the operator is not blocked', () => {
     expect(findRuntimeMismatches('Some Future Runtime', ['src/app.ts'])).toEqual([]);
+  });
+
+  /**
+   * The checkboxes in PromptTerminal are a promise: "these paths belong to this
+   * runtime". A path can only belong to a runtime if the worker classifies it as
+   * hardware-as-code, so every extension advertised here must be one the worker
+   * recognizes — otherwise the cockpit says a `.usda` stage is fine for the
+   * FreeCAD runtime and the worker silently skips validation on it.
+   */
+  it('only advertises extensions the worker classifies as hardware-as-code', () => {
+    const unclassified = [];
+    for (const [runtime, extensions] of Object.entries(RUNTIME_EXPECTED_EXTENSIONS)) {
+      for (const ext of extensions) {
+        // `.json` and `.toml` are application/config artifacts, not HAC files;
+        // they are advertised for the software runtimes only.
+        if (['.ts', '.tsx', '.js', '.jsx', '.json', '.toml', '.yaml', '.yml'].includes(ext)) continue;
+        // `.ini` only counts as hardware-as-code when it is the PlatformIO
+        // project file, so probe that exact filename.
+        const artifact = ext === '.ini' ? 'platformio.ini' : `artifact${ext}`;
+        if (!isHardwareAsCodeFile(artifact)) {
+          unclassified.push(`${runtime} advertises ${ext}`);
+        }
+      }
+    }
+    expect(unclassified).toEqual([]);
   });
 });

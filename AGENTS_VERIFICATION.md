@@ -10,6 +10,240 @@ Companion documents:
 
 ---
 
+## 2026-11-05 — Sprint 1.7: satellite callback integrity, honest ticket notes, hardware-as-code accuracy
+
+Branch `feat/coding-lab-sprint-1.7-callback-integrity-hac-accuracy`.
+Base `65f7df9` (origin/main).
+
+Upstream audit: `git log origin/main --since="24 hours ago"` returned exactly one
+commit — `65f7df9 feat(coder): repair the cockpit render crash, add a render test
+harness, widen the PHP2Shell screen (#155)`, authored by Jell36 — plus four open
+Dependabot PRs (#130, #131, #149, #150) and no human-authored PRs. The workspace
+held no uncommitted work, so the branch was cut straight from `65f7df9`; nothing
+of the human commit was touched.
+
+### 0. P0 — the baseline was red before any feature work, for an environmental reason
+
+The repair gate triggered immediately. `npm test` on the untouched base commit:
+
+```
+FAIL  src/components/render-smoke.test.jsx > dashboard render smoke > mounts
+      PromptTerminal without throwing
+AssertionError: expected 'PromptTerminal: act(...) is not support…' to be null
++ Received:
+"PromptTerminal: act(...) is not supported in production builds of React."
+
+ Test Files  1 failed | 7 passed (8)
+      Tests  20 failed | 162 passed (182)
+```
+
+All 20 render-smoke cases failed with the same error, which has nothing to do
+with any component: this workspace exports `NODE_ENV=production` (already
+recorded in `DEBUGGING_NOTES.md` for `npm ci`), Vite chooses React's export
+condition from `process.env.NODE_ENV` *ahead of* `config.mode`, so every test
+resolved `react.production.min.js` — and `act()` refuses to run against it. The
+same command passes on a shell without that variable and in CI, which is exactly
+the kind of check that looks green until the day it doesn't.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `vitest.config.js` | 1–61 (new) | Pins `NODE_ENV=test` at config-module evaluation time (before Vite locks export conditions), pins `root` to the config file's directory so `npx vitest run` and `cd edge-coder-worker && npm test` resolve the same set, declares the explicit `include` set, and merges `vite.config.js` so the `@` alias and React plugin still apply. Per-file `// @vitest-environment jsdom` pragmas stay authoritative. |
+
+Verified: with the config, the same command on the same tree reports
+`Test Files 8 passed (8) / Tests 182 passed (182)`.
+
+### 1. P1 — the Support patch-ready callback posted to a route that does not exist
+
+`dispatchCallbackWebhook('support', …)` — fired for every generated patch, from
+both `code_generator.ts` and the merge gate — posted to
+`https://support.axim.us.com/api/v1/tickets/<id>/patch-status`. The Support
+System (`axim-support/onyx-edge-worker/src/index.ts`) publishes:
+
+| Method + path | Body | Effect |
+| :--- | :--- | :--- |
+| `POST /api/v1/tickets/callback` | `{ ticketId, patchDetails, commitSha, prUrl }` | status → `Review-Patch-Pending`, inserts the diff notice |
+| `POST /api/v1/tickets/:id/resolve-from-coder` | `{ status, resolutionNotes, completedAt }` | status → `resolved` / `closed` |
+
+`/patch-status` is not in that set, so every run produced a 404 that was
+`console.error`-ed and dropped. Two more problems sat in the same function: the
+signature was **v1** (body-only), which the Support System rejects outright after
+`AXIM_SIG_LEGACY_UNTIL` (default 2026-12-31), and the failure path wrote **no
+DLQ entry**, so a lost ticket update had nothing to retry.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/callback_dispatcher.ts` | 1–322 (rewritten) | Single delivery path: `buildSatelliteRequest()` maps a callback onto the route/body each satellite actually implements; `dispatchCallbackWebhook()` signs v2 (`X-Axim-Timestamp` + HMAC over `${ts}.${body}`), applies a 10 s timeout, returns a structured `CallbackResult` instead of `void`, and parks failures with `parkFailedCallback()`; `replayParkedSatelliteCallback()` redelivers a parked body with a fresh envelope. |
+| `edge-coder-worker/src/ingress.ts` | 2 | Imports `replayParkedSatelliteCallback`. |
+| `edge-coder-worker/src/ingress.ts` | 716–722 | `replayDlqEntry()` gains the `dlq:satellite-callback:` branch. |
+| `edge-coder-worker/src/code_generator.ts` | 843–862 | Pipeline sends the patch-ready notice with the real branch commit SHA (was `commit_sha: 'pending'`). |
+
+Parking keeps two shapes on purpose: resolution callbacks keep the historical
+`dlq:ticket-callback:<id>` key and raw body (entries already in production must
+keep replaying through the existing branch, and the route is derivable from the
+key), while patch-ready notices have no derivation and are parked as a full
+envelope under `dlq:satellite-callback:<system>:<id>`.
+
+Asguard is a separate, deliberate case: it publishes `/api/v1/triage/dispatch`
+(a mitigation order) and **no** coder-facing resolution route, so the old
+`POST /api/v1/triage/resolution` was also a guaranteed 404. The dispatcher now
+returns `{ ok: false, error: '…no coder-facing resolution route…' }` without a
+network call and logs the gap once; see `DEBUGGING_NOTES.md` open debt.
+
+### 2. P1 — customer-facing ticket notes contained values that were never measured
+
+Two fabrications lived in the resolution payload:
+
+| Site | Was | Now |
+| :--- | :--- | :--- |
+| merge gate (`ingress.ts`) | `commit_sha: 'merged'` | the SHA GitHub returns from `PUT /pulls/:n/merge`, or omitted |
+| `/deploy-action` (`ingress.ts`) | `commit_sha: 'pending'` at PR-open | the branch commit SHA from `PUT /contents` |
+| `/deploy-action` (`ingress.ts`) | `Verification: All automated tests passed cleanly.` | names the PR and merge commit; points at CI for verification |
+
+Neither service runs the test suite; the note claimed it did, on a
+customer-visible ticket. `realCommitSha()` in the dispatcher now enforces the
+contract for every caller — anything that is not 7–40 hex characters becomes
+`null` rather than being echoed to an operator as a commit id.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/github_bridge.ts` | 150–191 | `commitGeneratedCode()` returns `Promise<string \| null>` (the created commit SHA). |
+| `edge-coder-worker/src/github_bridge.ts` | 221–262 | `mergePullRequest()` returns `Promise<{ sha: string \| null }>`. |
+| `edge-coder-worker/src/callback_dispatcher.ts` | 98–109 | `realCommitSha()` placeholder/format gate. |
+| `edge-coder-worker/src/ingress.ts` | 1418–1421, 1886 | Merge call sites capture the SHA. |
+| `edge-coder-worker/src/ingress.ts` | 1888–1918 | Inline relay + inline DLQ write + fabricated note replaced by one dispatcher call. |
+| `edge-coder-worker/src/ingress.ts` | 610–633 | Dead `postSignedRelay()` wrapper removed (no callers after the consolidation). |
+
+### 3. P1 — an operator-approved merge never resolved its ticket
+
+The HITL gate merged the PR and then sent a `PATCH_READY` notice — the same 404
+route as §1 — and nothing else. The ticket stayed in `Review-Patch-Pending`
+until a human closed it, while the `/deploy-action` path did resolve. Both merge
+paths now post `resolve-from-coder` with the merge SHA.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/ingress.ts` | 1436–1462 | Gate posts the resolution callback on merge, warns with the DLQ key when it fails, and no longer fires an asguard notice at a route that does not exist. |
+
+### 4. P1 — hardware-as-code validators rejected valid work and skipped invalid work
+
+| Defect | Evidence | Fix |
+| :--- | :--- | :--- |
+| A declaration-only C++ header was rejected for having `#include`. | `validatePlatformIoFirmware()` required `#include` for every translation unit, so `#pragma once` + a struct failed, burned the one-shot retry and dead-ended the task. | Headers (`.h`/`.hpp`/`.hh`) now require an include guard (`#pragma once` or `#ifndef`/`#define`); the `#include` rule applies to `.cpp`/`.cc`/`.ino` only. |
+| Every class-inherited MJCF joint was rejected. | MJCF puts `range`/`axis` on `<default class="…"><joint …/></default>` and omits them on the joints that inherit. The validator read only the joint's own attributes. | `mjcfDefaultJointTemplates()` walks `<default>` blocks in document order (nesting-aware) and resolves `own attrs → class template → unnamed template`; template joints are excluded from validation, since a template carries no `name`. |
+| `.usda` was advertised by the cockpit and validated by nobody. | `RUNTIME_EXPECTED_EXTENSIONS['FreeCAD / OpenUSD']` lists `.usd`/`.usda`; `validateCodeSyntax()` had no branch for either, so any text passed. | New `validateUsdStage()`: `#usda 1.0` header, balanced prim scopes (strings/comments stripped first), at least one `def`. `.usd` is left unjudged — it may be binary crate data. |
+| `.hpp`/`.hh`/`.cc` were not recognised as hardware-as-code. | `isHardwareAsCodeFile()` and the `isEmbeddedCpp` router list omitted them, so those files skipped the include-guard gate and fell through as "valid". | Both lists extended; dashboard extension table extended to match. |
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/code_generator.ts` | 229–265 | `validateUsdStage()`. |
+| `edge-coder-worker/src/code_generator.ts` | 334–388 | `mjcfDefaultJointTemplates()` (document-order `<default>` walk). |
+| `edge-coder-worker/src/code_generator.ts` | 420–440 | MJCF joint scan uses templates, skips `<default>` bodies. |
+| `edge-coder-worker/src/code_generator.ts` | 481–530 | `validatePlatformIoFirmware()` header/include-guard split. |
+| `edge-coder-worker/src/code_generator.ts` | 562–590 | `isHardwareAsCodeFile()` covers `.cc`, `.hpp`, `.hh`, `.usd`, `.usda`. |
+| `edge-coder-worker/src/code_generator.ts` | 600–610, 691–693 | `.usda` routed to `validateUsdStage()`; `.hpp`/`.hh` routed to the C++ validator. |
+| `src/lib/fleetRegistry.js` | 81–89 | C++ runtimes advertise `.cc`/`.hpp`/`.hh`. |
+| `src/lib/fleetRegistry.test.js` | 123–145 | Parity test: every HAC extension the terminal advertises must be one the worker classifies. |
+
+### 5. Fleet registry verification
+
+Every entry in `edge-coder-worker/src/registry.ts` was resolved against the live
+API rather than trusted:
+
+```
+$ for r in <each registry repo>; do gh api repos/JimEllars/$r --jq '.name + " | " + .default_branch'; done
+axim-core-v1.2                                                 axim-core-v1.2 | main
+AXiM-Support-System-1.1-4538                                   AXiM-Support-System-1.1-4538 | main
+SpeedReport.org-Speed-Test-App-9642                            SpeedReport.org-Speed-Test-App-9642 | main
+onyx_mk3                                                       onyx_mk3 | main
+ELLARS.us.com-Frontend-Site-1.1-1974                           ELLARS.us.com-Frontend-Site-1.1-1974 | main
+Decentralized-Demand-Letter-Generator-Development-8155         … | main
+AXiM-Academy-App-1-188                                         AXiM-Academy-App-1-188 | main
+AXiM-Web3-Frontend-Development-7312                            AXiM-Web3-Frontend-Development-7312 | main
+AXiM-Asguard-System-App-1                                      AXiM-Asguard-System-App-1 | main
+AXiM-Coding-Lab-Architecture-Briefing-9258                     AXiM-Coding-Lab-Architecture-Briefing-9258 | main
+AXiM-Robotics-Lab-Program-4198                                 AXiM-Robotics-Lab-Program-4198 | main
+```
+
+11/11 exist under `JimEllars` on `main`, including every key the briefing lists
+(`CORE`, `SUPPORT`, `SPEEDREPORT`, `ONYX`, `ROBOTICS`, `ACADEMY`, `FRONTEND`,
+`ASGUARD`). No drift, no phantom entries — the parity test from Sprint 1.6 holds.
+
+### Verification battery (run 2026-11-05, this branch)
+
+Environment note: this host reports load average 16–21 (a concurrent `vite build`
+in another workspace) on 3.9 GB with no swap. A single `npx vitest run` covering
+all eight files was OOM-killed mid-report, and one worker RPC timed out at 60 s
+while loading `render-smoke`. The suite was therefore run with
+`--maxWorkers=1` in two groups; nothing about the code or config changes, and CI
+(7 GB, idle runner) runs the single-command form quoted after them.
+
+```
+$ npm run lint
+> quest-react-starter@0.0.0 lint
+> eslint .
+
+(no output — 0 errors, 0 warnings)
+
+$ npx vitest run src --maxWorkers=1 --reporter=dot   # dashboard half
+ ✓ src/services/supportGateway.test.js (1 test)
+ ✓ src/lib/fleetRegistry.test.js (15 tests)
+ ✓ src/components/render-smoke.test.jsx (20 tests)
+
+ Test Files  3 passed (3)
+      Tests  36 passed (36)
+
+$ npx vitest run edge-coder-worker/tests --maxWorkers=1 --reporter=dot   # worker half
+ ✓ tests/trust_boundary.test.ts (31 tests)
+ ✓ tests/hac.test.ts (42 tests)
+ ✓ tests/worker.test.ts (23 tests)
+ ✓ tests/registry.test.ts (15 tests)
+ ✓ tests/hardening.test.ts (54 tests)
+
+ Test Files  5 passed (5)
+      Tests  165 passed (165)
+
+$ npm test   # canonical single command; ran green on 2026-11-05 at 05:54
+ Test Files  8 passed (8)
+      Tests  182 passed (182)   ← on the pre-sprint tree, config fix applied
+
+$ npx vite build
+dist/index.html                     1.16 kB │ gzip:     0.57 kB
+dist/assets/index-B4hlFYPN.css  2,076.40 kB │ gzip: 1,373.56 kB
+dist/assets/index-DOPNLsFy.js   1,854.27 kB │ gzip:   560.87 kB │ map: 9,188.91 kB
+✓ built in 27m 21s   ← host load 16–21, not a code change; 9m16s with the box idle
+
+$ npx wrangler deploy --dry-run --keep-vars --config edge-coder-worker/wrangler.toml
+Total Upload: 142.21 KiB / gzip: 31.97 KiB
+env.LAB_STATE (afc3219e3592439b8d3ae6fcb2f40004)             KV Namespace
+env.TASK_LOCKS (f399b6d9a6e7425aa3cb648e742ab4b8)             KV Namespace
+env.ENVIRONMENT ("production")                               Environment Variable
+env.SUPABASE_URL ("https://pvbcdndqjguzqeafhwhw.supabase...") Environment Variable
+env.SUPABASE_LLM_PROXY_URL (…)                               Environment Variable
+--dry-run: exiting now.
+```
+
+Test counts, base → this branch: dashboard 182 → 201 total files-worth
+(`src` 36, worker 165) with `hac.test.ts` 30 → 42 and `hardening.test.ts` 48 →
+54; `fleetRegistry.test.js` 14 → 15. Worker bundle 133.98 KiB → 142.21 KiB
+(+8.2 KiB: the rewritten dispatcher, the USD validator and the MJCF template
+resolver).
+
+### Open work reviewed this run
+
+- `#149` (undici + wrangler) — green on its own, left for a coordinated merge
+  with the toolchain upgrade; not bundled into this sprint.
+- `#130`, `#131`, `#150` — still red for the peer-dependency reason recorded on
+  2026-11-04 (`vitest@5` needs `vite ≥ 6.4`; `plugin-react@4` refuses `vite@8`).
+  Unchanged by this sprint, deliberately.
+- Local branches `feat/coding-lab-sprint-1.4-…` and `…-1.5-…` remain merged
+  history; remote `…-1.5-` and `…-1.6-` branches were deleted upstream after
+  merge.
+- `git status --porcelain` reports only this sprint's files; no scratch scripts,
+  patch dumps or build artifacts are untracked (`dist/` and `node_modules/` are
+  ignored).
+
+---
+
 ## 2026-11-04 — Sprint 1.6: cockpit render integrity, render-test harness, wider PHP2Shell screen
 
 Branch `feat/coding-lab-sprint-1.6-cockpit-render-integrity`.

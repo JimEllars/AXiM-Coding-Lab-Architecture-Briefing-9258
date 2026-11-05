@@ -5,6 +5,104 @@ obvious from the diff, and debt that is knowingly deferred.
 
 ---
 
+## 2026-11-05 — Sprint 1.7
+
+### Root cause: a callback to a route nobody publishes
+
+`dispatchCallbackWebhook()` was twenty-eight lines that looked correct. It built
+a URL, signed the body, posted it, and logged a failure. Four separate problems
+were invisible because each one degraded into the same `console.error` line:
+
+| Problem | What the log said | What was true |
+| :--- | :--- | :--- |
+| Wrong route (`/patch-status`) | `Failed to dispatch support webhook: 404` | The Support System publishes `/api/v1/tickets/callback`; nothing has ever served `/patch-status`. |
+| Wrong route (asguard) | same | Asguard publishes `/api/v1/triage/dispatch` (a mitigation order), not `/triage/resolution`. |
+| v1 signature | nothing — the call succeeded | Accepted today, rejected after the receiver's 2026-12-31 sunset. A silent time bomb, not a failure. |
+| No DLQ write | nothing — the 404 was logged and dropped | Nothing retried, nothing counted, no operator-visible symptom until a customer asked why their ticket was still open. |
+
+The reason this survived several sprints is the shape of the failure: a
+notification is fire-and-forget *by design*, so a broken one is indistinguishable
+from one nobody needed. The fix is not "check the status code harder" — it is
+that the sender now returns a `CallbackResult` the caller logs with the DLQ key,
+and the receiver's routes were read out of `axim-support/onyx-edge-worker`
+before the mapping was written. A callback contract that is only asserted on the
+sender side is a guess.
+
+### Decision: two DLQ shapes for one delivery path
+
+Resolution callbacks keep `dlq:ticket-callback:<id>` with the raw body; new
+patch-ready notices use `dlq:satellite-callback:<system>:<id>` with a full
+envelope (`{system, endpoint, body, parkedAt, attempts, lastError}`).
+
+One shape would have been tidier. It would also have meant either (a) rewriting
+entries already parked in production into a shape the running sweeper cannot
+read, or (b) stamping a replay time over the `completedAt` the ticket should
+show. A raw body plus a derivable route is enough for a resolution — the ticket
+id is in the key — and it keeps the existing branch, its tests and any live
+entries working untouched. Patch-ready notices have no such derivation, which is
+precisely why they carry their own endpoint. Two shapes, each justified by what
+can be reconstructed from the key.
+
+### Decision: asguard is left explicitly open, not papered over
+
+The coder wants to tell the SOC "a rule PR is open" for an incident. Asguard
+publishes no route that accepts that. The three options were: keep posting at a
+404 (what it did), invent a payload for `/api/v1/triage/dispatch` (a route that
+validates `threatId`/`action`/`targetValue` and would answer 400 — an
+`OpenRedirect`-shaped lie in the other direction), or record the gap.
+
+The dispatcher now returns `{ ok: false, endpoint: null, error: 'asguard
+publishes no coder-facing resolution route…' }` without a network call, logs it
+once, and the gap is listed below. A satellite interlock that does not exist is
+debt, and debt belongs in a list, not in a retry loop.
+
+**Open debt — asguard interlock.** Needs one of: `POST /api/v1/triage/resolution`
+accepting `{ incidentHash, status, prUrl, commitSha }` behind
+`X-Axim-Signature` v2, or a documented event route on the SOC ingest surface.
+Whichever ships, the coder side is a one-line `buildSatelliteRequest()` change.
+
+### Decision: pin the test environment in config, not in the test file
+
+`render-smoke.test.jsx` failed all 20 cases on this host with
+`act(...) is not supported in production builds of React`, because the workspace
+exports `NODE_ENV=production` and Vite picks React's export condition from
+`process.env.NODE_ENV` *before* it considers `config.mode`.
+
+The tempting fix is a `NODE_ENV=test` prefix on the `npm test` script. It works,
+and it leaves `npx vitest run` — the command CI actually runs, and the command
+in the runbook — broken on any shell that exports the variable. Setting it in
+`vitest.config.js` at module scope covers every entry point, because Vite reads
+it inside `resolveConfig` *after* the config module evaluates and *before* any
+test file imports React. `test.env` is too late; React is already resolved.
+
+Same file, second trap: pinning `root` to the config's own directory. Without
+it, `cd edge-coder-worker && npm test` sets the root to that folder, the
+root-relative `include` patterns match nothing, and the worker suite reports
+"No test files found" — a green-looking exit for a command that tested nothing.
+
+### Observation: the suite is now bigger than this box
+
+Eight test files, 201 tests, one 3.9 GB host with no swap and another
+workspace's `vite build` running: `npx vitest run` was OOM-killed mid-report and
+one worker RPC timed out at 60 s. Split with `--maxWorkers=1` it is green
+(36 + 165). CI has 7 GB and `timeout-minutes: 20`, and the single-command form
+passes there; but if CI starts flaking, the fix is `poolOptions` concurrency, not
+fewer tests. `npm test` wall time on this host: 3.5 min idle, 7+ min under load.
+
+### Next priorities
+
+1. **Coordinated toolchain upgrade** — `vite@7` + `vitest@5` +
+   `@vitejs/plugin-react@5` on one branch, then #130, #131 and #150 all become
+   mergeable; #149 (undici + wrangler) can go with them.
+2. **Asguard resolution route** — see open debt above; the coder half is ready.
+3. **Interaction tests for the Prompt Terminal dispatch path** (runtime selector →
+   payload → patch-ready body), still covered only by "it mounts".
+4. **Prune the ~40 stale `feat/*` remote branches**; every one is merged.
+5. **Chunk the dashboard bundle** — 2.08 MB CSS + 2.2 MB JS in single chunks;
+   `manualChunks` would cut build wall time, which is the actual pain (12 min).
+
+---
+
 ## 2026-11-04 — Sprint 1.6
 
 ### Root cause: a render-phase temporal dead zone, invisible to every check we ran

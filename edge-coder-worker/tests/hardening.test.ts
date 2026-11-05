@@ -9,7 +9,8 @@ vi.mock('../src/code_generator', () => ({
   executeAutonomousCodingTask: (...args: unknown[]) => executeAutonomousCodingTask(...(args as []))
 }));
 
-import worker, { screenHostileUrl, decodeForScreening } from '../src/ingress';
+import worker, { screenHostileUrl, decodeForScreening, mintApprovalToken } from '../src/ingress';
+import { dispatchCallbackWebhook, satelliteDlqKey } from '../src/callback_dispatcher';
 import {
   createMockCtx,
   createMockEnv,
@@ -388,5 +389,173 @@ describe('Support resolution callback (deploy-action interlock)', () => {
     const parked = await env.CODER_DLQ_KV.get('dlq:ticket-callback:ticket-5560');
     expect(parked).toBeTruthy();
     expect(JSON.parse(String(parked)).status).toBe('resolved');
+  });
+
+  test('the resolution note reports what happened instead of claiming tests passed', async () => {
+    const body = JSON.stringify({
+      task_id: 'ticket-5570',
+      pr_number: 43,
+      repository_owner: 'JimEllars',
+      repository_name: 'AXiM-Support-System-1.1-4538',
+      source: 'axim-support-system',
+      ticketId: 'ticket-5570'
+    });
+    const headers = {
+      ...(await signedHeadersV2(body)),
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${TEST_INTERNAL_KEY}`
+    };
+
+    await dispatch(makeRequest('/api/v1/deploy-action', { method: 'POST', body, headers }));
+
+    const callback = fetchStub.calls.find((call) => call.url.includes('resolve-from-coder'));
+    const notes = String(JSON.parse(String(callback?.body)).resolutionNotes);
+    // The old text was "Verification: All automated tests passed cleanly" — a
+    // claim this service never checked, sent to a customer-facing ticket.
+    expect(notes).not.toMatch(/all automated tests passed/i);
+    expect(notes).toContain('pull/43');
+  });
+
+  test('an operator approval in the HITL gate resolves the ticket with the merge SHA', async () => {
+    const mergeSha = 'f'.repeat(40);
+    fetchStub.restore();
+    fetchStub = installFetchStub((call) => {
+      if (call.url.endsWith('/merge')) {
+        return new Response(JSON.stringify({ sha: mergeSha, merged: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    const token = await mintApprovalToken(env.TASK_LOCKS, {
+      owner: 'JimEllars',
+      repo: 'axim-core-v1.2',
+      pr: 92,
+      taskId: 'ticket-6100'
+    });
+    const form = {
+      body: new URLSearchParams({ token, decision: 'merge' }).toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    };
+
+    const { response } = await dispatch(makeRequest('/api/v1/pr/action', { method: 'POST', ...form }));
+    expect(response.status).toBe(200);
+
+    const callback = fetchStub.calls.find((call) =>
+      call.url.endsWith('/api/v1/tickets/ticket-6100/resolve-from-coder')
+    );
+    expect(callback).toBeDefined();
+
+    const verdict = await verifyInternalSignature(
+      String(callback?.body),
+      callback?.headers['X-Axim-Signature'] ?? null,
+      callback?.headers['X-Axim-Timestamp'] ?? null,
+      TEST_INTERNAL_KEY
+    );
+    expect(verdict).toEqual({ valid: true, version: 'v2' });
+
+    const payload = JSON.parse(String(callback?.body));
+    expect(payload.status).toBe('resolved');
+    expect(payload.resolutionNotes).toContain(mergeSha);
+    // A gate merge does not resolve the ticket through /patch-status, and it
+    // must not claim verification it did not run.
+    expect(fetchStub.calls.some((call) => call.url.includes('/patch-status'))).toBe(false);
+    expect(payload.resolutionNotes).not.toMatch(/all automated tests passed/i);
+  });
+});
+
+describe('Satellite callback envelope and queue safety', () => {
+  test('patch-ready goes to the route the Support System publishes, signed v2', async () => {
+    const result = await dispatchCallbackWebhook('support', {
+      ticketId: 'ticket-6001',
+      status: 'PATCH_READY',
+      prUrl: 'https://github.com/JimEllars/axim-core-v1.2/pull/91',
+      commitSha: 'a'.repeat(40),
+      patchDetails: 'Branch axim-bot/ticket-6001 — src/index.ts'
+    }, env as never);
+
+    expect(result.ok).toBe(true);
+    expect(fetchStub.calls.some((call) => call.url.includes('/patch-status'))).toBe(false);
+
+    const call = fetchStub.calls.find((entry) => entry.url.endsWith('/api/v1/tickets/callback'));
+    expect(call).toBeDefined();
+
+    const verdict = await verifyInternalSignature(
+      String(call?.body),
+      call?.headers['X-Axim-Signature'] ?? null,
+      call?.headers['X-Axim-Timestamp'] ?? null,
+      TEST_INTERNAL_KEY
+    );
+    expect(verdict).toEqual({ valid: true, version: 'v2' });
+
+    expect(JSON.parse(String(call?.body))).toEqual({
+      ticketId: 'ticket-6001',
+      patchDetails: 'Branch axim-bot/ticket-6001 — src/index.ts',
+      commitSha: 'a'.repeat(40),
+      prUrl: 'https://github.com/JimEllars/axim-core-v1.2/pull/91'
+    });
+  });
+
+  test('a placeholder commit sha never reaches the satellite', async () => {
+    await dispatchCallbackWebhook('support', {
+      ticket_id: 'ticket-6002',
+      status: 'PATCH_READY',
+      commit_sha: 'pending',
+      pr_url: 'https://github.com/JimEllars/axim-core-v1.2/pull/92'
+    }, env as never);
+
+    const call = fetchStub.calls.find((entry) => entry.url.endsWith('/api/v1/tickets/callback'));
+    expect(JSON.parse(String(call?.body)).commitSha).toBeNull();
+  });
+
+  test('a rejected patch-ready notice is parked, then delivered and evicted by the sweeper', async () => {
+    fetchStub.restore();
+    fetchStub = installFetchStub((call) =>
+      call.url.endsWith('/api/v1/tickets/callback')
+        ? new Response(JSON.stringify({ error: 'bad gateway' }), { status: 502 })
+        : new Response(JSON.stringify({}), { status: 200 })
+    );
+
+    const result = await dispatchCallbackWebhook('support', {
+      ticketId: 'ticket-6003',
+      status: 'PATCH_READY',
+      prUrl: 'https://github.com/JimEllars/axim-core-v1.2/pull/93'
+    }, env as never);
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(502);
+    const key = satelliteDlqKey('support', 'ticket-6003');
+    expect(result.dlqKey).toBe(key);
+    expect(await env.CODER_DLQ_KV.get(key)).toBeTruthy();
+
+    // Satellite recovers; the 03:00 sweeper replays the parked body with a
+    // fresh envelope and evicts the key.
+    fetchStub.restore();
+    fetchStub = installFetchStub();
+
+    const sweepBody = JSON.stringify({ sweep: true });
+    const headers = {
+      ...(await signedHeadersV2(sweepBody)),
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${TEST_INTERNAL_KEY}`
+    };
+    const { response } = await dispatch(
+      makeRequest('/api/v1/dlq/sweep', { method: 'POST', body: sweepBody, headers })
+    );
+    expect(response.status).toBe(200);
+
+    expect(fetchStub.calls.some((call) => call.url.endsWith('/api/v1/tickets/callback'))).toBe(true);
+    expect(await env.CODER_DLQ_KV.get(key)).toBeNull();
+  });
+
+  test('asguard is not posted at a route it does not publish', async () => {
+    const result = await dispatchCallbackWebhook('asguard', {
+      incident_hash: 'incident-1',
+      status: 'RULE_PR_OPENED',
+      pr_url: 'https://github.com/JimEllars/axim-core-v1.2/pull/94'
+    }, env as never);
+
+    expect(result.ok).toBe(false);
+    expect(result.endpoint).toBeNull();
+    expect(fetchStub.calls.some((call) => call.url.includes('asguard'))).toBe(false);
   });
 });
