@@ -221,6 +221,42 @@ export interface ValidationResult {
 }
 
 /**
+ * Universal Scene Description (`.usda`).
+ *
+ * The dashboard has offered a `FreeCAD / OpenUSD` runtime since Sprint 1.6, but
+ * nothing downstream validated the `.usda` half of it: any text at all passed.
+ * A USDA stage is a textual prim tree that opens with `#usda 1.0` and scopes
+ * prims with braces, so a generated stage missing either is not loadable.
+ *
+ * `.usd` is deliberately not judged here: it is a container format that may
+ * hold binary crate data, which this validator never sees as text.
+ */
+export function validateUsdStage(code: string): ValidationResult {
+  if (!/^\s*#usda\s+1\.0\s*$/m.test(code)) {
+    return { valid: false, error: 'USDA stage is missing the `#usda 1.0` header.' };
+  }
+
+  // Strip strings and comments before counting braces: prim names and asset
+  // paths legitimately contain them.
+  const stripped = code
+    .replace(/"""[\s\S]*?"""/g, '""')
+    .replace(/"[^"\n]*"/g, '""')
+    .replace(/#[^\n]*/g, '');
+
+  const openBraces = (stripped.match(/\{/g) || []).length;
+  const closeBraces = (stripped.match(/\}/g) || []).length;
+  if (openBraces !== closeBraces) {
+    return { valid: false, error: `Unbalanced USDA prim scopes: ${openBraces} open vs ${closeBraces} close.` };
+  }
+
+  if (!/\bdef\s+\w+/.test(stripped)) {
+    return { valid: false, error: 'USDA stage defines no prims (no `def <Type>` statement).' };
+  }
+
+  return { valid: true };
+}
+
+/**
  * FreeCAD Python scripts must import a real geometry API, call it with
  * arguments, and actually produce output (show / recompute / export). A script
  * that merely defines classes still satisfies a brace count, which is why the
@@ -305,6 +341,58 @@ function parseNumberList(value: string | undefined): number[] | null {
 }
 
 /**
+ * MuJoCo `<default class="…">` joint templates, resolved one level deep.
+ *
+ * Real MJCF models put `range`/`axis` on a template and omit them on every
+ * joint that inherits it:
+ *
+ *     <default><joint axis="0 0 1" range="-1.57 1.57"/></default>
+ *     <default class="arm"><joint range="0 1.57"/></default>
+ *     <joint name="shoulder" type="hinge" class="arm"/>
+ *
+ * The validator read only the joint's own attributes, so every class-inherited
+ * joint was rejected as "missing a valid range", burning the one-shot retry and
+ * failing a model MuJoCo loads happily. `childclass` chains are flattened to
+ * "the nearest enclosing class template wins, then the unnamed template"; that
+ * covers the idiom without inventing a limit the document does not contain.
+ */
+function mjcfDefaultJointTemplates(code: string): {
+  main: Record<string, string>;
+  byClass: Record<string, Record<string, string>>;
+} {
+  const main: Record<string, string> = {};
+  const byClass: Record<string, Record<string, string>> = {};
+
+  // Walk `<default>` open/close and `<joint>` tags in document order so nested
+  // class blocks attribute their templates to the right class.
+  const tagPattern = /<\/?default\b[^>]*>|<joint\b[^>]*>/g;
+  const openClasses: (string | undefined)[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = tagPattern.exec(code)) !== null) {
+    const tag = match[0];
+
+    if (/^<\/default/i.test(tag)) {
+      openClasses.pop();
+      continue;
+    }
+    if (/^<default/i.test(tag)) {
+      const className = attributesOf(tag).class;
+      openClasses.push(className);
+      continue;
+    }
+
+    if (openClasses.length === 0) continue; // a real joint, not a template
+
+    const enclosingClass = [...openClasses].reverse().find((name) => typeof name === 'string');
+    const target = enclosingClass ? (byClass[enclosingClass] ||= {}) : main;
+    Object.assign(target, attributesOf(tag));
+  }
+
+  return { main, byClass };
+}
+
+/**
  * Hardware-as-Code validation for MuJoCo (MJCF) and URDF models.
  *
  * Joint limits and inertials are what make a simulated model physically
@@ -357,9 +445,22 @@ export function validateMuJoCoModel(code: string, filePath: string): ValidationR
     return { valid: false, error: 'MuJoCo model is missing the <mujoco> root element.' };
   }
 
-  const jointTags = code.match(/<joint\b[^>]*>/g) || [];
+  // Template joints live inside `<default>`; they are class definitions, not
+  // bodies, so they must not be validated as real joints (a template carries no
+  // `name`). Strip the default blocks before scanning.
+  const bodyOnly = code.replace(/<default\b[^>]*>[\s\S]*?<\/default>/g, '');
+
+  const jointTags = bodyOnly.match(/<joint\b[^>]*>/g) || [];
+  const jointTemplates = mjcfDefaultJointTemplates(code);
   for (const tag of jointTags) {
-    const attrs = attributesOf(tag);
+    const ownAttrs = attributesOf(tag);
+    // Resolution order in MJCF: the joint's own attributes win, then its
+    // `class` template, then the unnamed default template.
+    const template = ownAttrs.class
+      ? { ...jointTemplates.main, ...(jointTemplates.byClass[ownAttrs.class] || {}) }
+      : jointTemplates.main;
+    const attrs = { ...template, ...ownAttrs };
+
     if (!attrs.name) {
       return { valid: false, error: 'MuJoCo <joint> is missing a name attribute.' };
     }
@@ -374,7 +475,7 @@ export function validateMuJoCoModel(code: string, filePath: string): ValidationR
     }
   }
 
-  const inertialTags = code.match(/<inertial\b[^>]*>/g) || [];
+  const inertialTags = bodyOnly.match(/<inertial\b[^>]*>/g) || [];
   for (const tag of inertialTags) {
     const mass = Number(attributesOf(tag).mass);
     if (!Number.isFinite(mass) || mass <= 0) {
@@ -408,11 +509,35 @@ export function validatePlatformIoConfig(code: string): ValidationResult {
 }
 
 /**
- * PlatformIO firmware source: Arduino sketches need setup() + loop(), and every
- * translation unit needs at least one include so it links against a HAL.
+ * PlatformIO firmware source.
+ *
+ * A translation unit (`.cpp`/`.cc`/`.ino`) needs at least one `#include` so it
+ * links against a HAL, and an Arduino sketch additionally needs `setup()`,
+ * `loop()` and `<Arduino.h>`.
+ *
+ * A header is a different contract. Headers used to be routed here too and
+ * rejected with "no #include", so a perfectly legal declaration-only header
+ *
+ *     #pragma once
+ *     struct MotorState { float rpm; };
+ *
+ * failed validation, burned the retry and dead-ended the task. What a header
+ * actually needs is an include guard.
  */
 export function validatePlatformIoFirmware(code: string, filePath: string): ValidationResult {
-  const isSketch = filePath.toLowerCase().endsWith('.ino');
+  const lowered = filePath.toLowerCase();
+  const isHeader = /\.(h|hpp|hh)$/.test(lowered);
+  const isSketch = lowered.endsWith('.ino');
+
+  if (isHeader) {
+    const hasIncludeGuard =
+      /#pragma\s+once/.test(code) ||
+      /#ifndef\s+[A-Za-z_]\w*[\s\S]*?#define\s+[A-Za-z_]\w*/.test(code);
+    if (!hasIncludeGuard) {
+      return { valid: false, error: 'C/C++ header has no include guard (#pragma once or #ifndef/#define).' };
+    }
+    return { valid: true };
+  }
 
   if (!/#include\s*[<"]/.test(code)) {
     return { valid: false, error: 'Firmware source has no #include; it will not link against a HAL.' };
@@ -433,6 +558,14 @@ export function validatePlatformIoFirmware(code: string, filePath: string): Vali
   return { valid: true };
 }
 
+/**
+ * Files this worker treats as hardware-as-code artifacts.
+ *
+ * Must stay in step with the routed validators in {@link validateCodeSyntax}
+ * and with `RUNTIME_EXPECTED_EXTENSIONS` in `src/lib/fleetRegistry.js` — the
+ * dashboard promises the operator a runtime contract, so an extension missing
+ * here is a promise the worker cannot keep.
+ */
 export function isHardwareAsCodeFile(filePath: string): boolean {
   const lowered = filePath.toLowerCase();
   return (
@@ -442,7 +575,12 @@ export function isHardwareAsCodeFile(filePath: string): boolean {
     lowered.endsWith('.urdf') ||
     lowered.endsWith('.ino') ||
     lowered.endsWith('.cpp') ||
+    lowered.endsWith('.cc') ||
     lowered.endsWith('.h') ||
+    lowered.endsWith('.hpp') ||
+    lowered.endsWith('.hh') ||
+    lowered.endsWith('.usd') ||
+    lowered.endsWith('.usda') ||
     lowered.endsWith('platformio.ini')
   );
 }
@@ -463,7 +601,10 @@ export function validateCodeSyntax(code: string, filePath: string): ValidationRe
     (loweredPath.endsWith('.ini') && !isPlatformIoConfig);
   const isPHP = loweredPath.endsWith('.php');
   const isMuJoCo = loweredPath.endsWith('.xml') || loweredPath.endsWith('.mjcf') || loweredPath.endsWith('.urdf');
-  const isEmbeddedCpp = ['.cpp', '.h', '.ino', '.cc'].some((ext) => loweredPath.endsWith(ext));
+  const isUsda = loweredPath.endsWith('.usda');
+  // `.hpp`/`.hh` were missing, so a C++ header with either spelling skipped the
+  // include-guard gate entirely and fell through as "valid" no matter what.
+  const isEmbeddedCpp = ['.cpp', '.h', '.hpp', '.hh', '.ino', '.cc'].some((ext) => loweredPath.endsWith(ext));
 
   if (isJS) {
     const openBraces = (code.match(/\{/g) || []).length;
@@ -547,6 +688,8 @@ export function validateCodeSyntax(code: string, filePath: string): ValidationRe
     }
   } else if (isMuJoCo) {
     return validateMuJoCoModel(code, filePath);
+  } else if (isUsda) {
+    return validateUsdStage(code);
   } else if (isEmbeddedCpp) {
     const openBraces = (code.match(/\{/g) || []).length;
     const closeBraces = (code.match(/\}/g) || []).length;
@@ -680,7 +823,7 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     await createTaskBranch(githubCtx, branchName, env);
 
     const commitMessage = `fix(auto-remediation): resolve task #${taskId} via coding lab`;
-    await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
+    const commitSha = await commitGeneratedCode(githubCtx, branchName, modifiedCode, currentFile.sha, commitMessage, env);
 
     const prTitle = `[AXiM Coder] ${task.title}`;
     let prBody = `## Autonomous Engineering Task: ${taskId}\n\n**Requested By:** ${task.requestedBy || 'System'}\n**Priority:** ${task.priority || 'Normal'}\n\n### Instructions\n${task.instructions}\n\n*Review diff and merge.*`;
@@ -690,8 +833,23 @@ export async function executeAutonomousCodingTask(task: any, env: Env, writer?: 
     const prUrl = await openPullRequest(githubCtx, branchName, prTitle, prBody, env);
 
     // Webhook Callbacks
-    await dispatchCallbackWebhook('support', { ticket_id: taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: branchName, commit_sha: 'pending' }, env);
-    await dispatchCallbackWebhook('asguard', { incident_hash: taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: branchName }, env);
+    //
+    // The Support System notification used to send `commit_sha: 'pending'` to
+    // `/patch-status`, a route it does not publish: every run 404'd and the
+    // notice was dropped. It now posts the real branch commit to
+    // `/api/v1/tickets/callback` and parks itself in the DLQ if the relay
+    // refuses it. Asguard has no coder-facing route yet; the dispatcher records
+    // that as open interlock debt instead of posting at a 404.
+    const patchReady = await dispatchCallbackWebhook('support', {
+      ticketId: taskId,
+      status: 'PATCH_READY',
+      prUrl,
+      commitSha,
+      patchDetails: `Branch ${branchName} — ${path}`
+    }, env);
+    if (!patchReady.ok) {
+      console.warn(`[AUTONOMOUS_CODER] patch-ready callback for ${taskId} not delivered:`, patchReady.error, patchReady.dlqKey ?? 'no-dlq-key');
+    }
 
     console.log(`[AUTONOMOUS_CODER] Task ${taskId} PR opened at ${prUrl}`);
     // Remember the pull request and drop the run lease. The lease used to be

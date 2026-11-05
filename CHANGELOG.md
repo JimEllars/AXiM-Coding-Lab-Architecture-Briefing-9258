@@ -1,5 +1,74 @@
 # AXiM Coding Lab — Changelog
 
+## [1.7.0] — 2026-11-05
+
+Sprint 1.7: make the Support/Asguard callbacks actually land, remove fabricated
+values from customer-facing ticket notes, resolve tickets when an operator
+approves a merge, and stop the hardware-as-code validators rejecting valid work.
+
+### Fixed
+- **Every Support patch-ready notification was a 404.** The coder posted to
+  `/api/v1/tickets/:id/patch-status`, a route the Support System does not
+  publish, so each generated patch produced a 404 that was logged and dropped.
+  Notices now go to `/api/v1/tickets/callback` with the body that route reads
+  (`ticketId`, `patchDetails`, `commitSha`, `prUrl`) and flip the ticket to
+  `Review-Patch-Pending` as intended.
+- **Callbacks were signed v1.** Body-only signatures are rejected by the Support
+  System after `AXIM_SIG_LEGACY_UNTIL` (default 2026-12-31). Every coder →
+  satellite callback now carries the v2 envelope (`X-Axim-Timestamp` + HMAC over
+  `${ts}.${body}`) and a 10 s timeout.
+- **Failed callbacks vanished.** A refused or unreachable satellite logged an
+  error and left nothing to retry. Failures are parked in `CODER_DLQ_KV` and the
+  03:00 sweeper redelivers them with a fresh envelope.
+- **Ticket notes contained values nobody measured.** The resolution payload sent
+  `commit_sha: "merged"` (merge gate) and `"pending"` (pipeline), and claimed
+  `Verification: All automated tests passed cleanly` — on a customer-visible
+  ticket, for a suite this service never ran. The notes now name the PR and the
+  real merge commit and point at CI; anything that is not 7–40 hex characters is
+  dropped rather than echoed as a commit id.
+- **An operator-approved merge never resolved its ticket.** The HITL gate merged
+  the PR and stopped there, leaving the ticket in `Review-Patch-Pending` until a
+  human closed it. Both merge paths now post `resolve-from-coder`.
+- **Valid C++ headers were rejected.** `validatePlatformIoFirmware()` demanded
+  `#include` from every file it saw, so `#pragma once` + a struct failed
+  validation, burned the one-shot LLM retry and dead-ended the task. Headers
+  (`.h`/`.hpp`/`.hh`) now require an include guard; the `#include` rule covers
+  translation units only.
+- **Every class-inherited MJCF joint was rejected.** `range`/`axis` declared on
+  `<default class="…"><joint …/></default>` were invisible to the validator, so
+  a model MuJoCo loads happily failed `[AST_CHECK]`. Default templates are now
+  resolved (own attributes → class template → unnamed template) and template
+  joints are no longer validated as real ones.
+- **`.usda` was promised by the cockpit and validated by nobody.** New
+  `validateUsdStage()`: `#usda 1.0` header, balanced prim scopes, at least one
+  `def`.
+- **The dashboard test harness depended on the caller's `NODE_ENV`.** With
+  `NODE_ENV=production` exported, Vite resolved React's production build and all
+  20 render-smoke cases failed with `act(...) is not supported in production
+  builds of React`. `vitest.config.js` pins the test environment and the project
+  root.
+
+### Added
+- `vitest.config.js` — deterministic `NODE_ENV=test`, explicit include set,
+  root pinned to the config directory, merged with `vite.config.js`.
+- `edge-coder-worker/src/callback_dispatcher.ts` — `buildSatelliteRequest()`,
+  `dispatchCallbackWebhook()` returning a structured result,
+  `replayParkedSatelliteCallback()`, `realCommitSha()`.
+- `validateUsdStage()` and `mjcfDefaultJointTemplates()` in `code_generator.ts`.
+- Parity test asserting every hardware extension the Prompt Terminal advertises
+  is one the worker actually classifies.
+- 19 new tests (dashboard 14 → 15 in `fleetRegistry`, worker `hac` 30 → 42,
+  `hardening` 48 → 54).
+
+### Changed
+- `commitGeneratedCode()` returns the created commit SHA;
+  `mergePullRequest()` returns `{ sha }`. Both were `void`, which is why the
+  callbacks had nothing truthful to send.
+- Resolution callbacks keep the historical `dlq:ticket-callback:<id>` key so
+  entries already parked replay unchanged; patch-ready notices use
+  `dlq:satellite-callback:<system>:<id>`.
+- Dead `postSignedRelay()` wrapper removed from `ingress.ts`.
+
 ## [1.6.0] — 2026-11-04
 
 Sprint 1.6: make the cockpit render again, add the React test harness the repo

@@ -1,5 +1,5 @@
 import { sendEmailItMessage } from './emailService';
-import { dispatchCallbackWebhook } from './callback_dispatcher';
+import { dispatchCallbackWebhook, replayParkedSatelliteCallback } from './callback_dispatcher';
 import { executeCodingPipeline, executeAutonomousCodingTask } from './code_generator';
 import { mergePullRequest, fetchOpenPullRequests, postPullRequestReview, fetchPullRequestDiff } from './github_bridge';
 import { dispatchToJulesAgent } from './jules_bridge';
@@ -626,19 +626,6 @@ async function postSignedRelayRaw(
 }
 
 /**
- * POSTs a v2-signed JSON payload to another AXiM satellite.
- * Every satellite callback goes through here so the envelope can never drift.
- */
-async function postSignedRelay(
-  url: string,
-  payload: unknown,
-  env: Env,
-  extraHeaders: Record<string, string> = {}
-): Promise<Response> {
-  return postSignedRelayRaw(url, JSON.stringify(payload), env, extraHeaders);
-}
-
-/**
  * Replays one dead-letter entry against its owning satellite.
  *
  * Ticket callbacks are re-signed with a fresh v2 envelope on every attempt, so
@@ -726,6 +713,12 @@ async function replayDlqEntry(keyName: string, payloadStr: string, env: any): Pr
       env
     );
     return response.status === 200 || response.status === 202;
+  }
+
+  // Patch-ready notices carry their own endpoint, because the route cannot be
+  // derived from the key the way the ticket resolution route can.
+  if (keyName.startsWith('dlq:satellite-callback:')) {
+    return replayParkedSatelliteCallback(payloadStr, env);
   }
 
   if (keyName.startsWith('dlq_email_') || keyName.startsWith('dlq:email:')) {
@@ -1422,8 +1415,10 @@ async function handleRequest(
                 return renderGatePage({ heading: 'Revision Requested', detail: `#${record.pr} was not merged. The task lease was released.`, status: 200 });
               }
 
+              let mergeSha: string | null = null;
               try {
-                await mergePullRequest({ owner: record.owner, repo: record.repo, path: '' }, record.pr, env);
+                const merge = await mergePullRequest({ owner: record.owner, repo: record.repo, path: '' }, record.pr, env);
+                mergeSha = merge.sha;
               } catch (e: any) {
                 // GitHub refused the merge (conflict, failing checks, transient
                 // 5xx). Give the approval link back so the operator can retry
@@ -1435,8 +1430,29 @@ async function handleRequest(
                 return renderGatePage({ heading: 'Error Merging PR', detail: e?.message ?? 'GitHub rejected the merge.', status: 502 });
               }
 
-              await dispatchCallbackWebhook('support', { ticket_id: record.taskId || 'unknown', status: 'PATCH_READY', pr_url: prUrl, branch: record.branch || 'main', commit_sha: 'merged' }, env);
-              await dispatchCallbackWebhook('asguard', { incident_hash: record.taskId || 'unknown', status: 'RULE_PR_OPENED', pr_url: prUrl, branch: record.branch || 'main' }, env);
+              // A merged PR is the terminal event for the ticket. The gate used
+              // to send a `PATCH_READY` notice — to a route the Support System
+              // does not publish — and never resolved the ticket, so every
+              // operator-approved merge left it parked in `Review-Patch-Pending`
+              // until someone closed it by hand. The notice also carried
+              // `commit_sha: "merged"`, a value the Support System echoed to the
+              // operator as a commit id.
+              if (record.taskId) {
+                const resolution = await dispatchCallbackWebhook('support', {
+                  ticketId: record.taskId,
+                  status: 'resolved',
+                  prUrl,
+                  commitSha: mergeSha,
+                  resolutionNotes: [
+                    `Merged ${prUrl} into ${record.owner}/${record.repo} after operator approval in the Coding Lab gate.`,
+                    mergeSha ? `Merge commit: ${mergeSha}.` : 'Merge commit: not reported by GitHub.',
+                    'CI results for the merged commit are on the pull request.'
+                  ].join('\n')
+                }, env);
+                if (!resolution.ok) {
+                  console.warn('[HITL] ticket resolution callback not delivered', record.taskId, resolution.error, resolution.dlqKey ?? 'no-dlq-key');
+                }
+              }
 
               if (record.taskId) {
                 await clearTaskState(env.TASK_LOCKS, record.taskId);
@@ -1867,32 +1883,29 @@ async function handleRequest(
                   path: '' // not needed for PR merge
                 };
 
-                await mergePullRequest(githubCtx, pr_number, env);
+                const merge = await mergePullRequest(githubCtx, pr_number, env);
 
                 if (payload.source === "axim-support-system" && payload.ticketId) {
                   const prUrl = `https://github.com/${repository_owner}/${repository_name}/pull/${pr_number}`;
-                  const callbackPayload = {
+                  // One delivery path for every satellite callback: v2 envelope,
+                  // the merge SHA GitHub actually reported, and DLQ parking when
+                  // the relay fails. This block used to re-implement the relay
+                  // inline, with a v2 signature, its own DLQ write, and a
+                  // resolution note claiming "All automated tests passed
+                  // cleanly" — a verification this service never ran.
+                  const resolution = await dispatchCallbackWebhook('support', {
                     ticketId: payload.ticketId,
-                    status: "resolved",
-                    resolutionNotes: `Automated patch applied and deployed by AXiM Coder Core.\n- PR: ${prUrl}\n- Verification: All automated tests passed cleanly.`,
-                    completedAt: new Date().toISOString()
-                  };
-                  try {
-                    // `POST /api/v1/tickets/:id/resolve-from-coder` is the only
-                    // resolution route the Support System exposes. The previous
-                    // `/api/v1/axim-resolution` and `/patch-status` targets do not
-                    // exist upstream, which is what filled the DLQ with 404s.
-                    const cbResp = await postSignedRelay(
-                      `${SUPPORT_BASE_URL}/api/v1/tickets/${encodeURIComponent(payload.ticketId)}/resolve-from-coder`,
-                      callbackPayload,
-                      env
-                    );
-                    if (!cbResp.ok) throw new Error(`Callback failed with status ${cbResp.status}`);
-                  } catch (cbErr: any) {
-                    console.error(`[AUTONOMOUS_CODER] Failed to dispatch resolution callback for ticket ${payload.ticketId}:`, cbErr.message);
-                    if ((env as any).CODER_DLQ_KV) {
-                       await (env as any).CODER_DLQ_KV.put(`dlq:ticket-callback:${payload.ticketId}`, JSON.stringify(callbackPayload));
-                    }
+                    status: 'resolved',
+                    prUrl,
+                    commitSha: merge.sha,
+                    resolutionNotes: [
+                      `Automated patch merged by the AXiM Coding Lab.\n- PR: ${prUrl}`,
+                      merge.sha ? `- Merge commit: ${merge.sha}` : '- Merge commit: not reported by GitHub.',
+                      '- CI results for the merged commit are on the pull request.'
+                    ].join('\n')
+                  }, env);
+                  if (!resolution.ok) {
+                    console.error(`[AUTONOMOUS_CODER] resolution callback for ticket ${payload.ticketId} not delivered:`, resolution.error, resolution.dlqKey ?? 'no-dlq-key');
                   }
                 }
 

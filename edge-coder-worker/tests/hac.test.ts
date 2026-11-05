@@ -5,7 +5,8 @@ import {
   validateFreeCadScript,
   validateMuJoCoModel,
   validatePlatformIoConfig,
-  validatePlatformIoFirmware
+  validatePlatformIoFirmware,
+  validateUsdStage
 } from '../src/code_generator';
 
 const VALID_FREECAD = `import FreeCAD
@@ -215,6 +216,115 @@ describe('MuJoCo / URDF hardware-as-code validation', () => {
     expect(result.valid).toBe(false);
     expect(result.error).toContain('missing a name attribute');
   });
+
+  test('accepts a joint whose range and axis are inherited from a default class', () => {
+    // The idiom every hand-written MJCF model uses. The validator used to read
+    // only the joint's own attributes and reject this as "missing a range".
+    const inherited = `<mujoco model="arm">
+  <default>
+    <joint axis="0 0 1" range="-1.57 1.57"/>
+    <default class="gripper">
+      <joint range="0 0.8"/>
+    </default>
+  </default>
+  <worldbody>
+    <body name="link1" pos="0 0 0.1">
+      <joint name="shoulder" type="hinge"/>
+      <joint name="finger" type="hinge" class="gripper"/>
+      <inertial pos="0 0 0.05" mass="1.2" diaginertia="0.01 0.01 0.002"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+    expect(validateMuJoCoModel(inherited, 'robot/arm.xml')).toEqual({ valid: true });
+  });
+
+  test('a class template cannot rescue a joint that still has no range anywhere', () => {
+    const noRange = `<mujoco model="arm">
+  <default class="gripper">
+    <joint axis="0 0 1"/>
+  </default>
+  <worldbody>
+    <body name="link1" pos="0 0 0.1">
+      <joint name="finger" type="hinge" class="gripper"/>
+      <inertial pos="0 0 0.05" mass="1.2" diaginertia="0.01 0.01 0.002"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+    const result = validateMuJoCoModel(noRange, 'robot/arm.xml');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('range="min max"');
+  });
+
+  test('the joint\'s own limit overrides its class template', () => {
+    const overridden = `<mujoco model="arm">
+  <default class="gripper">
+    <joint axis="0 0 1" range="0 0.8"/>
+  </default>
+  <worldbody>
+    <body name="link1" pos="0 0 0.1">
+      <joint name="finger" type="hinge" class="gripper" range="0.8 0"/>
+      <inertial pos="0 0 0.05" mass="1.2" diaginertia="0.01 0.01 0.002"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+    expect(validateMuJoCoModel(overridden, 'robot/arm.xml').valid).toBe(false);
+  });
+});
+
+describe('OpenUSD hardware-as-code validation', () => {
+  const VALID_USDA = `#usda 1.0
+(
+    defaultPrim = "Bracket"
+    metersPerUnit = 0.001
+)
+
+def Xform "Bracket"
+{
+    def Cube "Plate"
+    {
+        double size = 120
+    }
+}
+`;
+
+  test('accepts a stage with a header and a prim tree', () => {
+    expect(validateCodeSyntax(VALID_USDA, 'models/bracket.usda')).toEqual({ valid: true });
+    expect(validateUsdStage(VALID_USDA).valid).toBe(true);
+  });
+
+  test('rejects a stage with no #usda header', () => {
+    const result = validateUsdStage('def Xform "Bracket"\n{\n}\n');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('#usda 1.0');
+  });
+
+  test('rejects a truncated prim tree', () => {
+    const truncated = VALID_USDA.replace(/\}\s*$/, '');
+    const result = validateUsdStage(truncated);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Unbalanced USDA prim scopes');
+  });
+
+  test('rejects a stage that defines no prims', () => {
+    const result = validateUsdStage('#usda 1.0\n(\n    defaultPrim = "Bracket"\n)\n');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('defines no prims');
+  });
+
+  test('braces inside asset paths and comments do not count', () => {
+    const tricky = `#usda 1.0
+
+def Xform "Bracket"
+{
+    # a comment with an unbalanced { brace
+    asset path = "@{asset}"
+}
+`;
+    expect(validateUsdStage(tricky).valid).toBe(true);
+  });
 });
 
 describe('PlatformIO hardware-as-code validation', () => {
@@ -269,11 +379,39 @@ describe('PlatformIO hardware-as-code validation', () => {
     expect(result.valid).toBe(false);
     expect(result.error).toContain('Mismatched curly braces in C++');
   });
+
+  test('accepts a declaration-only header guarded with #pragma once', () => {
+    // Headers used to be rejected for having no #include, which failed legal
+    // files like this one and dead-ended the task after the retry.
+    const header = `#pragma once\n\nstruct MotorState {\n  float rpm;\n  float current_a;\n};\n`;
+    expect(validateCodeSyntax(header, 'include/motor_state.h')).toEqual({ valid: true });
+    expect(validateCodeSyntax(header, 'include/motor_state.hpp')).toEqual({ valid: true });
+  });
+
+  test('accepts a header guarded with #ifndef/#define', () => {
+    const header = `#ifndef MOTOR_STATE_H\n#define MOTOR_STATE_H\nstruct MotorState { float rpm; };\n#endif\n`;
+    expect(validatePlatformIoFirmware(header, 'include/motor_state.h').valid).toBe(true);
+  });
+
+  test('rejects a header with no include guard', () => {
+    const result = validateCodeSyntax('struct MotorState { float rpm; };\n', 'include/motor_state.h');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('include guard');
+  });
+
+  test('still requires a translation unit to include a HAL', () => {
+    const result = validatePlatformIoFirmware('int main() { return 0; }\n', 'src/main.cpp');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('#include');
+  });
 });
 
 describe('Hardware-as-code file routing', () => {
   test('classifies the HAC file types the terminal can request', () => {
-    for (const file of ['model.py', 'arm.xml', 'arm.mjcf', 'arm.urdf', 'main.ino', 'main.cpp', 'main.h', 'platformio.ini']) {
+    for (const file of [
+      'model.py', 'arm.xml', 'arm.mjcf', 'arm.urdf', 'main.ino', 'main.cpp', 'main.cc',
+      'main.h', 'motor_state.hpp', 'motor_state.hh', 'stage.usda', 'stage.usd', 'platformio.ini'
+    ]) {
       expect(isHardwareAsCodeFile(file), file).toBe(true);
     }
   });
