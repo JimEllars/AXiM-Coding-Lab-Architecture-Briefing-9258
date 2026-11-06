@@ -600,7 +600,17 @@ export function validateCodeSyntax(code: string, filePath: string): ValidationRe
   const isYamlOrToml = loweredPath.endsWith('.toml') || loweredPath.endsWith('.yaml') || loweredPath.endsWith('.yml') ||
     (loweredPath.endsWith('.ini') && !isPlatformIoConfig);
   const isPHP = loweredPath.endsWith('.php');
-  const isMuJoCo = loweredPath.endsWith('.xml') || loweredPath.endsWith('.mjcf') || loweredPath.endsWith('.urdf');
+  // `.mjcf` and `.urdf` are unambiguous: those extensions only ever hold a
+  // robotics model. `.xml` is not. The dashboard advertises `.xml` under both
+  // `ROS 2 / Python` (launch files, `<launch>`) and `MuJoCo / URDF`, so routing
+  // every `.xml` to the MuJoCo validator rejected every well-formed ROS 2
+  // launch file with "missing the <mujoco> root element" — the operator saw a
+  // green runtime/path hint, dispatched, and lost the LLM run in `[AST_CHECK]`.
+  // Decide from the document, not the extension: a robotics root element means
+  // it is a model, anything else is ordinary XML.
+  const isMuJoCo = loweredPath.endsWith('.mjcf') ||
+    loweredPath.endsWith('.urdf') ||
+    (loweredPath.endsWith('.xml') && /<(mujoco|robot)\b/.test(code));
   const isUsda = loweredPath.endsWith('.usda');
   // `.hpp`/`.hh` were missing, so a C++ header with either spelling skipped the
   // include-guard gate entirely and fell through as "valid" no matter what.
@@ -688,6 +698,15 @@ export function validateCodeSyntax(code: string, filePath: string): ValidationRe
     }
   } else if (isMuJoCo) {
     return validateMuJoCoModel(code, filePath);
+  } else if (loweredPath.endsWith('.xml')) {
+    // Ordinary XML (ROS 2 launch files, SDF fragments, package manifests).
+    // Structural balance is the only claim this worker can honestly make
+    // about it, and it is the same check the MuJoCo validator starts with.
+    const balanceError = countXmlTagBalance(code);
+    if (balanceError) return { valid: false, error: balanceError };
+    if (!/<[A-Za-z_]/.test(code)) {
+      return { valid: false, error: 'XML file declares no elements.' };
+    }
   } else if (isUsda) {
     return validateUsdStage(code);
   } else if (isEmbeddedCpp) {
