@@ -5,6 +5,118 @@ obvious from the diff, and debt that is knowingly deferred.
 
 ---
 
+## 2026-11-06 — Sprint 1.8
+
+### Root cause: an extension-only router cannot serve two runtimes
+
+`validateCodeSyntax()` dispatched on file extension alone. That works while
+every extension maps to exactly one artifact type, and stops working the moment
+the cockpit advertises `.xml` for both `ROS 2 / Python` (launch files) and
+`MuJoCo / URDF` (models). The worker had one `.xml` branch, so the second
+runtime's documents were judged by the first runtime's rules and every ROS 2
+launch file was told it was missing a `<mujoco>` root.
+
+The instructive part is the failure shape, not the fix. Nothing errored. The
+cockpit's `findRuntimeMismatches()` read the same table it advertised from, so it
+returned `[]` and showed no warning; the dispatch succeeded; the task reached
+`[AST_CHECK]` and failed with a message that was *correct about the wrong
+thing*. From the operator's seat it looked like the worker was broken, and from
+the worker's seat it looked like the operator had asked for a MuJoCo model. Two
+services each doing exactly what they were written to do, disagreeing about a
+string.
+
+The general rule worth keeping: **an extension is a hint, a document is
+fact.** Where two runtimes share an extension, route on content. `.mjcf` and
+`.urdf` stay unambiguous and keep the full HAC contract; `.xml` is a model only
+if it declares `<mujoco>` or `<robot>`, and otherwise gets the structural
+balance check and no stronger claim. The cost is that a MuJoCo model saved as
+`.xml` without its root element is now reported as malformed XML rather than as
+a missing root — which is still a rejection, and the operator still gets told to
+look at the file.
+
+### Root cause: nothing tested the seam between the cockpit and the worker
+
+`fleetRegistry.test.js` checks that the dashboard's fleet table and the worker's
+`registry.ts` agree on repository names. That test is real and it works. But the
+programme's actual contract with the operator is one level up: *if the cockpit
+says this runtime covers this file, the worker will accept it.* No test
+asserted that, so it was free to be false for as long as nobody tried a ROS 2
+launch file.
+
+`runtime_contract.test.ts` closes it by enumerating `RUNTIME_EXPECTED_EXTENSIONS`
+and, for each pair, feeding the worker a genuine artifact of that type. Two
+properties make it worth its runtime:
+
+- The fixtures satisfy the validators' real requirements rather than their
+  regular expressions. A header has an include guard, a sketch has
+  `setup()`/`loop()` and `<Arduino.h>`, `platformio.ini` has `platform` *and*
+  `board` *and* `framework`, an MJCF hinge has a `range` and a three-component
+  `axis` beside an inertial `mass`. When the validator gets stricter, a fixture
+  breaks and someone has to decide whether the dashboard's promise or the
+  worker's rule is wrong — which is the conversation that should happen.
+- It carries counter-cases. A parity suite that only asserts "valid things are
+  valid" passes if `validateCodeSyntax` is changed to `return { valid: true }`.
+  The mismatched-path, unconstrained-hinge and unclosed-tag cases make that a
+  failing change.
+
+It found a defect in its own first draft, which is the best evidence it is not
+decorative: the `platformio.ini` fixture omitted `platform =`, and
+`validatePlatformIoConfig()` rejected it. The fixture was wrong, not the rule.
+
+### Root cause: a template dependency that nobody owned
+
+2,076 kB of the built stylesheet was `@questlabs/react-sdk/dist/style.css`,
+imported on line 3 of `src/App.jsx`. The project is literally named
+`quest-react-starter` in `package.json` — it was scaffolded from a starter kit
+and the kit's design-system import outlived the kit. Zero `ql-*` classes and
+zero component imports existed anywhere in `src/`.
+
+What made it survive so long is that dead CSS is invisible in every signal the
+repo watches: lint does not read CSS imports, tests run in jsdom without
+loading stylesheets, and the build only ever warned that *a* chunk was large —
+which had been normalised into background noise by the `manualChunks`
+suggestion printed on every run. `2,076 kB → 44.34 kB` is not a heroic
+optimisation; it is deleting one import line that should never have been there.
+
+The check that finds this class of thing: source CSS is 982 bytes and
+`tailwind.config.js` scans only `index.html` and `src/**`, so any stylesheet
+larger than a few kB in `dist/` came from `node_modules` and is worth a `grep`
+for its import before it is worth a bundler config change.
+
+### Environment trap: `NODE_ENV=production` is exported in this workspace
+
+`npm uninstall @questlabs/react-sdk dotenv yaml date-fns` pruned **397**
+packages out of `node_modules` — every devDependency, including `vite` and
+`vitest`. npm reads `NODE_ENV=production` from the environment and defaults to
+`--omit=dev`, so a command that reads as "remove four runtime packages" is
+also "remove the toolchain".
+
+The recovery was `npm install --include=dev --offline` against the local npm
+cache, needed because the registry dropped the connection (`ECONNRESET`, then
+`SIGTERM` on a 300 s timeout) mid-install. This is the second time this
+variable has caused a misleading failure in this repo — Sprint 1.7 hit it
+through Vite's React export condition — and `vitest.config.js` pins
+`NODE_ENV=test` for tests but cannot protect an `npm install`.
+
+Rule for the runbook: **any dependency operation in this workspace passes
+`--include=dev`.** A related trap in the same family: the first build of this
+sprint was run as `NODE_ENV=development vite build` and reported JS at
+2,212.23 kB. That is React's development build, not a regression. Builds that
+produce numbers for a document use `NODE_ENV=production`.
+
+### Decision: labels on the runtime controls
+
+The `Target Runtime`, `File Path`, `Target Repository` and `Execution Engine`
+captions were bare `<span>`s. Making them real `<label htmlFor>` + `id` pairs
+was not needed to fix a bug, but it was needed to write the dispatch test
+honestly: without an accessible name the only way to reach those controls is a
+positional selector, and a positional selector silently re-points at a
+different control the next time the layout changes. The test now addresses them
+by the name a user sees, so a reordering is a test failure rather than a test
+that quietly checks the wrong select.
+
+---
+
 ## 2026-11-05 — Sprint 1.7
 
 ### Root cause: a callback to a route nobody publishes

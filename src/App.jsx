@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import '@questlabs/react-sdk/dist/style.css';
 import DashboardLayout from './components/layout/DashboardLayout';
 import Cockpit from './pages/Cockpit';
 import PullRequests from './pages/PullRequests';

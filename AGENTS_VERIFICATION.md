@@ -10,6 +10,255 @@ Companion documents:
 
 ---
 
+## 2026-11-06 — Sprint 1.8: runtime-contract parity, ROS 2 XML routing, bundle diet
+
+Branch `feat/coding-lab-sprint-1.8-hac-routing-and-bundle-diet`.
+Base `aeaef6f` (origin/main).
+
+Upstream audit: `git log origin/main --since="24 hours ago"` returned exactly one
+commit — `aeaef6f feat(coder): land satellite callbacks on real routes with v2
+envelopes and honest payloads (#156)` — which is the previous sprint's own
+squash-merge. No human-authored commits, no human-modified prompts, security
+boundaries or UI layout in the window. `gh pr list` showed four open PRs (#130,
+#131, #149, #150), all Dependabot, no maintainer work in flight. The working
+tree was clean, so the branch was cut straight from `aeaef6f`; nothing upstream
+was rewritten, rebased over, or force-pushed.
+
+### 0. Baseline was green, so forward work was permitted
+
+The repair gate did **not** trigger this run. Recorded before any edit, on
+`aeaef6f`:
+
+```
+$ npm run lint
+> eslint .
+(no output, exit 0)
+
+$ npm test
+ Test Files  8 passed (8)
+      Tests  201 passed (201)
+   Duration  140.31s
+
+$ npm run build
+✓ built in 13m 16s
+
+$ cd edge-coder-worker && npm test
+ Test Files  8 passed (8)
+      Tests  201 passed (201)
+
+$ npx wrangler deploy --dry-run --keep-vars --config wrangler.toml
+Total Upload: 142.21 KiB / gzip: 31.97 KiB
+--dry-run: exiting now.
+```
+
+One thing was checked rather than assumed: `cd edge-coder-worker && npm test`
+reports the same 8 files as the root run, which looks like the worker suite is
+never executing. `npx vitest list` shows why it is fine — the root
+`vitest.config.js` pins `root` to the repo root and declares
+`edge-coder-worker/tests/**/*.test.ts` in `include`, so the subdirectory run
+resolves 5 worker files plus 3 dashboard files either way. No false green.
+
+### 1. P0 — a ROS 2 launch file could not pass the worker's syntax gate
+
+Found by reading `validateCodeSyntax()` against the extensions the cockpit
+publishes. `RUNTIME_EXPECTED_EXTENSIONS` promises `.xml` under both
+`ROS 2 / Python` and `MuJoCo / URDF`; the worker had one branch:
+
+```ts
+const isMuJoCo = loweredPath.endsWith('.xml') || loweredPath.endsWith('.mjcf') || loweredPath.endsWith('.urdf');
+```
+
+Reproduced directly against `code_generator.ts`:
+
+```
+isHardwareAsCode: true
+validateCodeSyntax: {"valid":false,"error":"MuJoCo model is missing the <mujoco> root element."}
+```
+
+for a textbook ROS 2 launch document:
+
+```xml
+<?xml version="1.0"?>
+<launch>
+  <node pkg="telemetry" exec="publisher" name="telemetry_publisher">
+    <param name="rate_hz" value="50"/>
+  </node>
+</launch>
+```
+
+The operator's view of this was the worst case: `findRuntimeMismatches()` sees
+`.xml` in the table, so the cockpit showed **no** warning, the task dispatched,
+an LLM run was spent, and `[AST_CHECK]` failed with a message naming a MuJoCo
+root element the operator never asked for.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/src/code_generator.ts` | 611–613 | `isMuJoCo` narrowed to `.mjcf`/`.urdf` unconditionally, plus `.xml` only when the document carries a `<mujoco>` or `<robot>` root. |
+| `edge-coder-worker/src/code_generator.ts` | 700–708 | New `else if` branch for remaining `.xml`: `countXmlTagBalance()` structural check plus a "declares no elements" guard. Deliberately makes no claim beyond well-formedness. |
+
+The HAC contract is untouched where it belongs: an `.mjcf` or `.urdf`, or an
+`.xml` that does declare a robotics root, still goes through
+`validateMuJoCoModel()` with the same joint-range, axis and inertial rules.
+
+### 2. P1 — the runtime contract had no test tying the two halves together
+
+`fleetRegistry.test.js` asserts the two *fleet tables* agree. Nothing asserted
+that the extensions the cockpit advertises are extensions the worker can route,
+which is how the `.xml` defect survived. New suite:
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `edge-coder-worker/tests/runtime_contract.test.ts` | 1–190 (new) | 34 tests. Iterates every `(runtime, extension)` pair in `RUNTIME_EXPECTED_EXTENSIONS`, renders a genuine minimal artifact (include guards for headers, `void setup()`/`void loop()` + `<Arduino.h>` for sketches, `platform`/`board`/`framework` for `platformio.ini`, joint `range`+`axis`+inertial `mass` for MJCF/URDF, `#usda 1.0` for USDA), asserts `findRuntimeMismatches()` returns `[]` and `validateCodeSyntax()` returns `valid: true`. |
+| `edge-coder-worker/tests/runtime_contract.test.ts` | 34–50 | `.py` and `.xml` are runtime-dependent, so those lookups are keyed `runtime:ext` — a FreeCAD script imports `Part`/`FreeCAD`, a Python sandbox module must not. |
+| `edge-coder-worker/tests/runtime_contract.test.ts` | 168–190 | Anti-vacuity cases: mismatched paths must still be flagged, an unconstrained hinge must still be rejected, an unclosed `<launch>` must still be rejected. |
+
+Both directions were mutation-tested rather than trusted.
+
+Reverting only the `isMuJoCo` narrowing:
+
+```
+ × runtime contract parity (dashboard promise vs worker routing) > worker accepts a valid ROS 2 / Python → .xml artifact 162ms
+     Tests  1 failed | 33 passed (34)
+```
+
+The suite caught one real defect in its own fixture on first run, which is the
+behaviour that was wanted:
+
+```
+ × worker accepts a valid PlatformIO Firmware → .ini artifact
+   → PlatformIO Firmware .ini: platformio.ini is missing a platform = <vendor> entry.
+```
+
+`validatePlatformIoConfig()` was right and the fixture was wrong; `platform =
+espressif32` was added to the fixture, not a rule relaxed.
+
+### 3. P1 — the dispatch path had only ever been covered by "it mounts"
+
+`render-smoke.test.jsx` proves `PromptTerminal` renders. It cannot prove the
+thing the component exists to do. A wrong `runtime_env` does not throw — it
+routes generated code to the wrong validator and fails much later.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/components/PromptTerminal.dispatch.test.jsx` | 1–227 (new) | 7 tests driving the real DOM. Asserts the object passed to `labService.triggerTask`: `runtime_env` follows the runtime selector, comma-separated paths split into `target_file_paths`, `delegate_to_jules` follows the engine selector, `repository_name`/`project_key` follow the repo selector. Also: mismatch warns without blocking, empty prompt does not dispatch, non-operator cannot dispatch, failed edge call logs and preserves the prompt text. |
+| `src/components/PromptTerminal.jsx` | 293 | `aria-label="Task prompt"` on the prompt textarea. |
+| `src/components/PromptTerminal.jsx` | 315–322, 335–342, 350–357, 370–377 | Four caption `<span>`s became `<label htmlFor>` + matching `id` on the control (`axim-target-repo`, `axim-execution-engine`, `axim-target-runtime`, `axim-target-files`). |
+
+The label change is not cosmetic: without an accessible name the controls could
+only be reached by positional selector, so a test written against them would have
+been pinned to DOM order. Two details the suite has to get right or it passes for
+the wrong reason — the role gate, and React's value tracking:
+
+- The deploy control is `disabled={… || !isSuperUser}`, so every case sets
+  `localStorage.axim_user_role = 'super_user'`, and one case asserts it stays
+  disabled for `engineer`.
+- A raw `element.value = x` is swallowed on the next render because React keeps
+  its own value tracker; the helper goes through the native prototype setter and
+dispatches `input`, which is what a keystroke does.
+
+Mutation check — hard-coding `runtime_env: 'Node.js Edge'` in `handleDeploy`:
+
+```
+ × sends the selected runtime as runtime_env 1995ms
+ × splits comma-separated target paths and keeps the MuJoCo runtime intact 323ms
+     Tests  2 failed | 5 passed (7)
+```
+
+### 4. P2 — 2.03 MB of CSS for a library nothing imports
+
+The produced stylesheet was 2,076.40 kB. `tailwind.config.js` scans only
+`index.html` and `src/**`, and the repo's own CSS is 982 bytes total, so the
+weight had to be coming from a dependency. It was:
+
+```
+$ ls -la node_modules/@questlabs/react-sdk/dist/style.css
+-rw-r--r-- 1 pi pi 2031637 … style.css
+```
+
+`src/App.jsx` line 3 imported that stylesheet. The SDK itself was used nowhere:
+`grep -rn 'quest' src/` returned only the import, and no `ql-*` class appears
+anywhere in `src/`. It is a leftover from the `quest-react-starter` template this
+project was scaffolded from. The stylesheet's first bytes are four blocking
+`@import` requests to `fonts.googleapis.com`, so it was also a third-party
+request on every first paint.
+
+| File | Lines | Change |
+| :--- | :--- | :--- |
+| `src/App.jsx` | 1–4 | `import '@questlabs/react-sdk/dist/style.css'` removed. |
+| `package.json` | dependencies | `@questlabs/react-sdk`, `dotenv`, `yaml`, `date-fns` removed — all four had zero import sites in `src/` and `edge-coder-worker/`. |
+| `package-lock.json` | — | −1,561 lines, +83. `yaml` correctly remains in the lock: `npm explain yaml` shows it as `peerOptional` of `postcss-load-config` under `tailwindcss`. |
+
+Measured with `NODE_ENV=production`, before and after:
+
+```
+              before              after
+CSS      2,076.40 kB  gzip 1,373.56 →   44.34 kB  gzip  7.90
+JS       1,854.27 kB  gzip   560.87 → 1,854.51 kB  gzip 560.95
+build         13m 16s          →      10m 40s
+```
+
+−97.9 % CSS raw, −99.4 % gzip, −51.7 % total shipped payload raw, and a build
+2m36s shorter. The recurring `invalid-calc` warning
+(`width:calc(100%-24px)`) that printed on every build came from that stylesheet
+and is gone with it.
+
+An environment trap worth recording, because it bit this run: this workspace
+exports `NODE_ENV=production`, and `npm uninstall` respects it, so the command
+silently pruned all 397 devDependencies out of `node_modules`. Recovery was
+`npm install --include=dev --offline` from the local cache after the registry
+dropped the connection mid-install. Any dependency change here must pass
+`--include=dev` or `--production=false`.
+
+Also note the first build of this sprint was run as `NODE_ENV=development` and
+reported JS at 2,212.23 kB — 358 kB of React's development build, not a
+regression. It was rebuilt under `NODE_ENV=production` before any number above
+was recorded.
+
+### 5. Verification (final, on the completed branch)
+
+```
+$ npm run lint
+> quest-react-starter@0.0.0 lint
+> eslint .
+(no output, exit 0 — 0 errors, 0 warnings)
+
+$ npx vitest run
+ ✓ src/services/supportGateway.test.js (1 test)
+ ✓ src/lib/fleetRegistry.test.js
+ ✓ src/components/PromptTerminal.dispatch.test.jsx (7 tests)
+ ✓ edge-coder-worker/tests/runtime_contract.test.ts (34 tests)
+ ✓ edge-coder-worker/tests/hac.test.ts
+ ✓ edge-coder-worker/tests/hardening.test.ts
+ ✓ edge-coder-worker/tests/registry.test.ts
+ ✓ edge-coder-worker/tests/trust_boundary.test.ts
+ ✓ edge-coder-worker/tests/worker.test.ts
+ ✓ src/components/render-smoke.test.jsx (20 tests)
+
+ Test Files  10 passed (10)
+      Tests  242 passed (242)
+   Duration  106.29s
+
+$ env NODE_ENV=production npx vite build
+✓ 1063 modules transformed.
+dist/index.html                     1.16 kB │ gzip:     0.57 kB
+dist/assets/index-BCleuDDR.css     44.34 kB │ gzip:     7.90 kB
+dist/assets/index-B59QDdrS.js   1,854.51 kB │ gzip:   560.95 kB
+✓ built in 10m 40s
+
+$ cd edge-coder-worker && npx wrangler deploy --dry-run --keep-vars --config wrangler.toml
+Total Upload: 142.51 KiB / gzip: 32.03 KiB
+--dry-run: exiting now.
+```
+
+| Metric | Before | After |
+| :--- | :--- | :--- |
+| Lint | 0 errors, 0 warnings | 0 errors, 0 warnings |
+| Tests | 201 across 8 files | **242 across 10 files** |
+| Build | 13m16s, CSS 2,076.40 kB | 10m40s, CSS 44.34 kB |
+| Worker bundle | 142.21 KiB / 31.97 KiB gzip | 142.51 KiB / 32.03 KiB gzip (+0.3 KiB from the new XML branch) |
+
+---
+
 ## 2026-11-05 — Sprint 1.7: satellite callback integrity, honest ticket notes, hardware-as-code accuracy
 
 Branch `feat/coding-lab-sprint-1.7-callback-integrity-hac-accuracy`.

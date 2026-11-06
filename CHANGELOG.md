@@ -1,5 +1,72 @@
 # AXiM Coding Lab — Changelog
 
+## [1.8.0] — 2026-11-06
+
+Sprint 1.8: make the runtime contract the cockpit advertises the one the worker
+enforces, and stop shipping 2 MB of a design system nothing imports.
+
+### Fixed
+- **Every ROS 2 launch file was rejected as a MuJoCo model.**
+  `validateCodeSyntax()` routed *all* `.xml` to `validateMuJoCoModel()`, but the
+  cockpit advertises `.xml` under both `ROS 2 / Python` and `MuJoCo / URDF`. A
+  well-formed `robot.launch.xml` therefore came back
+  `MuJoCo model is missing the <mujoco> root element`. The operator saw a green
+  runtime/path hint, dispatched, and lost the LLM run in `[AST_CHECK]` — a
+  rejection with a message that named the wrong problem. Routing is now decided
+  from the document, not the extension: `.mjcf`/`.urdf` are always models, and
+  `.xml` is a model only when it carries a `<mujoco>` or `<robot>` root.
+  Everything else is ordinary XML and gets the structural balance check only.
+- **The `@questlabs/react-sdk` stylesheet was a 2.03 MB dead import.** The
+  browser payload carried 2,076 kB of CSS from a component library the codebase
+  never uses — no `ql-*` class and no component import existed anywhere in
+  `src/`. It also pulled four blocking `@import` requests to Google Fonts at
+  first paint. Removed the import and the dependency. The built stylesheet is
+  now 44.34 kB (7.90 kB gzip) against 2,076.40 kB (1,373.56 kB gzip):
+  **−97.9 % raw, −99.4 % gzip**, and the page no longer blocks on a third-party
+  font CDN. Total shipped payload drops 3,930.67 kB → 1,898.85 kB (−51.7 % raw,
+  −70.6 % gzip), and the build is 2m36s faster (13m16s → 10m40s) because Vite
+  no longer parses 2 MB of CSS it had nothing to do with. The stray
+  `width:calc(100%-24px)` `invalid-calc` warning that had been printing on every
+  build came from that stylesheet and is gone with it.
+- **Three dependencies were installed and never referenced.** `dotenv`, `yaml`
+  and `date-fns` had zero import sites across `src/` and the worker. Removed
+  from `package.json` and the lockfile. (`yaml` remains in the lock as an
+  optional peer of Tailwind's `postcss-load-config`, which is correct.)
+- **The runtime/path controls had no accessible name.** `Target Runtime`,
+  `Target Repository`, `Execution Engine` and `File Path` were captioned with a
+  bare `<span>`, so neither a screen reader nor a test could address them by
+  name. They are now `<label htmlFor>` + `id`, and the prompt has an
+  `aria-label`. The new dispatch suite drives them by those names.
+
+### Added
+- `edge-coder-worker/tests/runtime_contract.test.ts` (34 tests) — the parity
+  gate the two registries were missing. For every `(runtime, extension)` pair in
+  `RUNTIME_EXPECTED_EXTENSIONS`, it renders a genuine minimal artifact of that
+  type and requires `validateCodeSyntax()` to accept it, then asserts the
+  counter-cases so the check cannot pass vacuously: a mismatched path must still
+  be flagged, an unconstrained MJCF hinge must still fail, and a launch file
+  with unclosed tags must still fail. A new extension in the dashboard table
+  without a matching branch in the worker now fails here.
+- `src/components/PromptTerminal.dispatch.test.jsx` (7 tests) — the dispatch
+  path, which had only ever been covered by "it mounts". Asserts the payload
+  handed to `labService.triggerTask`: `runtime_env` follows the runtime
+  selector, comma-separated paths are split, `delegate_to_jules` follows the
+  engine selector, a runtime/path mismatch warns without blocking, an empty
+  prompt never dispatches, a non-operator role cannot dispatch, and a failed
+  edge call reports to the console without eating the operator's prompt.
+
+### Changed
+- `npm test` totals move from 201 to 242 tests across 10 files.
+
+### Verified
+- `eslint .` — 0 errors, 0 warnings.
+- `npx vitest run` — 10 files, 242 tests passed (201 before).
+- `env NODE_ENV=production npx vite build` — 1,063 modules, no bundling
+  errors, 10m40s. JS 1,854.51 kB (was 1,854.27 kB — the refactor is weight
+  neutral); CSS 2,076.40 kB → 44.34 kB.
+- `npx wrangler deploy --dry-run` — 142.51 KiB / 32.03 KiB gzip (was 142.21 /
+  31.97; +0.3 KiB from the new XML branch, far under the 1 MiB limit).
+
 ## [1.7.0] — 2026-11-05
 
 Sprint 1.7: make the Support/Asguard callbacks actually land, remove fabricated

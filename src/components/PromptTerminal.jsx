@@ -290,6 +290,7 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
             )}
 
             <textarea 
+              aria-label="Task prompt"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="// Task: Describe the architectural modification or remediation..." 
@@ -312,8 +313,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
           <div className="p-4 border-t border-[#1F2937] bg-[#0B0F19]/30 flex items-center justify-between shrink-0">
             <div className="flex gap-4">
               <div className="space-y-1">
-                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Repository</span>
+                <label
+                  htmlFor="axim-target-repo"
+                  className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter"
+                >Target Repository</label>
                 <select 
+                  id="axim-target-repo"
                   value={selectedRepoName}
                   onChange={(e) => setTargetRepo(e.target.value)}
                   className="block w-48 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
@@ -328,8 +333,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
                 </select>
               </div>
               <div className="space-y-1">
-                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Execution Engine</span>
+                <label
+                  htmlFor="axim-execution-engine"
+                  className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter"
+                >Execution Engine</label>
                 <select
+                  id="axim-execution-engine"
                   value={executionEngine}
                   onChange={(e) => setExecutionEngine(e.target.value)}
                   className="block w-40 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
@@ -339,8 +348,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
                 </select>
               </div>
               <div className="space-y-1">
-                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">Target Runtime</span>
+                <label
+                  htmlFor="axim-target-runtime"
+                  className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter"
+                >Target Runtime</label>
                 <select
+                  id="axim-target-runtime"
                   value={targetRuntime}
                   onChange={(e) => setTargetRuntime(e.target.value)}
                   className="block w-36 bg-[#111827] border border-gray-700 text-xs text-gray-300 rounded-lg px-3 py-1.5 focus:outline-none font-mono hover:border-gray-600 transition-colors"
@@ -355,8 +368,12 @@ const PromptTerminal = ({ initialRepo, initialPrompt, initialFiles }) => {
                 </select>
               </div>
               <div className="space-y-1">
-                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter">File Path</span>
+                <label
+                  htmlFor="axim-target-files"
+                  className="text-[9px] text-gray-600 font-mono uppercase tracking-tighter"
+                >File Path</label>
                 <textarea
+                  id="axim-target-files"
                   value={targetFiles}
                   onChange={(e) => setTargetFiles(e.target.value)}
                   placeholder={RUNTIME_FILE_HINTS[targetRuntime] || 'src/routes/auth.ts, src/utils/helpers.ts'}
